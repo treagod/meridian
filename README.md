@@ -1,4 +1,6 @@
-# meridian
+<img src="assets/meridian-h.png" alt="Meridian Logo" height="80">
+
+# Meridian
 
 TODO: Write a description here
 
@@ -16,7 +18,7 @@ TODO: Write development instructions here
 
 ## Contributing
 
-1. Fork it (<https://github.com/your-github-user/meridian/fork>)
+1. Fork it (<https://github.com/treagod/meridian/fork>)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
@@ -24,4 +26,4 @@ TODO: Write development instructions here
 
 ## Contributors
 
-- [Marvin Ahlgrimm](https://github.com/your-github-user) - creator and maintainer
+- [Marvin Ahlgrimm](https://github.com/treagod) - creator and maintainer
