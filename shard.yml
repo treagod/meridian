@@ -1,0 +1,13 @@
+name: meridian
+version: 0.1.0
+
+authors:
+  - Marvin Ahlgrimm <marv.ahlgrimm@gmail.com>
+
+targets:
+  meridian:
+    main: src/meridian.cr
+
+crystal: '>= 1.17.0'
+
+license: MIT
