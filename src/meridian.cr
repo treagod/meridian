@@ -26,7 +26,7 @@ module Meridian
     def self.run(args : Array(String), *, output : IO = STDOUT, error : IO = STDERR) : Int32
       return print_help(output) if args.empty?
 
-      parser = build_parser(output, error)
+      parser = build_parser(error)
       remaining_args = args.dup
       command = nil
       exit_code = 0
@@ -64,7 +64,7 @@ module Meridian
       print_help(output)
     end
 
-    private def self.build_parser(output : IO, error : IO) : OptionParser
+    private def self.build_parser(error : IO) : OptionParser
       OptionParser.new.tap do |parser|
         parser.banner = "Usage: meridian [command] [options]"
 
