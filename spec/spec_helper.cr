@@ -2,10 +2,25 @@ require "spec"
 require "../src/meridian"
 
 record CLIResult, output : String, exit_code : Int32
+record FakeSSHInvocation, command : String, args : Array(String), input : String?
 
-def run_cli(args : Array(String)) : CLIResult
+class FakeSSHRunner < Meridian::SSH::Executor::Runner
+  getter invocations = [] of FakeSSHInvocation
+  property next_result : Meridian::SSH::Result = Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: "")
+
+  def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
+    @invocations << FakeSSHInvocation.new(command: command, args: args.dup, input: input)
+    @next_result
+  end
+end
+
+def run_cli(
+  args : Array(String),
+  *,
+  ssh_executor : Meridian::SSH::Executor = Meridian::SSH::Executor.new,
+) : CLIResult
   io = IO::Memory.new
-  exit_code = Meridian::CLI.run(args, output: io, error: io)
+  exit_code = Meridian::CLI.run(args, output: io, error: io, ssh_executor: ssh_executor)
   CLIResult.new(output: io.to_s, exit_code: exit_code)
 end
 
