@@ -1,5 +1,5 @@
 APP := meridian
-ENTRYPOINT := src/meridian.cr
+ENTRYPOINT := src/meridian_cli.cr
 
 .PHONY: build test lint release
 
