@@ -6,7 +6,7 @@ authors:
 
 targets:
   meridian:
-    main: src/meridian.cr
+    main: src/meridian_cli.cr
 
 crystal: '>= 1.17.0'
 
