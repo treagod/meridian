@@ -14,75 +14,154 @@ module Meridian
   VERSION = "0.1.0"
 
   module CLI
-    COMMANDS = {
+    COMMANDS = [
       "deploy",
       "setup",
       "rollback",
       "status",
       "logs",
       "exec",
-    }
+    ] of String
 
-    def self.run(args : Array(String), *, output : IO = STDOUT, error : IO = STDERR) : Int32
+    record ExecInvocation,
+      host : String,
+      command : Array(String),
+      user : String?,
+      port : Int32?,
+      identity_file : String?
+
+    private class ExecParseError < Exception
+    end
+
+    def self.run(
+      args : Array(String),
+      *,
+      output : IO = STDOUT,
+      error : IO = STDERR,
+      ssh_executor : SSH::Executor = SSH::Executor.new,
+    ) : Int32
       return print_help(output) if args.empty?
 
-      parser = build_parser(error)
-      remaining_args = args.dup
-      command = nil
-      exit_code = 0
-      handled = false
-
-      parser.on("-h", "--help", "Show this help") do
-        exit_code = print_help(output)
-        handled = true
-        parser.stop
-      end
-
-      parser.on("-v", "--version", "Show the version") do
+      case args.first
+      when "-h", "--help"
+        print_help(output)
+      when "-v", "--version"
         output.puts VERSION
-        exit_code = 0
-        handled = true
-        parser.stop
-      end
+        0
+      else
+        command = args.first
+        return invalid_option(command, error) if command.starts_with?('-')
 
-      parser.unknown_args do |before_dash, _after_dash|
-        command = before_dash.first? unless handled
-      end
-
-      parser.invalid_option do |flag|
-        error.puts "Invalid option: #{flag}"
-        exit_code = 1
-        handled = true
-        parser.stop
-      end
-
-      parser.parse(remaining_args)
-
-      return exit_code if handled
-      return dispatch(command.not_nil!, output, error) if command
-
-      print_help(output)
-    end
-
-    private def self.build_parser(error : IO) : OptionParser
-      OptionParser.new.tap do |parser|
-        parser.banner = "Usage: meridian [command] [options]"
-
-        parser.missing_option do |flag|
-          error.puts "Missing option value: #{flag}"
-          parser.stop
-        end
+        dispatch(command, args[1..], output, error, ssh_executor)
       end
     end
 
-    private def self.dispatch(command : String, output : IO, error : IO) : Int32
-      if COMMANDS.includes?(command)
+    private def self.dispatch(
+      command : String,
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      case command
+      when "exec"
+        run_exec(args, output, error, ssh_executor)
+      when .in?(COMMANDS)
         output.puts "Not yet implemented"
         0
       else
         error.puts "Unknown command: #{command}"
         1
       end
+    end
+
+    private def self.run_exec(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      invocation = parse_exec_invocation(args, error)
+      return 1 unless invocation
+
+      result = ssh_executor.run(
+        invocation.host,
+        invocation.command,
+        user: invocation.user,
+        port: invocation.port,
+        identity_file: invocation.identity_file
+      )
+
+      output.print result.stdout
+      error.print result.stderr
+      result.exit_code
+    rescue ex : SSH::ConnectionError
+      error.puts ex.message || "SSH connection failed"
+      1
+    end
+
+    private def self.parse_exec_invocation(args : Array(String), error : IO) : ExecInvocation?
+      option_args, remote_command = split_exec_args(args)
+      host = nil
+      user = nil
+      port = nil
+      identity_file = nil
+
+      parser = OptionParser.new
+      parser.on("--host HOST", "SSH host") { |value| host = value }
+      parser.on("--user USER", "SSH user") { |value| user = value }
+      parser.on("--port PORT", "SSH port") do |value|
+        port = value.to_i? || raise ExecParseError.new("Invalid port: #{value}")
+      end
+      parser.on("--identity-file PATH", "SSH identity file") { |value| identity_file = value }
+      parser.invalid_option { |flag| raise ExecParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ExecParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, _after_dash|
+        raise ExecParseError.new("Command must follow --") unless before_dash.empty?
+      end
+
+      parser.parse(option_args.dup)
+
+      unless parsed_host = host
+        error.puts "Missing required option: --host"
+        return
+      end
+
+      if remote_command.empty?
+        error.puts "Missing command after --"
+        return
+      end
+
+      ExecInvocation.new(
+        host: parsed_host,
+        command: remote_command,
+        user: user,
+        port: port,
+        identity_file: identity_file
+      )
+    rescue ex : ExecParseError
+      error.puts ex.message || "Invalid exec arguments"
+      nil
+    end
+
+    private def self.split_exec_args(args : Array(String)) : {Array(String), Array(String)}
+      separator_index = args.index("--")
+      return {args, [] of String} unless separator_index
+
+      option_args = args[0...separator_index]
+      remote_command =
+        if separator_index == args.size - 1
+          [] of String
+        else
+          args[(separator_index + 1)..]
+        end
+
+      {option_args, remote_command}
+    end
+
+    private def self.invalid_option(flag : String, error : IO) : Int32
+      error.puts "Invalid option: #{flag}"
+      1
     end
 
     private def self.print_help(io : IO) : Int32

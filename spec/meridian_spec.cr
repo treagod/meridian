@@ -71,10 +71,50 @@ describe "Meridian::CLI" do
       result.exit_code.should eq(0)
     end
 
-    it "prints 'Not yet implemented' for the exec subcommand" do
-      result = run_cli(["exec"])
-      result.output.should contain("Not yet implemented")
+    it "runs the exec subcommand over SSH when a host and command are provided" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      result = run_cli(["exec", "--host", "1.2.3.4", "--", "uptime"], ssh_executor: executor)
+
+      invocation = runner.invocations.last
+      invocation.command.should eq("ssh")
+      invocation.args.should eq(["1.2.3.4", "uptime"])
       result.exit_code.should eq(0)
+    end
+
+    it "propagates the exec exit code" do
+      runner = FakeSSHRunner.new
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 23, stdout: "", stderr: "failed\n")
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      result = run_cli(["exec", "--host", "1.2.3.4", "--", "false"], ssh_executor: executor)
+
+      result.exit_code.should eq(23)
+    end
+
+    it "prints stdout and stderr from exec" do
+      runner = FakeSSHRunner.new
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 0, stdout: "hello\n", stderr: "warn\n")
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      result = run_cli(["exec", "--host", "1.2.3.4", "--", "uptime"], ssh_executor: executor)
+
+      result.output.should eq("hello\nwarn\n")
+    end
+
+    it "exits with a non-zero code when exec is missing a host" do
+      result = run_cli(["exec", "--", "uptime"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("Missing required option: --host")
+    end
+
+    it "exits with a non-zero code when exec is missing a command" do
+      result = run_cli(["exec", "--host", "1.2.3.4", "--"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("Missing command after --")
     end
 
     it "exits with a non-zero code for unknown subcommands" do
