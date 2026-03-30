@@ -11,6 +11,7 @@ test:
 
 lint:
 	crystal tool format --check src spec
+	bin/ameba
 
 release:
 	crystal build $(ENTRYPOINT) --release -o bin/$(APP)

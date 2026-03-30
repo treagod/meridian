@@ -14,6 +14,12 @@ module Meridian
   VERSION = "0.1.0"
 
   module CLI
+    alias OrchestratorFactory = Proc(Config::DeployConfig, SSH::Executor, IO, Deploy::Orchestrator)
+
+    DEFAULT_ORCHESTRATOR_FACTORY = ->(config : Config::DeployConfig, ssh_executor : SSH::Executor, output : IO) do
+      Deploy::Orchestrator.new(config, ssh_executor: ssh_executor, output: output)
+    end
+
     COMMANDS = [
       "deploy",
       "setup",
@@ -31,10 +37,16 @@ module Meridian
       port : Int32?,
       identity_file : String?
 
+    record DeployInvocation,
+      file : String
+
     record QuadletInvocation,
       color : Quadlet::Color,
       output_dir : String,
       file : String
+
+    private class DeployParseError < Exception
+    end
 
     private class ExecParseError < Exception
     end
@@ -48,6 +60,7 @@ module Meridian
       output : IO = STDOUT,
       error : IO = STDERR,
       ssh_executor : SSH::Executor = SSH::Executor.new,
+      orchestrator_factory : OrchestratorFactory = DEFAULT_ORCHESTRATOR_FACTORY,
     ) : Int32
       return print_help(output) if args.empty?
 
@@ -61,7 +74,7 @@ module Meridian
         command = args.first
         return invalid_option(command, error) if command.starts_with?('-')
 
-        dispatch(command, args[1..], output, error, ssh_executor)
+        dispatch(command, args[1..], output, error, ssh_executor, orchestrator_factory)
       end
     end
 
@@ -71,8 +84,11 @@ module Meridian
       output : IO,
       error : IO,
       ssh_executor : SSH::Executor,
+      orchestrator_factory : OrchestratorFactory,
     ) : Int32
       case command
+      when "deploy"
+        run_deploy(args, output, error, ssh_executor, orchestrator_factory)
       when "exec"
         run_exec(args, output, error, ssh_executor)
       when "quadlet"
@@ -173,6 +189,45 @@ module Meridian
     private def self.invalid_option(flag : String, error : IO) : Int32
       error.puts "Invalid option: #{flag}"
       1
+    end
+
+    private def self.run_deploy(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+      orchestrator_factory : OrchestratorFactory,
+    ) : Int32
+      invocation = parse_deploy_invocation(args, error)
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      orchestrator = orchestrator_factory.call(config, ssh_executor, output)
+      orchestrator.deploy
+      0
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Deploy::DeployFailed
+      error.puts ex.message || "Deploy failed"
+      1
+    end
+
+    private def self.parse_deploy_invocation(args : Array(String), error : IO) : DeployInvocation?
+      file = "deploy.yml"
+
+      parser = OptionParser.new
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
+      parser.invalid_option { |flag| raise DeployParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise DeployParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise DeployParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      DeployInvocation.new(file: file)
+    rescue ex : DeployParseError
+      error.puts ex.message || "Invalid deploy arguments"
+      nil
     end
 
     private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32

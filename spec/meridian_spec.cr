@@ -42,10 +42,45 @@ describe "Meridian::CLI" do
   end
 
   describe "subcommands" do
-    it "prints 'Not yet implemented' for the deploy subcommand" do
-      result = run_cli(["deploy"])
-      result.output.should contain("Not yet implemented")
-      result.exit_code.should eq(0)
+    it "runs the deploy subcommand with the loaded config" do
+      fake_orchestrator = nil.as(FakeDeployOrchestrator?)
+      captured_service = nil.as(String?)
+      orchestrator_factory = Meridian::CLI::OrchestratorFactory.new do |config, _ssh_executor, output|
+        captured_service = config.service
+        fake_orchestrator = FakeDeployOrchestrator.new(config, output: output)
+        fake_orchestrator.not_nil!.as(Meridian::Deploy::Orchestrator)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["deploy", "--file", config_path], orchestrator_factory: orchestrator_factory)
+
+        result.exit_code.should eq(0)
+        captured_service.should eq("myapp")
+        fake_orchestrator.not_nil!.deploy_calls.should eq(1)
+      end
+    end
+
+    it "prints a deploy error and exits non-zero when deployment fails" do
+      orchestrator_factory = Meridian::CLI::OrchestratorFactory.new do |config, _ssh_executor, output|
+        FakeDeployOrchestrator.new(
+          config,
+          deploy_error: Meridian::Deploy::DeployFailed.new("pull failed"),
+          output: output
+        ).as(Meridian::Deploy::Orchestrator)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["deploy", "--file", config_path], orchestrator_factory: orchestrator_factory)
+
+        result.exit_code.should eq(1)
+        result.output.should contain("pull failed")
+      end
     end
 
     it "prints 'Not yet implemented' for the setup subcommand" do
