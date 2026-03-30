@@ -118,12 +118,12 @@ module Meridian
       end
 
       private def build_remote_command(command : Array(String), env : Hash(String, String)) : String
-        env_prefix = env.map { |key, value| "#{key}=#{Process.quote_posix(value)}" }.join(" ")
-        command_string = Process.quote_posix(command)
-
-        return command_string if env_prefix.empty?
-
-        "#{env_prefix} #{command_string}"
+        String.build do |io|
+          env.each do |key, value|
+            io << key << '=' << Process.quote_posix(value) << ' '
+          end
+          io << Process.quote_posix(command)
+        end
       end
 
       private def target_host(host : String, user : String?) : String

@@ -1,3 +1,4 @@
+require "file_utils"
 require "spec"
 require "../src/meridian"
 
@@ -28,6 +29,18 @@ def write_config(content : String) : String
   path = File.join(Dir.tempdir, "deploy_#{Random::Secure.hex(8)}.yml")
   File.write(path, content)
   path
+end
+
+def load_config(content : String) : Meridian::Config::DeployConfig
+  Meridian::Config::Loader.load(write_config(content))
+end
+
+def with_tempdir(& : String ->)
+  path = File.join(Dir.tempdir, "meridian_spec_#{Random::Secure.hex(8)}")
+  Dir.mkdir_p(path)
+  yield path
+ensure
+  FileUtils.rm_rf(path) if path
 end
 
 MINIMAL_CONFIG = <<-YAML

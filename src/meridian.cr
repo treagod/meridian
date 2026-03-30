@@ -21,6 +21,7 @@ module Meridian
       "status",
       "logs",
       "exec",
+      "quadlet",
     ] of String
 
     record ExecInvocation,
@@ -30,7 +31,15 @@ module Meridian
       port : Int32?,
       identity_file : String?
 
+    record QuadletInvocation,
+      color : Quadlet::Color,
+      output_dir : String,
+      file : String
+
     private class ExecParseError < Exception
+    end
+
+    private class QuadletParseError < Exception
     end
 
     def self.run(
@@ -66,6 +75,8 @@ module Meridian
       case command
       when "exec"
         run_exec(args, output, error, ssh_executor)
+      when "quadlet"
+        run_quadlet(args, output, error)
       when .in?(COMMANDS)
         output.puts "Not yet implemented"
         0
@@ -162,6 +173,51 @@ module Meridian
     private def self.invalid_option(flag : String, error : IO) : Int32
       error.puts "Invalid option: #{flag}"
       1
+    end
+
+    private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32
+      invocation = parse_quadlet_invocation(args, error)
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      generator = Quadlet::Generator.new(config)
+      generator.write_to_directory(invocation.output_dir, invocation.color)
+      output.puts "Wrote Quadlet preview to #{invocation.output_dir}"
+      0
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError
+      error.puts ex.message || "Failed to generate Quadlet preview"
+      1
+    end
+
+    private def self.parse_quadlet_invocation(args : Array(String), error : IO) : QuadletInvocation?
+      color = nil.as(Quadlet::Color?)
+      output_dir = "./quadlet-preview"
+      file = "deploy.yml"
+
+      parser = OptionParser.new
+      parser.on("--color COLOR", "Deployment color (blue or green)") do |value|
+        color = Quadlet::Color.parse?(value) || raise QuadletParseError.new("Invalid color: #{value}")
+      end
+      parser.on("--output-dir DIR", "Directory for generated Quadlet files") { |value| output_dir = value }
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
+      parser.invalid_option { |flag| raise QuadletParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise QuadletParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise QuadletParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      unless parsed_color = color
+        error.puts "Missing required option: --color"
+        return
+      end
+
+      QuadletInvocation.new(color: parsed_color, output_dir: output_dir, file: file)
+    rescue ex : QuadletParseError | ArgumentError
+      error.puts ex.message || "Invalid quadlet arguments"
+      nil
     end
 
     private def self.print_help(io : IO) : Int32

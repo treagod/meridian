@@ -1,0 +1,12 @@
+[Container]
+Image=<%= @image %>
+ContainerName=kamal-proxy
+Network=<%= @service %>.network
+PublishPort=<%= @http_port %>:80
+PublishPort=<%= @https_port %>:443
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

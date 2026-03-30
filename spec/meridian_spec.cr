@@ -16,6 +16,7 @@ describe "Meridian::CLI" do
       result.output.should contain("status")
       result.output.should contain("logs")
       result.output.should contain("exec")
+      result.output.should contain("quadlet")
     end
 
     it "prints the version string when --version is passed" do
@@ -115,6 +116,62 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(1)
       result.output.should contain("Missing command after --")
+    end
+
+    it "writes a quadlet preview when a color, file, and output directory are provided" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        output_dir = File.join(path, "preview")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["quadlet", "--color", "green", "--output-dir", output_dir, "--file", config_path])
+
+        result.exit_code.should eq(0)
+        result.output.should contain("Wrote Quadlet preview to #{output_dir}")
+        File.exists?(File.join(output_dir, "myapp-green.container")).should be_true
+        File.exists?(File.join(output_dir, "myapp.network")).should be_true
+        File.exists?(File.join(output_dir, "kamal-proxy.container")).should be_true
+      end
+    end
+
+    it "writes a quadlet preview to the default output directory" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        Dir.cd(path) do
+          result = run_cli(["quadlet", "--color", "green", "--file", config_path])
+
+          result.exit_code.should eq(0)
+          File.exists?(File.join(path, "quadlet-preview", "myapp-green.container")).should be_true
+          File.exists?(File.join(path, "quadlet-preview", "myapp.network")).should be_true
+        end
+      end
+    end
+
+    it "exits with a non-zero code when quadlet is missing a color" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["quadlet", "--file", config_path])
+
+        result.exit_code.should eq(1)
+        result.output.should contain("Missing required option: --color")
+      end
+    end
+
+    it "exits with a non-zero code when quadlet is given an invalid color" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        output_dir = File.join(path, "preview")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["quadlet", "--color", "red", "--output-dir", output_dir, "--file", config_path])
+
+        result.exit_code.should eq(1)
+        result.output.should contain("Invalid color: red")
+      end
     end
 
     it "exits with a non-zero code for unknown subcommands" do
