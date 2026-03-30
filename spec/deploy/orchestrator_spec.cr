@@ -1,14 +1,108 @@
 require "../spec_helper"
 
+def build_orchestrator(
+  content : String = FULL_CONFIG,
+  runner : FakeSSHRunner = FakeSSHRunner.new,
+  output : IO = IO::Memory.new,
+)
+  config = load_config(content)
+  executor = Meridian::SSH::Executor.new(runner: runner)
+  Meridian::Deploy::Orchestrator.new(
+    config,
+    ssh_executor: executor,
+    quadlet_generator: Meridian::Quadlet::Generator.new(config),
+    output: output
+  )
+end
+
 describe "Meridian::Deploy::Orchestrator" do
   describe "#deploy_to_host" do
-    pending "issues a podman pull command"
-    pending "calls systemctl daemon-reload after writing the Quadlet file"
-    pending "starts the new service"
-    pending "stops the old service before starting the new one"
-    pending "writes the Quadlet file to the correct systemd path"
-    pending "raises DeployFailed when the pull command fails"
-    pending "raises DeployFailed when systemctl start fails"
+    it "issues a podman pull command" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      invocation = runner.invocations.first
+      invocation.command.should eq("ssh")
+      invocation.args.should eq(["192.168.1.10", "podman pull registry.example.com/myorg/myapp"])
+    end
+
+    it "calls systemctl daemon-reload after writing the Quadlet file" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      runner.invocations[4].args.should eq(["192.168.1.10", "systemctl --user daemon-reload"])
+    end
+
+    it "starts the new service" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      runner.invocations[7].args.should eq(["192.168.1.10", "systemctl --user start myapp-green.service"])
+    end
+
+    it "stops the old service before starting the new one" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      runner.invocations[6].args.should eq(["192.168.1.10", "systemctl --user stop myapp-green.service"])
+      runner.invocations[7].args.should eq(["192.168.1.10", "systemctl --user start myapp-green.service"])
+    end
+
+    it "writes the Quadlet file to the correct systemd path" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      network_upload = runner.invocations[2]
+      container_upload = runner.invocations[3]
+
+      network_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp.network"])
+      network_upload.input.not_nil!.should contain("[Network]")
+
+      container_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp-green.container"])
+      container_upload.input.not_nil!.should contain("[Container]")
+      container_upload.input.not_nil!.should contain("ContainerName=myapp-green")
+    end
+
+    it "raises DeployFailed when the pull command fails" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "pull failed\n")
+      )
+      orchestrator = build_orchestrator(runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /exit code 1/) do
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      end
+    end
+
+    it "raises DeployFailed when systemctl start fails" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "active\n", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "start failed\n"),
+      )
+      orchestrator = build_orchestrator(runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /exit code 1/) do
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      end
+    end
   end
 
   describe "#zero_downtime_deploy_to_host" do

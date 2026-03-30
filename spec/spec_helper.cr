@@ -7,11 +7,41 @@ record FakeSSHInvocation, command : String, args : Array(String), input : String
 
 class FakeSSHRunner < Meridian::SSH::Executor::Runner
   getter invocations = [] of FakeSSHInvocation
+  getter queued_results = [] of Meridian::SSH::Result
   property next_result : Meridian::SSH::Result = Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: "")
+
+  def enqueue_results(*results : Meridian::SSH::Result) : Nil
+    @queued_results.concat(results)
+  end
 
   def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
     @invocations << FakeSSHInvocation.new(command: command, args: args.dup, input: input)
-    @next_result
+    @queued_results.shift? || @next_result
+  end
+end
+
+class FakeDeployOrchestrator < Meridian::Deploy::Orchestrator
+  getter deploy_calls = 0
+  property deploy_error : Meridian::Deploy::DeployFailed?
+
+  def initialize(
+    config : Meridian::Config::DeployConfig,
+    @deploy_error : Meridian::Deploy::DeployFailed? = nil,
+    output : IO = IO::Memory.new,
+  )
+    super(
+      config,
+      ssh_executor: Meridian::SSH::Executor.new(runner: FakeSSHRunner.new),
+      quadlet_generator: Meridian::Quadlet::Generator.new(config),
+      output: output
+    )
+  end
+
+  def deploy : Nil
+    @deploy_calls += 1
+    if error = @deploy_error
+      raise error
+    end
   end
 end
 
@@ -19,9 +49,16 @@ def run_cli(
   args : Array(String),
   *,
   ssh_executor : Meridian::SSH::Executor = Meridian::SSH::Executor.new,
+  orchestrator_factory : Meridian::CLI::OrchestratorFactory = Meridian::CLI::DEFAULT_ORCHESTRATOR_FACTORY,
 ) : CLIResult
   io = IO::Memory.new
-  exit_code = Meridian::CLI.run(args, output: io, error: io, ssh_executor: ssh_executor)
+  exit_code = Meridian::CLI.run(
+    args,
+    output: io,
+    error: io,
+    ssh_executor: ssh_executor,
+    orchestrator_factory: orchestrator_factory
+  )
   CLIResult.new(output: io.to_s, exit_code: exit_code)
 end
 
