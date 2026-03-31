@@ -31,6 +31,14 @@ module Meridian
     end
   end
 
+  module Proxy
+    class SetupFailed < Exception
+    end
+
+    class RemoveFailed < Exception
+    end
+  end
+
   module Transfer
     class TransferFailed < Exception
     end

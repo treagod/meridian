@@ -94,6 +94,25 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Image=ghcr.io/basecamp/kamal-proxy:latest")
     end
 
+    it "falls back to the pinned default proxy image when none is configured" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        proxy:
+          http_port: 80
+          https_port: 443
+      YAML
+      output = Meridian::Quadlet::Generator.new(config).proxy_container_file
+
+      output.should contain("Image=basecamp/kamal-proxy:v0.9.2")
+    end
+
     it "publishes port 80" do
       output = build_quadlet_generator.proxy_container_file
 
