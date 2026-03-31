@@ -1,8 +1,7 @@
 module Meridian
   module Deploy
     class Orchestrator
-      QUADLET_DIRECTORY = ".config/containers/systemd"
-      DEFAULT_COLOR     = Quadlet::Color::Green
+      DEFAULT_COLOR = Quadlet::Color::Green
 
       def initialize(
         @config : Config::DeployConfig,
@@ -28,13 +27,13 @@ module Meridian
         @ssh_executor.run!(host, ["podman", "pull", @config.image])
 
         log(host, "Ensuring Quadlet directory exists")
-        @ssh_executor.run!(host, ["mkdir", "-p", QUADLET_DIRECTORY])
+        @ssh_executor.run!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 
         log(host, "Uploading network Quadlet")
-        @ssh_executor.upload(host, File.join(QUADLET_DIRECTORY, "#{@config.service}.network"), network_file)
+        @ssh_executor.upload(host, File.join(Quadlet::DIRECTORY, "#{@config.service}.network"), network_file)
 
         log(host, "Uploading service Quadlet")
-        @ssh_executor.upload(host, File.join(QUADLET_DIRECTORY, "#{service_name}.container"), container_file)
+        @ssh_executor.upload(host, File.join(Quadlet::DIRECTORY, "#{service_name}.container"), container_file)
 
         log(host, "Reloading user systemd")
         @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])

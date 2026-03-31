@@ -117,10 +117,31 @@ module Meridian
       getter password : Array(String) = [] of String
     end
 
+    enum TransferMode
+      Registry
+      Stream
+      Incremental
+    end
+
+    module TransferModeConverter
+      def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : TransferMode?
+        return nil unless node.is_a?(YAML::Nodes::Scalar)
+        return nil if node.value.empty?
+
+        TransferMode.parse?(node.value) ||
+          node.raise("Unknown transfer mode: #{node.value.inspect}, expected one of: registry, stream, incremental")
+      end
+
+      def self.to_yaml(value : TransferMode?, yaml : YAML::Nodes::Builder)
+        yaml.scalar(value.try(&.to_s.downcase) || "")
+      end
+    end
+
     struct TransferConfig
       include YAML::Serializable
 
-      getter mode : String?
+      @[YAML::Field(converter: Meridian::Config::TransferModeConverter)]
+      getter mode : TransferMode?
     end
 
     struct AccessoryConfig

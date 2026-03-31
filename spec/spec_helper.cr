@@ -45,11 +45,47 @@ class FakeDeployOrchestrator < Meridian::Deploy::Orchestrator
   end
 end
 
+class FakeProxyManager < Meridian::Proxy::Manager
+  getter setup_calls = 0
+  getter remove_calls = 0
+  property setup_error : Meridian::Proxy::SetupFailed?
+  property remove_error : Meridian::Proxy::RemoveFailed?
+
+  def initialize(
+    config : Meridian::Config::DeployConfig,
+    @setup_error : Meridian::Proxy::SetupFailed? = nil,
+    @remove_error : Meridian::Proxy::RemoveFailed? = nil,
+    output : IO = IO::Memory.new,
+  )
+    super(
+      config,
+      ssh_executor: Meridian::SSH::Executor.new(runner: FakeSSHRunner.new),
+      quadlet_generator: Meridian::Quadlet::Generator.new(config),
+      output: output
+    )
+  end
+
+  def setup : Nil
+    @setup_calls += 1
+    if error = @setup_error
+      raise error
+    end
+  end
+
+  def remove : Nil
+    @remove_calls += 1
+    if error = @remove_error
+      raise error
+    end
+  end
+end
+
 def run_cli(
   args : Array(String),
   *,
   ssh_executor : Meridian::SSH::Executor = Meridian::SSH::Executor.new,
   orchestrator_factory : Meridian::CLI::OrchestratorFactory = Meridian::CLI::DEFAULT_ORCHESTRATOR_FACTORY,
+  proxy_manager_factory : Meridian::CLI::ProxyManagerFactory = Meridian::CLI::DEFAULT_PROXY_MANAGER_FACTORY,
 ) : CLIResult
   io = IO::Memory.new
   exit_code = Meridian::CLI.run(
@@ -57,7 +93,8 @@ def run_cli(
     output: io,
     error: io,
     ssh_executor: ssh_executor,
-    orchestrator_factory: orchestrator_factory
+    orchestrator_factory: orchestrator_factory,
+    proxy_manager_factory: proxy_manager_factory
   )
   CLIResult.new(output: io.to_s, exit_code: exit_code)
 end

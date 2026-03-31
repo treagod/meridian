@@ -15,9 +15,14 @@ module Meridian
 
   module CLI
     alias OrchestratorFactory = Proc(Config::DeployConfig, SSH::Executor, IO, Deploy::Orchestrator)
+    alias ProxyManagerFactory = Proc(Config::DeployConfig, SSH::Executor, IO, Proxy::Manager)
 
     DEFAULT_ORCHESTRATOR_FACTORY = ->(config : Config::DeployConfig, ssh_executor : SSH::Executor, output : IO) do
       Deploy::Orchestrator.new(config, ssh_executor: ssh_executor, output: output)
+    end
+
+    DEFAULT_PROXY_MANAGER_FACTORY = ->(config : Config::DeployConfig, ssh_executor : SSH::Executor, output : IO) do
+      Proxy::Manager.new(config, ssh_executor: ssh_executor, output: output)
     end
 
     COMMANDS = [
@@ -28,7 +33,8 @@ module Meridian
       "logs",
       "exec",
       "quadlet",
-    ] of String
+      "proxy",
+    ]
 
     record ExecInvocation,
       host : String,
@@ -37,7 +43,7 @@ module Meridian
       port : Int32?,
       identity_file : String?
 
-    record DeployInvocation,
+    record FileInvocation,
       file : String
 
     record QuadletInvocation,
@@ -45,7 +51,7 @@ module Meridian
       output_dir : String,
       file : String
 
-    private class DeployParseError < Exception
+    private class FileParseError < Exception
     end
 
     private class ExecParseError < Exception
@@ -61,6 +67,7 @@ module Meridian
       error : IO = STDERR,
       ssh_executor : SSH::Executor = SSH::Executor.new,
       orchestrator_factory : OrchestratorFactory = DEFAULT_ORCHESTRATOR_FACTORY,
+      proxy_manager_factory : ProxyManagerFactory = DEFAULT_PROXY_MANAGER_FACTORY,
     ) : Int32
       return print_help(output) if args.empty?
 
@@ -74,7 +81,7 @@ module Meridian
         command = args.first
         return invalid_option(command, error) if command.starts_with?('-')
 
-        dispatch(command, args[1..], output, error, ssh_executor, orchestrator_factory)
+        dispatch(command, args[1..], output, error, ssh_executor, orchestrator_factory, proxy_manager_factory)
       end
     end
 
@@ -85,12 +92,17 @@ module Meridian
       error : IO,
       ssh_executor : SSH::Executor,
       orchestrator_factory : OrchestratorFactory,
+      proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
       case command
       when "deploy"
         run_deploy(args, output, error, ssh_executor, orchestrator_factory)
+      when "setup"
+        run_setup(args, output, error, ssh_executor, proxy_manager_factory)
       when "exec"
         run_exec(args, output, error, ssh_executor)
+      when "proxy"
+        run_proxy(args, output, error, ssh_executor, proxy_manager_factory)
       when "quadlet"
         run_quadlet(args, output, error)
       when .in?(COMMANDS)
@@ -198,7 +210,7 @@ module Meridian
       ssh_executor : SSH::Executor,
       orchestrator_factory : OrchestratorFactory,
     ) : Int32
-      invocation = parse_deploy_invocation(args, error)
+      invocation = parse_file_invocation(args, error, "Invalid deploy arguments")
       return 1 unless invocation
 
       config = Config::Loader.load(invocation.file)
@@ -210,24 +222,74 @@ module Meridian
       1
     end
 
-    private def self.parse_deploy_invocation(args : Array(String), error : IO) : DeployInvocation?
+    private def self.run_setup(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+      proxy_manager_factory : ProxyManagerFactory,
+    ) : Int32
+      invocation = parse_file_invocation(args, error, "Invalid setup arguments")
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      manager = proxy_manager_factory.call(config, ssh_executor, output)
+      manager.setup
+      0
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Proxy::SetupFailed
+      error.puts ex.message || "Proxy setup failed"
+      1
+    end
+
+    private def self.parse_file_invocation(args : Array(String), error : IO, fallback : String) : FileInvocation?
       file = "deploy.yml"
 
       parser = OptionParser.new
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise DeployParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise DeployParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise FileParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise FileParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise DeployParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise FileParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(args.dup)
 
-      DeployInvocation.new(file: file)
-    rescue ex : DeployParseError
-      error.puts ex.message || "Invalid deploy arguments"
+      FileInvocation.new(file: file)
+    rescue ex : FileParseError
+      error.puts ex.message || fallback
       nil
+    end
+
+    private def self.run_proxy(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+      proxy_manager_factory : ProxyManagerFactory,
+    ) : Int32
+      subcommand = args.first?
+      unless subcommand
+        error.puts "Missing proxy subcommand"
+        return 1
+      end
+
+      case subcommand
+      when "remove"
+        invocation = parse_file_invocation(args[1..], error, "Invalid proxy remove arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        manager = proxy_manager_factory.call(config, ssh_executor, output)
+        manager.remove
+        0
+      else
+        error.puts "Unknown proxy subcommand: #{subcommand}"
+        1
+      end
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Proxy::RemoveFailed
+      error.puts ex.message || "Proxy command failed"
+      1
     end
 
     private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32

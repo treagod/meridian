@@ -17,6 +17,7 @@ describe "Meridian::CLI" do
       result.output.should contain("logs")
       result.output.should contain("exec")
       result.output.should contain("quadlet")
+      result.output.should contain("proxy")
     end
 
     it "prints the version string when --version is passed" do
@@ -83,10 +84,47 @@ describe "Meridian::CLI" do
       end
     end
 
-    it "prints 'Not yet implemented' for the setup subcommand" do
-      result = run_cli(["setup"])
-      result.output.should contain("Not yet implemented")
-      result.exit_code.should eq(0)
+    it "runs the setup subcommand with the loaded config" do
+      fake_manager = nil.as(FakeProxyManager?)
+      captured_service = nil.as(String?)
+      proxy_manager_factory = Meridian::CLI::ProxyManagerFactory.new do |config, _ssh_executor, output|
+        captured_service = config.service
+        manager = FakeProxyManager.new(config, output: output)
+        fake_manager = manager
+        manager.as(Meridian::Proxy::Manager)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["setup", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+
+        result.exit_code.should eq(0)
+        captured_service.should eq("myapp")
+        fake_manager.should_not be_nil
+        fake_manager.try(&.setup_calls).should eq(1)
+      end
+    end
+
+    it "prints a setup error and exits non-zero when proxy setup fails" do
+      proxy_manager_factory = Meridian::CLI::ProxyManagerFactory.new do |config, _ssh_executor, output|
+        FakeProxyManager.new(
+          config,
+          setup_error: Meridian::Proxy::SetupFailed.new("proxy start failed"),
+          output: output
+        ).as(Meridian::Proxy::Manager)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["setup", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+
+        result.exit_code.should eq(1)
+        result.output.should contain("proxy start failed")
+      end
     end
 
     it "prints 'Not yet implemented' for the rollback subcommand" do
@@ -105,6 +143,53 @@ describe "Meridian::CLI" do
       result = run_cli(["logs"])
       result.output.should contain("Not yet implemented")
       result.exit_code.should eq(0)
+    end
+
+    it "runs the proxy remove subcommand with the loaded config" do
+      fake_manager = nil.as(FakeProxyManager?)
+      proxy_manager_factory = Meridian::CLI::ProxyManagerFactory.new do |config, _ssh_executor, output|
+        manager = FakeProxyManager.new(config, output: output)
+        fake_manager = manager
+        manager.as(Meridian::Proxy::Manager)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["proxy", "remove", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+
+        result.exit_code.should eq(0)
+        fake_manager.should_not be_nil
+        fake_manager.try(&.remove_calls).should eq(1)
+      end
+    end
+
+    it "prints a proxy remove error and exits non-zero when removal fails" do
+      proxy_manager_factory = Meridian::CLI::ProxyManagerFactory.new do |config, _ssh_executor, output|
+        FakeProxyManager.new(
+          config,
+          remove_error: Meridian::Proxy::RemoveFailed.new("proxy stop failed"),
+          output: output
+        ).as(Meridian::Proxy::Manager)
+      end
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["proxy", "remove", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+
+        result.exit_code.should eq(1)
+        result.output.should contain("proxy stop failed")
+      end
+    end
+
+    it "exits with a non-zero code for unknown proxy subcommands" do
+      result = run_cli(["proxy", "bogus"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("Unknown proxy subcommand: bogus")
     end
 
     it "runs the exec subcommand over SSH when a host and command are provided" do
