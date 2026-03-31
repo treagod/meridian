@@ -10,6 +10,7 @@ describe "Meridian::CLI" do
     it "prints usage information when --help is passed" do
       result = run_cli(["--help"])
       result.output.should contain("Usage:")
+      result.output.should contain("init")
       result.output.should contain("deploy")
       result.output.should contain("setup")
       result.output.should contain("rollback")
@@ -61,8 +62,8 @@ describe "Meridian::CLI" do
 
         result.exit_code.should eq(0)
         captured_service.should eq("myapp")
-        orchestrator = fake_orchestrator || raise "Expected orchestrator to be created"
-        orchestrator.deploy_calls.should eq(1)
+        fake_orchestrator.should_not be_nil
+        fake_orchestrator.try(&.deploy_calls).should eq(1)
       end
     end
 

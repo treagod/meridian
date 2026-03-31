@@ -83,6 +83,7 @@ end
 def run_cli(
   args : Array(String),
   *,
+  input : IO = IO::Memory.new(""),
   ssh_executor : Meridian::SSH::Executor = Meridian::SSH::Executor.new,
   orchestrator_factory : Meridian::CLI::OrchestratorFactory = Meridian::CLI::DEFAULT_ORCHESTRATOR_FACTORY,
   proxy_manager_factory : Meridian::CLI::ProxyManagerFactory = Meridian::CLI::DEFAULT_PROXY_MANAGER_FACTORY,
@@ -90,6 +91,7 @@ def run_cli(
   io = IO::Memory.new
   exit_code = Meridian::CLI.run(
     args,
+    input: input,
     output: io,
     error: io,
     ssh_executor: ssh_executor,
@@ -115,6 +117,13 @@ def with_tempdir(& : String ->)
   yield path
 ensure
   FileUtils.rm_rf(path) if path
+end
+
+def write_project_file(root : String, relative_path : String, content : String) : String
+  path = File.join(root, relative_path)
+  Dir.mkdir_p(File.dirname(path))
+  File.write(path, content)
+  path
 end
 
 MINIMAL_CONFIG = <<-YAML

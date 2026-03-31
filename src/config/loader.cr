@@ -7,6 +7,7 @@ module Meridian
 
       getter service : String
       getter image : String
+      getter build : BuildConfig?
       getter servers : Hash(String, ServerConfig)
       getter proxy : ProxyConfig?
       getter registry : RegistryConfig?
@@ -21,6 +22,16 @@ module Meridian
           raise ValidationError.new("Missing required config key: servers")
         end
       end
+    end
+
+    struct BuildConfig
+      include YAML::Serializable
+
+      getter dockerfile : String = "Dockerfile"
+      getter context : String = "."
+      getter args : Hash(String, String) = {} of String => String
+      getter platform : String?
+      getter builder : String?
     end
 
     struct ServerConfig
@@ -157,7 +168,11 @@ module Meridian
 
     module Loader
       def self.load(path : String) : DeployConfig
-        DeployConfig.from_yaml(File.read(path))
+        parse(File.read(path))
+      end
+
+      def self.parse(content : String) : DeployConfig
+        DeployConfig.from_yaml(content)
       rescue ex : YAML::ParseException
         message = ex.message || ""
         if match = /Missing YAML attribute: (\w+)/.match(message)
