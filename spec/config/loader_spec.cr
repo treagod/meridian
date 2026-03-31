@@ -29,27 +29,32 @@ describe "Meridian::Config::Loader" do
 
     it "parses the proxy image" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
-      config.proxy.not_nil!.image.should eq("ghcr.io/basecamp/kamal-proxy:latest")
+      proxy = config.proxy || raise "Expected proxy config"
+      proxy.image.should eq("ghcr.io/basecamp/kamal-proxy:latest")
     end
 
     it "parses the proxy host" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.servers["web"].proxy.not_nil!.host.should eq("myapp.example.com")
+      server_proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      server_proxy.host.should eq("myapp.example.com")
     end
 
     it "parses the registry server" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
-      config.registry.not_nil!.server.should eq("registry.example.com")
+      registry = config.registry || raise "Expected registry config"
+      registry.server.should eq("registry.example.com")
     end
 
     it "parses clear environment variables" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.env.not_nil!.clear["RAILS_ENV"].should eq("production")
+      env = config.env || raise "Expected environment config"
+      env.clear["RAILS_ENV"].should eq("production")
     end
 
     it "parses secret environment variable names" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.env.not_nil!.secret.should contain("SECRET_KEY_BASE")
+      env = config.env || raise "Expected environment config"
+      env.secret.should contain("SECRET_KEY_BASE")
     end
 
     it "applies the default SSH user of 'deploy'" do
@@ -69,70 +74,76 @@ describe "Meridian::Config::Loader" do
 
     it "applies the default healthcheck path of /health" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.servers["web"].proxy.not_nil!.healthcheck.path.should eq("/health")
+      server_proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      server_proxy.healthcheck.path.should eq("/health")
     end
 
     it "parses the accessory image" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.accessories.not_nil!["db"].image.should eq("docker.io/library/postgres:16")
+      accessories = config.accessories || raise "Expected accessories config"
+      accessories["db"].image.should eq("docker.io/library/postgres:16")
     end
 
     it "parses the accessory host" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
-      config.accessories.not_nil!["db"].host.should eq("192.168.1.20")
+      accessories = config.accessories || raise "Expected accessories config"
+      accessories["db"].host.should eq("192.168.1.20")
     end
 
     it "raises a descriptive error when the service key is missing" do
       yaml = <<-YAML
-        image: registry.example.com/myorg/myapp
+          image: registry.example.com/myorg/myapp
 
-        servers:
-          web:
-            hosts:
-              - 192.168.1.10
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
 
-        proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
       end
-      ex.message.not_nil!.should contain("service")
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("service")
     end
 
     it "raises a descriptive error when the image key is missing" do
       yaml = <<-YAML
-        service: myapp
+          service: myapp
 
-        servers:
-          web:
-            hosts:
-              - 192.168.1.10
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
 
-        proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
       end
-      ex.message.not_nil!.should contain("image")
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("image")
     end
 
     it "raises a descriptive error when no servers are defined" do
       yaml = <<-YAML
-        service: myapp
-        image: registry.example.com/myorg/myapp
+          service: myapp
+          image: registry.example.com/myorg/myapp
 
-        proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
       end
-      ex.message.not_nil!.should contain("servers")
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("servers")
     end
 
     it "raises an error when the config file does not exist" do

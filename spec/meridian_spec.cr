@@ -48,8 +48,9 @@ describe "Meridian::CLI" do
       captured_service = nil.as(String?)
       orchestrator_factory = Meridian::CLI::OrchestratorFactory.new do |config, _ssh_executor, output|
         captured_service = config.service
-        fake_orchestrator = FakeDeployOrchestrator.new(config, output: output)
-        fake_orchestrator.not_nil!.as(Meridian::Deploy::Orchestrator)
+        orchestrator = FakeDeployOrchestrator.new(config, output: output)
+        fake_orchestrator = orchestrator
+        orchestrator.as(Meridian::Deploy::Orchestrator)
       end
 
       with_tempdir do |path|
@@ -60,7 +61,8 @@ describe "Meridian::CLI" do
 
         result.exit_code.should eq(0)
         captured_service.should eq("myapp")
-        fake_orchestrator.not_nil!.deploy_calls.should eq(1)
+        orchestrator = fake_orchestrator || raise "Expected orchestrator to be created"
+        orchestrator.deploy_calls.should eq(1)
       end
     end
 

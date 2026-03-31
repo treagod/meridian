@@ -9,9 +9,20 @@ build:
 test:
 	crystal spec
 
+.PHONY: format
+## Perform and apply crystal formatting.
+format:
+	crystal tool format -e tmp
+
+.PHONY: format_checks
+## Trigger crystal formatting checks.
+format_checks:
+	crystal tool format --check -e tmp
+
+.PHONY: lint
+## Trigger code quality checks.
 lint:
-	crystal tool format --check src spec
-	bin/ameba
+	bin/ameba.cr
 
 release:
 	crystal build $(ENTRYPOINT) --release -o bin/$(APP)

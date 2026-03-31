@@ -56,7 +56,7 @@ module Meridian
           @sleeper.call(interval) if attempt < retries - 1
         end
 
-        raise last_error || CheckFailed.new("Health check failed for #{url}")
+        raise(last_error || CheckFailed.new("Health check failed for #{url}"))
       end
     end
   end
