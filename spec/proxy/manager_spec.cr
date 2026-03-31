@@ -26,8 +26,8 @@ describe "Meridian::Proxy::Manager" do
       uploads = runner.invocations.select(&.args[1].==("cat > .config/containers/systemd/kamal-proxy.container"))
       uploads.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
       uploads.each do |upload|
-        upload.input.should_not be_nil
-        upload.input.as(String).should contain("ContainerName=kamal-proxy")
+        upload_input = upload.input || raise "Expected upload input"
+        upload_input.should contain("ContainerName=kamal-proxy")
       end
     end
 
@@ -57,7 +57,9 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      touched_hosts = runner.invocations.map(&.args.first).uniq.sort
+      touched_hosts = runner.invocations.map(&.args.first)
+      touched_hosts.uniq!
+      touched_hosts.sort!
       touched_hosts.should eq(["192.168.1.10", "192.168.1.11"])
     end
 

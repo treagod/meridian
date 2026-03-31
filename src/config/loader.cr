@@ -125,8 +125,8 @@ module Meridian
 
     module TransferModeConverter
       def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : TransferMode?
-        return nil unless node.is_a?(YAML::Nodes::Scalar)
-        return nil if node.value.empty?
+        return unless node.is_a?(YAML::Nodes::Scalar)
+        return if node.value.empty?
 
         TransferMode.parse?(node.value) ||
           node.raise("Unknown transfer mode: #{node.value.inspect}, expected one of: registry, stream, incremental")

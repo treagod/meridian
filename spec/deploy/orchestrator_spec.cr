@@ -64,13 +64,15 @@ describe "Meridian::Deploy::Orchestrator" do
 
       network_upload = runner.invocations[2]
       container_upload = runner.invocations[3]
+      network_input = network_upload.input || raise "Expected network upload input"
+      container_input = container_upload.input || raise "Expected container upload input"
 
       network_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp.network"])
-      network_upload.input.not_nil!.should contain("[Network]")
+      network_input.should contain("[Network]")
 
       container_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp-green.container"])
-      container_upload.input.not_nil!.should contain("[Container]")
-      container_upload.input.not_nil!.should contain("ContainerName=myapp-green")
+      container_input.should contain("[Container]")
+      container_input.should contain("ContainerName=myapp-green")
     end
 
     it "raises DeployFailed when the pull command fails" do
