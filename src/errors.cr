@@ -46,4 +46,18 @@ module Meridian
     class DependencyMissing < Exception
     end
   end
+
+  module Init
+    class Error < Exception
+    end
+
+    class PromptAborted < Error
+    end
+
+    class OverwriteRefused < Error
+    end
+
+    class GenerationError < Error
+    end
+  end
 end

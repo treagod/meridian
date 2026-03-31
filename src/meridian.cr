@@ -4,6 +4,7 @@ require "./commands/**"
 require "./config/loader"
 require "./deploy/orchestrator"
 require "./health/checker"
+require "./init/**"
 require "./proxy/manager"
 require "./quadlet/generator"
 require "./ssh/executor"
@@ -26,6 +27,7 @@ module Meridian
     end
 
     COMMANDS = [
+      "init",
       "deploy",
       "setup",
       "rollback",
@@ -51,6 +53,9 @@ module Meridian
       output_dir : String,
       file : String
 
+    record InitInvocation,
+      force : Bool
+
     private class FileParseError < Exception
     end
 
@@ -60,9 +65,13 @@ module Meridian
     private class QuadletParseError < Exception
     end
 
+    private class InitParseError < Exception
+    end
+
     def self.run(
       args : Array(String),
       *,
+      input : IO = STDIN,
       output : IO = STDOUT,
       error : IO = STDERR,
       ssh_executor : SSH::Executor = SSH::Executor.new,
@@ -81,13 +90,14 @@ module Meridian
         command = args.first
         return invalid_option(command, error) if command.starts_with?('-')
 
-        dispatch(command, args[1..], output, error, ssh_executor, orchestrator_factory, proxy_manager_factory)
+        dispatch(command, args[1..], input, output, error, ssh_executor, orchestrator_factory, proxy_manager_factory)
       end
     end
 
     private def self.dispatch(
       command : String,
       args : Array(String),
+      input : IO,
       output : IO,
       error : IO,
       ssh_executor : SSH::Executor,
@@ -95,6 +105,8 @@ module Meridian
       proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
       case command
+      when "init"
+        run_init(args, input, output, error)
       when "deploy"
         run_deploy(args, output, error, ssh_executor, orchestrator_factory)
       when "setup"
@@ -112,6 +124,42 @@ module Meridian
         error.puts "Unknown command: #{command}"
         1
       end
+    end
+
+    private def self.run_init(
+      args : Array(String),
+      input : IO,
+      output : IO,
+      error : IO,
+    ) : Int32
+      invocation = parse_init_invocation(args, error)
+      return 1 unless invocation
+
+      Init::Service.new(root: Dir.current, input: input, output: output).run(force: invocation.force)
+      0
+    rescue ex : Init::Error | File::Error
+      error.puts ex.message || "Init failed"
+      1
+    end
+
+    private def self.parse_init_invocation(args : Array(String), error : IO) : InitInvocation?
+      force = false
+
+      parser = OptionParser.new
+      parser.on("--force", "Overwrite existing deploy.yml and .env") { force = true }
+      parser.invalid_option { |flag| raise InitParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise InitParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise InitParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      InitInvocation.new(force: force)
+    rescue ex : InitParseError
+      error.puts ex.message || "Invalid init arguments"
+      nil
     end
 
     private def self.run_exec(

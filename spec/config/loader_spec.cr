@@ -1,6 +1,44 @@
 require "../spec_helper"
 
 describe "Meridian::Config::Loader" do
+  describe ".parse" do
+    it "parses config content without reading from disk" do
+      config = Meridian::Config::Loader.parse(MINIMAL_CONFIG)
+
+      config.service.should eq("myapp")
+      config.image.should eq("registry.example.com/myorg/myapp")
+    end
+
+    it "parses the build block when present" do
+      yaml = <<-YAML
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          build:
+            dockerfile: Dockerfile.prod
+            context: .
+            args:
+              RAILS_ENV: production
+            platform: linux/amd64
+            builder: remote-builder
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+        YAML
+
+      config = Meridian::Config::Loader.parse(yaml)
+      build = config.build || raise "Expected build config"
+
+      build.dockerfile.should eq("Dockerfile.prod")
+      build.context.should eq(".")
+      build.args["RAILS_ENV"].should eq("production")
+      build.platform.should eq("linux/amd64")
+      build.builder.should eq("remote-builder")
+    end
+  end
+
   describe ".load" do
     it "parses the service name" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
