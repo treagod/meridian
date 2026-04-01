@@ -19,6 +19,7 @@ describe "Meridian::CLI" do
       result.output.should contain("exec")
       result.output.should contain("quadlet")
       result.output.should contain("proxy")
+      result.output.should contain("Run `meridian COMMAND --help`")
     end
 
     it "prints the version string when --version is passed" do
@@ -136,10 +137,42 @@ describe "Meridian::CLI" do
       result.exit_code.should eq(0)
     end
 
+    it "prints help for the init subcommand" do
+      result = run_cli(["init", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian init [options]")
+      result.output.should contain("--force")
+    end
+
+    it "prints help for the deploy subcommand" do
+      result = run_cli(["deploy", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian deploy [options]")
+      result.output.should contain("--file PATH")
+    end
+
+    it "prints help for the setup subcommand" do
+      result = run_cli(["setup", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian setup [options]")
+      result.output.should contain("--file PATH")
+    end
+
     it "prints 'Not yet implemented' for the status subcommand" do
       result = run_cli(["status"])
       result.output.should contain("Not yet implemented")
       result.exit_code.should eq(0)
+    end
+
+    it "prints help for a planned subcommand" do
+      result = run_cli(["status", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian status")
+      result.output.should contain("not implemented yet")
     end
 
     it "prints 'Not yet implemented' for the logs subcommand" do
@@ -195,6 +228,22 @@ describe "Meridian::CLI" do
       result.output.should contain("Unknown proxy subcommand: bogus")
     end
 
+    it "prints help for the proxy command" do
+      result = run_cli(["proxy", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian proxy SUBCOMMAND [options]")
+      result.output.should contain("remove")
+    end
+
+    it "prints help for the proxy remove subcommand" do
+      result = run_cli(["proxy", "remove", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian proxy remove [options]")
+      result.output.should contain("--file PATH")
+    end
+
     it "runs the exec subcommand over SSH when a host and command are provided" do
       runner = FakeSSHRunner.new
       executor = Meridian::SSH::Executor.new(runner: runner)
@@ -239,6 +288,15 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(1)
       result.output.should contain("Missing command after --")
+    end
+
+    it "prints help for the exec subcommand" do
+      result = run_cli(["exec", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian exec [options] -- COMMAND [ARGS...]")
+      result.output.should contain("--host HOST")
+      result.output.should contain("--identity-file PATH")
     end
 
     it "writes a quadlet preview when a color, file, and output directory are provided" do
@@ -295,6 +353,15 @@ describe "Meridian::CLI" do
         result.exit_code.should eq(1)
         result.output.should contain("Invalid color: red")
       end
+    end
+
+    it "prints help for the quadlet subcommand" do
+      result = run_cli(["quadlet", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian quadlet [options]")
+      result.output.should contain("--color COLOR")
+      result.output.should contain("--output-dir DIR")
     end
 
     it "exits with a non-zero code for unknown subcommands" do

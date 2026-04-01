@@ -15,6 +15,8 @@ module Meridian
   VERSION = "0.1.0"
 
   module CLI
+    HELP_FLAGS = ["-h", "--help"]
+
     alias OrchestratorFactory = Proc(Config::DeployConfig, SSH::Executor, IO, Deploy::Orchestrator)
     alias ProxyManagerFactory = Proc(Config::DeployConfig, SSH::Executor, IO, Proxy::Manager)
 
@@ -117,7 +119,9 @@ module Meridian
         run_proxy(args, output, error, ssh_executor, proxy_manager_factory)
       when "quadlet"
         run_quadlet(args, output, error)
-      when .in?(COMMANDS)
+      when "rollback", "status", "logs"
+        return print_stub_help(command, output) if help_requested?(args)
+
         output.puts "Not yet implemented"
         0
       else
@@ -132,6 +136,8 @@ module Meridian
       output : IO,
       error : IO,
     ) : Int32
+      return print_init_help(output) if help_requested?(args)
+
       invocation = parse_init_invocation(args, error)
       return 1 unless invocation
 
@@ -168,6 +174,8 @@ module Meridian
       error : IO,
       ssh_executor : SSH::Executor,
     ) : Int32
+      return print_exec_help(output) if help_requested?(args, stop_at_separator: true)
+
       invocation = parse_exec_invocation(args, error)
       return 1 unless invocation
 
@@ -258,6 +266,8 @@ module Meridian
       ssh_executor : SSH::Executor,
       orchestrator_factory : OrchestratorFactory,
     ) : Int32
+      return print_deploy_help(output) if help_requested?(args)
+
       invocation = parse_file_invocation(args, error, "Invalid deploy arguments")
       return 1 unless invocation
 
@@ -277,6 +287,8 @@ module Meridian
       ssh_executor : SSH::Executor,
       proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
+      return print_setup_help(output) if help_requested?(args)
+
       invocation = parse_file_invocation(args, error, "Invalid setup arguments")
       return 1 unless invocation
 
@@ -316,6 +328,9 @@ module Meridian
       ssh_executor : SSH::Executor,
       proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
+      first_arg = args.first?
+      return print_proxy_help(output) if first_arg.try { |arg| arg.in?(HELP_FLAGS) }
+
       subcommand = args.first?
       unless subcommand
         error.puts "Missing proxy subcommand"
@@ -324,6 +339,8 @@ module Meridian
 
       case subcommand
       when "remove"
+        return print_proxy_remove_help(output) if help_requested?(args[1..])
+
         invocation = parse_file_invocation(args[1..], error, "Invalid proxy remove arguments")
         return 1 unless invocation
 
@@ -341,6 +358,8 @@ module Meridian
     end
 
     private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32
+      return print_quadlet_help(output) if help_requested?(args)
+
       invocation = parse_quadlet_invocation(args, error)
       return 1 unless invocation
 
@@ -385,6 +404,18 @@ module Meridian
       nil
     end
 
+    private def self.help_requested?(args : Array(String), stop_at_separator : Bool = false) : Bool
+      help_args =
+        if stop_at_separator
+          option_args, _remote_command = split_exec_args(args)
+          option_args
+        else
+          args
+        end
+
+      help_args.any? { |arg| arg.in?(HELP_FLAGS) }
+    end
+
     private def self.print_help(io : IO) : Int32
       io.puts "Usage: meridian [command] [options]"
       io.puts
@@ -396,6 +427,99 @@ module Meridian
       io.puts "Options:"
       io.puts "    -h, --help                 Show this help"
       io.puts "    -v, --version              Show the version"
+      io.puts
+      io.puts "Run `meridian COMMAND --help` for command-specific options."
+      0
+    end
+
+    private def self.print_init_help(io : IO) : Int32
+      io.puts "Usage: meridian init [options]"
+      io.puts
+      io.puts "Generate deploy.yml and .env for the current project directory."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --force                    Overwrite existing deploy.yml and .env"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_deploy_help(io : IO) : Int32
+      io.puts "Usage: meridian deploy [options]"
+      io.puts
+      io.puts "Deploy the configured application."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_setup_help(io : IO) : Int32
+      io.puts "Usage: meridian setup [options]"
+      io.puts
+      io.puts "Install and start kamal-proxy on web hosts."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_exec_help(io : IO) : Int32
+      io.puts "Usage: meridian exec [options] -- COMMAND [ARGS...]"
+      io.puts
+      io.puts "Run an arbitrary command on a remote host over SSH."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --host HOST                SSH host"
+      io.puts "    --user USER                SSH user"
+      io.puts "    --port PORT                SSH port"
+      io.puts "    --identity-file PATH       SSH identity file"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_quadlet_help(io : IO) : Int32
+      io.puts "Usage: meridian quadlet [options]"
+      io.puts
+      io.puts "Generate Quadlet files locally for inspection."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --color COLOR              Deployment color (blue or green)"
+      io.puts "    --output-dir DIR           Directory for generated Quadlet files"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_proxy_help(io : IO) : Int32
+      io.puts "Usage: meridian proxy SUBCOMMAND [options]"
+      io.puts
+      io.puts "Proxy subcommands:"
+      io.puts "    remove                     Stop and remove kamal-proxy"
+      io.puts
+      io.puts "Run `meridian proxy remove --help` for subcommand options."
+      0
+    end
+
+    private def self.print_proxy_remove_help(io : IO) : Int32
+      io.puts "Usage: meridian proxy remove [options]"
+      io.puts
+      io.puts "Stop and remove kamal-proxy from web hosts."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_stub_help(command : String, io : IO) : Int32
+      io.puts "Usage: meridian #{command}"
+      io.puts
+      io.puts "#{command.capitalize} is not implemented yet."
+      io.puts
+      io.puts "Options:"
+      io.puts "    -h, --help                 Show this help"
       0
     end
   end
