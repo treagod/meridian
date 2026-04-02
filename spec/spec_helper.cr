@@ -6,17 +6,71 @@ record CLIResult, output : String, exit_code : Int32
 record FakeSSHInvocation, command : String, args : Array(String), input : String?
 
 class FakeSSHRunner < Meridian::SSH::Executor::Runner
+  record PauseRequest, host : String, remote_command : String?, release : Channel(Nil)
+
   getter invocations = [] of FakeSSHInvocation
+  getter invocation_events : Channel(FakeSSHInvocation)
   getter queued_results = [] of Meridian::SSH::Result
+  getter queued_results_by_host : Hash(String, Array(Meridian::SSH::Result))
   property next_result : Meridian::SSH::Result = Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: "")
+
+  def initialize
+    @invocation_events = Channel(FakeSSHInvocation).new(256)
+    @queued_results_by_host = Hash(String, Array(Meridian::SSH::Result)).new do |hash, host|
+      hash[host] = [] of Meridian::SSH::Result
+    end
+    @pause_requests = [] of PauseRequest
+  end
 
   def enqueue_results(*results : Meridian::SSH::Result) : Nil
     @queued_results.concat(results)
   end
 
+  def enqueue_results_for_host(host : String, *results : Meridian::SSH::Result) : Nil
+    @queued_results_by_host[host].concat(results)
+  end
+
+  def enqueue_results_for_host(host : String, results : Array(Meridian::SSH::Result)) : Nil
+    @queued_results_by_host[host].concat(results)
+  end
+
+  def pause_next_invocation(host : String, remote_command : String? = nil) : Channel(Nil)
+    release = Channel(Nil).new
+    @pause_requests << PauseRequest.new(host: host, remote_command: remote_command, release: release)
+    release
+  end
+
   def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
-    @invocations << FakeSSHInvocation.new(command: command, args: args.dup, input: input)
+    invocation = FakeSSHInvocation.new(command: command, args: args.dup, input: input)
+    @invocations << invocation
+    @invocation_events.send(invocation)
+
+    if pause_request = take_pause_request(invocation)
+      pause_request.release.receive
+    end
+
+    result_for(invocation)
+  end
+
+  private def result_for(invocation : FakeSSHInvocation) : Meridian::SSH::Result
+    if host = invocation.args.first?
+      if results = @queued_results_by_host[host]?
+        return results.shift if results.any?
+      end
+    end
+
     @queued_results.shift? || @next_result
+  end
+
+  private def take_pause_request(invocation : FakeSSHInvocation) : PauseRequest?
+    @pause_requests.each_with_index do |pause_request, index|
+      next unless invocation.args.first? == pause_request.host
+      next if pause_request.remote_command && invocation.args[1]? != pause_request.remote_command
+
+      return @pause_requests.delete_at(index)
+    end
+
+    nil
   end
 end
 

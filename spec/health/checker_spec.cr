@@ -134,5 +134,21 @@ describe "Meridian::Health::Checker" do
       result.should be_true
       transport.requests.last.request_target.should eq("/ready?full=1")
     end
+
+    it "prefixes log lines when a label is provided" do
+      transport = FakeHealthTransport.new([200] of Int32 | IO::Error)
+      output = IO::Memory.new
+      checker = Meridian::Health::Checker.new(output: output, transport: transport, sleeper: noop_sleep, label: "web-1")
+
+      checker.poll(
+        "http://example.test/health",
+        interval: 1.millisecond,
+        timeout: 50.milliseconds,
+        retries: 2
+      )
+
+      output.to_s.should contain("[web-1] Health check attempt 1/2: http://example.test/health")
+      output.to_s.should contain("[web-1] Health check passed: http://example.test/health")
+    end
   end
 end

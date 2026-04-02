@@ -5,8 +5,8 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `init`, `config`, `exec --host`, `healthcheck`, `quadlet`, single-host blue/green deploy, `setup` / `proxy remove`.
-> Multi-server rolling deploys, registry-free transfer, and operational commands are still planned.
+> **Implemented:** `init`, `config`, `exec --host`, `healthcheck`, `quadlet`, multi-server rolling blue/green deploy, `setup` / `proxy remove`.
+> Registry-free transfer and operational commands are still planned.
 
 ---
 
@@ -69,7 +69,7 @@ meridian proxy remove   # stops and removes kamal-proxy
 
 ### `meridian deploy`
 
-Deploys to the first host in the `web` role. When `servers.web.proxy` is configured, Meridian performs a zero-downtime blue/green deploy through kamal-proxy and records the active colour in `~/.config/containers/systemd/.meridian-color`. If no web proxy config is present, Meridian falls back to the older stop/start flow with brief downtime.
+Deploys all hosts in `servers.web` in rolling batches controlled by `boot.limit` and `boot.wait`. As soon as the first web host succeeds, Meridian releases any secondary roles so workers can overlap with later web batches. When `servers.web.proxy` is configured, each web host uses a zero-downtime blue/green deploy through kamal-proxy and records the active colour in `~/.config/containers/systemd/.meridian-color`. If no web proxy config is present, Meridian falls back to the older stop/start flow with brief downtime.
 
 ```bash
 meridian deploy
@@ -252,9 +252,9 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] `meridian exec --host … -- <cmd>` — runs a command on a remote host over SSH
 - [x] `meridian healthcheck --url …` — polls an HTTP endpoint until it returns 200
 - [x] `meridian quadlet --color green` — generates Quadlet files locally for inspection
-- [x] `meridian deploy` — single-host blue/green deploy via kamal-proxy when `servers.web.proxy` is configured
+- [x] `meridian deploy` — rolling multi-host deploy via kamal-proxy when `servers.web.proxy` is configured
 - [x] `meridian setup` / `meridian proxy remove` — installs and removes kamal-proxy as a Quadlet service
-- [ ] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
+- [x] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
 - [ ] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
 - [ ] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
 - [ ] `meridian status` / `meridian logs` / `meridian rollback` — operational commands

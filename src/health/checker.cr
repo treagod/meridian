@@ -68,6 +68,7 @@ module Meridian
         @output : IO = STDOUT,
         @transport : Transport = HTTPTransport.new,
         @sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
+        @label : String? = nil,
       )
       end
 
@@ -85,12 +86,12 @@ module Meridian
 
         retries.times do |attempt|
           attempt_number = attempt + 1
-          @output.puts "Health check attempt #{attempt_number}/#{retries}: #{url}"
+          print_line("Health check attempt #{attempt_number}/#{retries}: #{url}")
 
           begin
             response = @transport.get(uri, timeout)
             if response.status_code == 200
-              @output.puts "Health check passed: #{url}"
+              print_line("Health check passed: #{url}")
               return true
             end
 
@@ -103,6 +104,14 @@ module Meridian
         end
 
         raise(last_error || CheckFailed.new("Health check failed for #{url}"))
+      end
+
+      private def print_line(message : String) : Nil
+        if label = @label
+          @output.puts "[#{label}] #{message}"
+        else
+          @output.puts message
+        end
       end
     end
   end
