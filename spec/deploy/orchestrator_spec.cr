@@ -4,6 +4,7 @@ def build_orchestrator(
   content : String = FULL_CONFIG,
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
+  batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -11,7 +12,8 @@ def build_orchestrator(
     config,
     ssh_executor: executor,
     quadlet_generator: Meridian::Quadlet::Generator.new(config),
-    output: output
+    output: output,
+    batch_sleeper: batch_sleeper
   )
 end
 
@@ -77,6 +79,59 @@ def enqueue_zero_downtime_success(
   end
 end
 
+def enqueue_zero_downtime_success_for_host(
+  runner : FakeSSHRunner,
+  host : String,
+  *,
+  marker : String? = nil,
+  blue_active : Bool = false,
+  green_active : Bool = false,
+  old_active : Bool? = nil,
+  container_ip : String = "10.88.0.12",
+  health_status : String = "200",
+  prune_result : Meridian::SSH::Result = ssh_ok,
+)
+  results = [] of Meridian::SSH::Result
+
+  if stored_marker = marker
+    results << ssh_ok("#{stored_marker}\n")
+    resolved_old_active = old_active.nil? ? true : old_active
+    results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+  else
+    results << ssh_fail(1, "", "No such file\n")
+    results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+
+    current_color_active =
+      if blue_active
+        blue_active
+      elsif green_active
+        green_active
+      else
+        old_active || false
+      end
+    results << (current_color_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+  end
+
+  results.concat([
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok("#{container_ip}\n"),
+    ssh_ok(health_status),
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    prune_result,
+  ])
+
+  runner.enqueue_results_for_host(host, results)
+end
+
 def enqueue_zero_downtime_health_failure(
   runner : FakeSSHRunner,
   *,
@@ -123,6 +178,92 @@ def enqueue_zero_downtime_health_failure(
   results.each do |result|
     runner.enqueue_results(result)
   end
+end
+
+def enqueue_zero_downtime_health_failure_for_host(
+  runner : FakeSSHRunner,
+  host : String,
+  *,
+  marker : String? = nil,
+  blue_active : Bool = false,
+  green_active : Bool = false,
+  container_ip : String = "10.88.0.12",
+  health_result : Meridian::SSH::Result = ssh_ok("500"),
+)
+  results = [] of Meridian::SSH::Result
+
+  if stored_marker = marker
+    results << ssh_ok("#{stored_marker}\n")
+    results << ssh_ok("active\n")
+  else
+    results << ssh_fail(1, "", "No such file\n")
+    results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+
+    current_color_active = blue_active || green_active
+    results << (current_color_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+  end
+
+  results.concat([
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok("#{container_ip}\n"),
+  ])
+
+  10.times do
+    results << health_result
+  end
+
+  results.concat([
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+  ])
+
+  runner.enqueue_results_for_host(host, results)
+end
+
+def enqueue_deploy_success_for_host(
+  runner : FakeSSHRunner,
+  host : String,
+  *,
+  active_service : Bool = false,
+)
+  runner.enqueue_results_for_host(
+    host,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    ssh_ok,
+    active_service ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"),
+    ssh_ok,
+  )
+end
+
+def multi_host_config(boot_limit : Int32 = 1, boot_wait : Int32 = 10) : String
+  FULL_CONFIG
+    .sub("limit: 1", "limit: #{boot_limit}")
+    .sub("wait: 10", "wait: #{boot_wait}")
+end
+
+def run_deploy_async(orchestrator : Meridian::Deploy::Orchestrator) : Channel(Exception?)
+  finished = Channel(Exception?).new
+
+  spawn do
+    begin
+      orchestrator.deploy
+      finished.send(nil)
+    rescue ex : Exception
+      finished.send(ex)
+    end
+  end
+
+  finished
 end
 
 describe "Meridian::Deploy::Orchestrator" do
@@ -381,12 +522,15 @@ describe "Meridian::Deploy::Orchestrator" do
   describe "#deploy" do
     it "uses the zero-downtime path for web roles with proxy config" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_success(runner)
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
       orchestrator = build_orchestrator(runner: runner)
 
       orchestrator.deploy
 
-      runner.invocations.map(&.args[1]).should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      web_invocations = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.10" }
+      web_invocations.map(&.args[1]).should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
     it "falls back to the downtime path when proxy config is absent" do
@@ -411,11 +555,156 @@ describe "Meridian::Deploy::Orchestrator" do
       commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
-    pending "deploys to all hosts in the web role"
-    pending "deploys to all hosts in the workers role"
-    pending "respects boot.limit by deploying at most that many hosts at once"
-    pending "does not deploy workers until at least one web host has passed its health check"
-    pending "aborts the entire deploy if all web hosts fail"
-    pending "prefixes log output with the host address"
+    it "deploys to all hosts in the web role" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy
+
+      web_1_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.10" }.map(&.args[1])
+      web_2_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.11" }.map(&.args[1])
+
+      web_1_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
+      web_2_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
+    end
+
+    it "deploys to all hosts in the workers role" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy
+
+      worker_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.12" }.map(&.args[1])
+      worker_commands.should contain("systemctl --user start myapp-green.service")
+      worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+    end
+
+    it "respects boot.limit by deploying at most that many hosts at once" do
+      runner = FakeSSHRunner.new
+      first_web_release = runner.pause_next_invocation("192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner)
+
+      finished = run_deploy_async(orchestrator)
+
+      first_invocation = runner.invocation_events.receive
+      first_invocation.args.first?.should eq("192.168.1.10")
+      runner.invocations.map { |invocation| invocation.args.first? || "" }.should eq(["192.168.1.10"])
+
+      first_web_release.send(nil)
+      finished.receive.should be_nil
+    end
+
+    it "does not deploy workers until at least one web host has passed its health check" do
+      runner = FakeSSHRunner.new
+      second_web_release = runner.pause_next_invocation("192.168.1.11")
+      worker_release = runner.pause_next_invocation("192.168.1.12")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner)
+
+      finished = run_deploy_async(orchestrator)
+
+      seen_blocked_hosts = [] of String
+      until seen_blocked_hosts.size == 2
+        invocation = runner.invocation_events.receive
+        host = invocation.args.first || raise "Expected host argument"
+        if ["192.168.1.11", "192.168.1.12"].includes?(host)
+          seen_blocked_hosts << host unless seen_blocked_hosts.includes?(host)
+        end
+      end
+
+      seen_blocked_hosts.should contain("192.168.1.11")
+      seen_blocked_hosts.should contain("192.168.1.12")
+
+      second_web_release.send(nil)
+      worker_release.send(nil)
+      finished.receive.should be_nil
+    end
+
+    it "aborts the entire deploy if all web hosts fail" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_result: ssh_ok("500"))
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_result: ssh_ok("500"))
+      orchestrator = build_orchestrator(content: multi_host_config(boot_limit: 2), runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /status 500/) do
+        orchestrator.deploy
+      end
+
+      runner.invocations.none? { |invocation| invocation.args.first? == "192.168.1.12" }.should be_true
+    end
+
+    it "prefixes log output with the host address" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10", container_ip: "10.88.0.12")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11", container_ip: "10.88.0.13")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner, output: output)
+
+      orchestrator.deploy
+
+      log_output = output.to_s
+      log_output.should contain("[192.168.1.10] Pulling image registry.example.com/myorg/myapp")
+      log_output.should contain("[192.168.1.10] Health check attempt 1/10: http://10.88.0.12:3000/health")
+      log_output.should contain("[192.168.1.10] Health check passed: http://10.88.0.12:3000/health")
+    end
+
+    it "sleeps between successful batches but not after the final batch" do
+      runner = FakeSSHRunner.new
+      sleeps = [] of Time::Span
+      sleeper = ->(duration : Time::Span) { sleeps << duration }
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner, batch_sleeper: sleeper)
+
+      orchestrator.deploy
+
+      sleeps.should eq([10.seconds])
+    end
+
+    it "does not sleep after a failing batch" do
+      runner = FakeSSHRunner.new
+      sleeps = [] of Time::Span
+      sleeper = ->(duration : Time::Span) { sleeps << duration }
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_result: ssh_ok("500"))
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_result: ssh_ok("500"))
+      orchestrator = build_orchestrator(content: multi_host_config(boot_limit: 2), runner: runner, batch_sleeper: sleeper)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /status 500/) do
+        orchestrator.deploy
+      end
+
+      sleeps.should be_empty
+    end
+
+    it "rejects a boot limit smaller than one" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(content: multi_host_config(boot_limit: 0), runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /boot.limit must be at least 1/) do
+        orchestrator.deploy
+      end
+    end
+
+    it "rejects a negative boot wait" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(content: multi_host_config(boot_wait: -1), runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /boot.wait must be non-negative/) do
+        orchestrator.deploy
+      end
+    end
   end
 end

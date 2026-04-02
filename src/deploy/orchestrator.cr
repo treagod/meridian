@@ -4,11 +4,44 @@ module Meridian
       DEFAULT_COLOR     = Quadlet::Color::Green
       ACTIVE_COLOR_FILE = File.join(Quadlet::DIRECTORY, ".meridian-color")
 
+      private record HostDeployResult,
+        role : String,
+        host : String,
+        error : DeployFailed?
+
+      private record RoleDeployResult,
+        role : String,
+        error : DeployFailed?
+
+      private class RolloutAbort
+        @error : DeployFailed? = nil
+        @mutex = Mutex.new
+
+        def request(error : DeployFailed) : Nil
+          @mutex.synchronize do
+            @error ||= error
+          end
+        end
+
+        def requested? : Bool
+          @mutex.synchronize do
+            !@error.nil?
+          end
+        end
+
+        def error : DeployFailed?
+          @mutex.synchronize do
+            @error
+          end
+        end
+      end
+
       def initialize(
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
         quadlet_generator : Quadlet::Generator? = nil,
         @output : IO = STDOUT,
+        @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
       end
@@ -116,16 +149,54 @@ module Meridian
       end
 
       def deploy : Nil
-        web_server = server_config("web")
-        host = web_server.hosts.first? || raise DeployFailed.new("No hosts configured for role: web")
+        validate_rollout_settings!
+        web_hosts = hosts_for_role("web")
+        secondary_roles = ordered_secondary_roles
+        abort_rollout = RolloutAbort.new
+        secondary_results = Channel(RoleDeployResult).new
+        secondary_started = false
+        secondary_started_mutex = Mutex.new
+        secondary_count = secondary_roles.size
 
-        @output.puts "Deploying #{@config.service} to #{host}"
-        if web_server.proxy
-          zero_downtime_deploy_to_host(host, "web")
-        else
-          deploy_to_host(host, "web")
+        start_secondary_roles = -> do
+          should_start = secondary_started_mutex.synchronize do
+            if secondary_started
+              false
+            else
+              secondary_started = true
+            end
+          end
+          if should_start
+            secondary_roles.each do |role|
+              spawn do
+                secondary_results.send(deploy_role(role, abort_rollout))
+              end
+            end
+          end
         end
-        @output.puts "Deploy completed on #{host}"
+
+        @output.puts "Deploying #{@config.service} to #{web_hosts.size} web host#{web_hosts.size == 1 ? "" : "s"}"
+
+        web_result = deploy_role("web", abort_rollout) do |_host|
+          start_secondary_roles.call
+        end
+
+        if secondary_started
+          secondary_count.times do
+            role_result = secondary_results.receive
+            abort_rollout.request(role_result.error.not_nil!) if role_result.error
+          end
+        end
+
+        if error = abort_rollout.error
+          raise error
+        end
+
+        if web_result.error
+          raise web_result.error.not_nil!
+        end
+
+        @output.puts "Deploy completed"
       end
 
       private def service_name(color : Quadlet::Color) : String
@@ -195,7 +266,8 @@ module Meridian
       private def health_checker_for(host : String) : Health::Checker
         Health::Checker.new(
           output: @output,
-          transport: Health::SSHTransport.new(host, @ssh_executor)
+          transport: Health::SSHTransport.new(host, @ssh_executor),
+          label: host
         )
       end
 
@@ -269,6 +341,95 @@ module Meridian
 
       private def log(host : String, message : String) : Nil
         @output.puts "[#{host}] #{message}"
+      end
+
+      private def deploy_role(
+        role : String,
+        abort_rollout : RolloutAbort,
+        &on_host_success : String -> Nil
+      ) : RoleDeployResult
+        hosts = hosts_for_role(role)
+        limit = @config.boot.limit
+        remaining_hosts = hosts.dup
+
+        until remaining_hosts.empty? || abort_rollout.requested?
+          batch = remaining_hosts.shift(limit)
+          batch_result_channel = Channel(HostDeployResult).new(batch.size)
+          batch_errors = [] of DeployFailed
+
+          batch.each do |host|
+            spawn do
+              begin
+                deploy_host(host, role)
+                batch_result_channel.send(HostDeployResult.new(role: role, host: host, error: nil))
+              rescue ex : DeployFailed
+                batch_result_channel.send(HostDeployResult.new(role: role, host: host, error: ex))
+              end
+            end
+          end
+
+          batch.size.times do
+            result = batch_result_channel.receive
+            if error = result.error
+              abort_rollout.request(error)
+              batch_errors << error
+            else
+              log(result.host, "Deploy completed")
+              on_host_success.call(result.host)
+            end
+          end
+
+          if error = batch_errors.first?
+            return RoleDeployResult.new(role: role, error: error)
+          end
+
+          sleep_between_batches if remaining_hosts.any? && !abort_rollout.requested?
+        end
+
+        RoleDeployResult.new(role: role, error: nil)
+      end
+
+      private def deploy_role(role : String, abort_rollout : RolloutAbort) : RoleDeployResult
+        deploy_role(role, abort_rollout) do |_host|
+        end
+      end
+
+      private def deploy_host(host : String, role : String) : Nil
+        server = server_config(role)
+
+        if role == "web" && server.proxy
+          zero_downtime_deploy_to_host(host, role)
+        else
+          deploy_to_host(host, role)
+        end
+      end
+
+      private def ordered_secondary_roles : Array(String)
+        @config.servers.keys.reject { |role| role == "web" }
+      end
+
+      private def hosts_for_role(role : String) : Array(String)
+        hosts = server_config(role).hosts
+        raise DeployFailed.new("No hosts configured for role: #{role}") if hosts.empty?
+
+        hosts
+      end
+
+      private def sleep_between_batches : Nil
+        wait_seconds = @config.boot.wait
+        return if wait_seconds.zero?
+
+        @batch_sleeper.call(wait_seconds.seconds)
+      end
+
+      private def validate_rollout_settings! : Nil
+        if @config.boot.limit < 1
+          raise DeployFailed.new("boot.limit must be at least 1")
+        end
+
+        if @config.boot.wait < 0
+          raise DeployFailed.new("boot.wait must be non-negative")
+        end
       end
     end
   end
