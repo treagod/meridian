@@ -93,7 +93,7 @@ module Meridian
 
         remote = stdout.to_s.strip
         remote.empty? ? nil : remote
-      rescue ex : File::Error
+      rescue File::Error
         nil
       end
 
@@ -322,7 +322,7 @@ module Meridian
 
         String.build do |io|
           io.puts "# Fill in secret values used by deploy.yml"
-          secret_names.uniq.sort.each do |name|
+          secret_names.uniq.sort!.each do |name|
             io.puts "#{name}="
           end
         end

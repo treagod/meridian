@@ -41,7 +41,7 @@ module Meridian
         return unless root_file?(relative_path)
 
         File.read(root_path(relative_path))
-      rescue ex : File::Error
+      rescue File::Error
         nil
       end
     end

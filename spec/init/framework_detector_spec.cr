@@ -4,12 +4,12 @@ DEFAULT_MARTEN_ROUTES = <<-CRYSTAL
   Marten.routes.draw do
     path "/", HomeHandler, name: "home"
   end
-CRYSTAL
+  CRYSTAL
 
 DEFAULT_RAILS_ROUTES = <<-RUBY
   Rails.application.routes.draw do
   end
-RUBY
+  RUBY
 
 private def write_marten_project(root : String, routes_content : String = DEFAULT_MARTEN_ROUTES)
   write_project_file(root, "manage.cr", "require \"./src/cli\"\n\nMarten.setup\nMarten::CLI.run\n")
@@ -35,7 +35,8 @@ describe "Meridian::Init::FrameworkDetector" do
       framework.name.should eq("Marten")
       framework.clear_env.should eq({"MARTEN_ENV" => "production"})
       framework.healthcheck_path.should be_nil
-      framework.note.not_nil!.should contain("/health")
+      note = framework.note || raise "Expected framework note"
+      note.should contain("/health")
     end
   end
 
@@ -64,7 +65,8 @@ describe "Meridian::Init::FrameworkDetector" do
       framework.name.should eq("Rails")
       framework.clear_env.should eq({"RAILS_ENV" => "production"})
       framework.healthcheck_path.should be_nil
-      framework.note.not_nil!.should contain("/health")
+      note = framework.note || raise "Expected framework note"
+      note.should contain("/health")
     end
   end
 

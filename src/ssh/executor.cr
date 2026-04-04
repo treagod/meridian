@@ -31,6 +31,29 @@ module Meridian
       def initialize(@runner : Runner = ProcessRunner.new)
       end
 
+      def command_args(
+        host : String,
+        command : Array(String),
+        *,
+        env : Hash(String, String) = {} of String => String,
+        user : String? = nil,
+        port : Int32? = nil,
+        identity_file : String? = nil,
+      ) : Array(String)
+        ssh_args(host, command, env, user, port, identity_file)
+      end
+
+      def command_args(
+        host : String,
+        remote_command : String,
+        *,
+        user : String? = nil,
+        port : Int32? = nil,
+        identity_file : String? = nil,
+      ) : Array(String)
+        ssh_args(host, remote_command, user, port, identity_file)
+      end
+
       def run(
         host : String,
         command : Array(String),
@@ -40,7 +63,7 @@ module Meridian
         port : Int32? = nil,
         identity_file : String? = nil,
       ) : Result
-        result = @runner.run("ssh", ssh_args(host, command, env, user, port, identity_file))
+        result = @runner.run("ssh", command_args(host, command, env: env, user: user, port: port, identity_file: identity_file))
         raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if result.exit_code == 255
 
         result
@@ -72,7 +95,7 @@ module Meridian
       ) : Nil
         result = @runner.run(
           "ssh",
-          ssh_args(host, "cat > #{Process.quote_posix(remote_path)}", user, port, identity_file),
+          command_args(host, "cat > #{Process.quote_posix(remote_path)}", user: user, port: port, identity_file: identity_file),
           input: content
         )
 

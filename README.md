@@ -5,8 +5,8 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `init`, `config`, `exec --host`, `healthcheck`, `quadlet`, multi-server rolling blue/green deploy, `setup` / `proxy remove`.
-> Registry-free transfer and operational commands are still planned.
+> **Implemented:** `init`, `exec --host`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream transfer, `setup` / `proxy remove`.
+> Incremental transfer and operational commands are still planned.
 
 ---
 
@@ -69,19 +69,27 @@ meridian proxy remove   # stops and removes kamal-proxy
 
 ### `meridian deploy`
 
-Deploys all hosts in `servers.web` in rolling batches controlled by `boot.limit` and `boot.wait`. As soon as the first web host succeeds, Meridian releases any secondary roles so workers can overlap with later web batches. When `servers.web.proxy` is configured, each web host uses a zero-downtime blue/green deploy through kamal-proxy and records the active colour in `~/.config/containers/systemd/.meridian-color`. If no web proxy config is present, Meridian falls back to the older stop/start flow with brief downtime.
+Deploys all hosts in `servers.web` in rolling batches controlled by `boot.limit` and `boot.wait`. As soon as the first web host succeeds, Meridian releases any secondary roles so workers can overlap with later web batches. When `transfer.mode: stream` is configured, Meridian sends the image to each host directly over SSH with `podman save | zstd | ssh | podman load`, so the `registry:` block becomes optional. Otherwise it keeps the remote `podman pull` flow. When `servers.web.proxy` is configured, each web host uses a zero-downtime blue/green deploy through kamal-proxy and records the active colour in `~/.config/containers/systemd/.meridian-color`. If no web proxy config is present, Meridian falls back to the older stop/start flow with brief downtime.
 
 ```bash
 meridian deploy
 ```
 
-### `meridian config`
+### `meridian exec --host`
 
-Validates and pretty-prints the parsed `deploy.yml`.
+Runs an arbitrary command on a single host over SSH. This is the manual inspection/debugging command currently implemented; role-based container exec remains planned.
 
 ```bash
-meridian config
-meridian config --file path/to/other.yml
+meridian exec --host 192.168.1.10 -- uptime
+meridian exec --host 192.168.1.10 -- podman images
+```
+
+### `meridian quadlet`
+
+Generates the service Quadlet files locally for inspection without touching any server.
+
+```bash
+meridian quadlet --color green
 ```
 
 ### `meridian rollback` *(planned)*
@@ -141,6 +149,7 @@ servers:
 proxy:
   image: ghcr.io/basecamp/kamal-proxy:latest
 
+# Required for registry-backed deploys only
 registry:
   server: registry.example.com
   username: deploy
@@ -188,21 +197,20 @@ Setting `transfer.mode` in `deploy.yml` switches Meridian to registry-free opera
 
 ### Stream mode (`mode: stream`)
 
-The image is serialised with `podman save`, compressed with `zstd`, and piped over SSH to `podman load` on the remote host. Simple, no extra infrastructure. The full image is transferred on every deploy.
+The image is serialised with `podman save`, compressed with `zstd`, and piped over SSH to `podman load` on the remote host. Meridian checks for `zstd` locally and remotely before starting, logs compressed bytes and elapsed time for each host, and reruns the full pipeline per host. Simple, no extra infrastructure. The full image is transferred on every deploy.
 
-### Incremental mode (`mode: incremental`)
+### Incremental mode (`mode: incremental`) *(planned)*
 
-Meridian exports the image to an OCI layout directory and rsyncs only the changed layers to each server. For a typical application update where only the top layer changes, this reduces a 500 MB transfer to approximately 5–10 MB. Requires `rsync` on the deploy machine and `skopeo` on each server.
+This mode is reserved for a later increment. Current builds exit with a clear not-implemented error if `transfer.mode: incremental` is selected.
 
 ### Choosing a mode
 
 | Scenario | Recommended mode |
 |----------|-----------------|
 | Single server, any image size | `stream` |
-| Multiple servers, first deploy | `stream` |
-| Multiple servers, repeated deploys | `incremental` |
-| Large images (>1 GB) with frequent updates | `incremental` |
+| Multiple servers, any current deploy | `stream` |
 | CI/CD with fast internet and a registry | Registry (default) |
+| Layer-only incremental sync | Planned, not yet implemented |
 
 ---
 
@@ -248,14 +256,12 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 ## Roadmap
 
 - [x] `meridian init` — detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
-- [x] `meridian config` — validates and pretty-prints the parsed configuration
 - [x] `meridian exec --host … -- <cmd>` — runs a command on a remote host over SSH
-- [x] `meridian healthcheck --url …` — polls an HTTP endpoint until it returns 200
 - [x] `meridian quadlet --color green` — generates Quadlet files locally for inspection
-- [x] `meridian deploy` — rolling multi-host deploy via kamal-proxy when `servers.web.proxy` is configured
+- [x] `meridian deploy` — rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer
 - [x] `meridian setup` / `meridian proxy remove` — installs and removes kamal-proxy as a Quadlet service
 - [x] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
-- [ ] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
+- [x] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
 - [ ] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
 - [ ] `meridian status` / `meridian logs` / `meridian rollback` — operational commands
 - [ ] Accessory service management — databases, caches, and other infrastructure as Quadlet units

@@ -153,6 +153,10 @@ module Meridian
 
       @[YAML::Field(converter: Meridian::Config::TransferModeConverter)]
       getter mode : TransferMode?
+
+      protected def after_initialize
+        raise ValidationError.new("Missing required config key: transfer.mode") unless mode
+      end
     end
 
     struct AccessoryConfig
