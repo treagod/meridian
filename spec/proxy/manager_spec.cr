@@ -23,8 +23,8 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      uploads = runner.invocations.select(&.args[1].==("cat > .config/containers/systemd/kamal-proxy.container"))
-      uploads.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
+      uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
       uploads.each do |upload|
         upload_input = upload.input || raise "Expected upload input"
         upload_input.should contain("ContainerName=kamal-proxy")
@@ -37,8 +37,8 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      reloads = runner.invocations.select(&.args[1].==("systemctl --user daemon-reload"))
-      reloads.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      reloads = runner.invocations.select(&.remote_command.==("systemctl --user daemon-reload"))
+      reloads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
     it "starts kamal-proxy via systemctl on each web host" do
@@ -47,8 +47,8 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      starts = runner.invocations.select(&.args[1].==("systemctl --user start kamal-proxy.service"))
-      starts.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      starts = runner.invocations.select(&.remote_command.==("systemctl --user start kamal-proxy.service"))
+      starts.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
     it "does not touch worker hosts during proxy setup" do
@@ -57,7 +57,7 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      touched_hosts = runner.invocations.map(&.args.first)
+      touched_hosts = runner.invocations.compact_map(&.host)
       touched_hosts.uniq!
       touched_hosts.sort!
       touched_hosts.should eq(["192.168.1.10", "192.168.1.11"])
@@ -106,6 +106,42 @@ describe "Meridian::Proxy::Manager" do
         manager.setup
       end
     end
+
+    it "uses configured SSH user, port, and first key for proxy setup" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+
+          ssh:
+            user: deployer
+            port: 2222
+            keys:
+              - /tmp/id_ed25519
+          YAML
+        runner: runner
+      )
+
+      manager.setup
+
+      runner.invocations.first.args.should eq([
+        "-p",
+        "2222",
+        "-i",
+        "/tmp/id_ed25519",
+        "deployer@192.168.1.10",
+        "mkdir -p .config/containers/systemd",
+      ])
+    end
   end
 
   describe "#remove" do
@@ -115,8 +151,8 @@ describe "Meridian::Proxy::Manager" do
 
       manager.remove
 
-      stops = runner.invocations.select(&.args[1].==("systemctl --user stop kamal-proxy.service"))
-      stops.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      stops = runner.invocations.select(&.remote_command.==("systemctl --user stop kamal-proxy.service"))
+      stops.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
     it "removes the kamal-proxy Quadlet file from each web host" do
@@ -125,11 +161,11 @@ describe "Meridian::Proxy::Manager" do
 
       manager.remove
 
-      removals = runner.invocations.select(&.args[1].==("rm -f .config/containers/systemd/kamal-proxy.container"))
-      removals.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      removals = runner.invocations.select(&.remote_command.==("rm -f .config/containers/systemd/kamal-proxy.container"))
+      removals.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
 
-      reloads = runner.invocations.select(&.args[1].==("systemctl --user daemon-reload"))
-      reloads.map(&.args.first).should eq(["192.168.1.10", "192.168.1.11"])
+      reloads = runner.invocations.select(&.remote_command.==("systemctl --user daemon-reload"))
+      reloads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
     it "raises RemoveFailed when stopping the proxy fails" do

@@ -329,7 +329,7 @@ module Meridian
       proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
       first_arg = args.first?
-      return print_proxy_help(output) if first_arg.try { |arg| arg.in?(HELP_FLAGS) }
+      return print_proxy_help(output) if first_arg.try(&.in?(HELP_FLAGS))
 
       subcommand = args.first?
       unless subcommand
@@ -413,7 +413,7 @@ module Meridian
           args
         end
 
-      help_args.any? { |arg| arg.in?(HELP_FLAGS) }
+      help_args.any?(&.in?(HELP_FLAGS))
     end
 
     private def self.print_help(io : IO) : Int32

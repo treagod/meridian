@@ -21,19 +21,19 @@ module Meridian
 
         hosts.each do |host|
           log(host, "Ensuring Quadlet directory exists")
-          @ssh_executor.run!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 
           log(host, "Uploading proxy Quadlet")
-          @ssh_executor.upload(host, quadlet_path, quadlet)
+          upload_ssh(host, quadlet_path, quadlet)
 
           log(host, "Reloading user systemd")
-          @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])
+          run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
           log(host, "Starting #{PROXY_SERVICE}")
-          @ssh_executor.run!(host, ["systemctl", "--user", "start", PROXY_SERVICE])
+          run_ssh!(host, ["systemctl", "--user", "start", PROXY_SERVICE])
 
           log(host, "Checking proxy reachability at #{proxy_url}")
-          @ssh_executor.run!(host, ["curl", "--silent", "--show-error", "--fail", "--head", proxy_url])
+          run_ssh!(host, ["curl", "--silent", "--show-error", "--fail", "--head", proxy_url])
         end
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError
         raise SetupFailed.new(ex.message || "Proxy setup failed")
@@ -44,13 +44,13 @@ module Meridian
 
         hosts.each do |host|
           log(host, "Stopping #{PROXY_SERVICE}")
-          @ssh_executor.run!(host, ["systemctl", "--user", "stop", PROXY_SERVICE])
+          run_ssh!(host, ["systemctl", "--user", "stop", PROXY_SERVICE])
 
           log(host, "Removing proxy Quadlet")
-          @ssh_executor.run!(host, ["rm", "-f", quadlet_path])
+          run_ssh!(host, ["rm", "-f", quadlet_path])
 
           log(host, "Reloading user systemd")
-          @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])
+          run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
         end
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError
         raise RemoveFailed.new(ex.message || "Proxy removal failed")
@@ -74,6 +74,31 @@ module Meridian
 
       private def log(host : String, message : String) : Nil
         @output.puts "[#{host}] #{message}"
+      end
+
+      private def run_ssh(host : String, command : Array(String)) : SSH::Result
+        @ssh_executor.run(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def run_ssh!(host : String, command : Array(String)) : SSH::Result
+        @ssh_executor.run!(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def upload_ssh(host : String, remote_path : String, content : String) : Nil
+        @ssh_executor.upload(host, remote_path, content, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def ssh_user : String?
+        @config.ssh.user
+      end
+
+      private def ssh_port : Int32?
+        port = @config.ssh.port
+        port == 22 ? nil : port
+      end
+
+      private def ssh_identity_file : String?
+        @config.ssh.keys.first?
       end
     end
   end

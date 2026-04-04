@@ -40,10 +40,18 @@ module Meridian
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
         quadlet_generator : Quadlet::Generator? = nil,
+        stream_transfer : Transfer::Stream? = nil,
         @output : IO = STDOUT,
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
+        @stream_transfer = stream_transfer || Transfer::Stream.new(
+          @ssh_executor,
+          output: @output,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file
+        )
       end
 
       def deploy_to_host(
@@ -52,33 +60,32 @@ module Meridian
         color : Quadlet::Color = DEFAULT_COLOR,
       ) : Nil
         server = server_config(role)
-        service_name = service_name(color)
+        deployed_service_name = service_name(color)
         service_unit = service_unit(color)
         container_file = @quadlet_generator.container_file(server, color)
 
-        log(host, "Pulling image #{@config.image}")
-        @ssh_executor.run!(host, ["podman", "pull", @config.image])
+        transfer_image_to_host(host)
 
         log(host, "Ensuring Quadlet directory exists")
-        @ssh_executor.run!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 
         log(host, "Uploading network Quadlet")
-        @ssh_executor.upload(host, network_path, @quadlet_generator.network_file)
+        upload_ssh(host, network_path, @quadlet_generator.network_file)
 
         log(host, "Uploading service Quadlet")
-        @ssh_executor.upload(host, container_path(color), container_file)
+        upload_ssh(host, container_path(color), container_file)
 
         log(host, "Reloading user systemd")
-        @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
-        active_service = @ssh_executor.run(host, ["systemctl", "--user", "is-active", service_unit])
+        active_service = run_ssh(host, ["systemctl", "--user", "is-active", service_unit])
         if active_service.exit_code.zero?
           log(host, "Stopping existing service #{service_unit}")
-          @ssh_executor.run!(host, ["systemctl", "--user", "stop", service_unit])
+          run_ssh!(host, ["systemctl", "--user", "stop", service_unit])
         end
 
-        log(host, "Starting service #{service_unit}")
-        @ssh_executor.run!(host, ["systemctl", "--user", "start", service_unit])
+        log(host, "Starting service #{deployed_service_name}")
+        run_ssh!(host, ["systemctl", "--user", "start", service_unit])
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
       end
@@ -91,23 +98,22 @@ module Meridian
         new_color = inactive_color(old_color)
         new_service = service_name(new_color)
 
-        log(host, "Pulling image #{@config.image}")
-        @ssh_executor.run!(host, ["podman", "pull", @config.image])
+        transfer_image_to_host(host)
 
         log(host, "Ensuring Quadlet directory exists")
-        @ssh_executor.run!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 
         log(host, "Uploading network Quadlet")
-        @ssh_executor.upload(host, network_path, @quadlet_generator.network_file)
+        upload_ssh(host, network_path, @quadlet_generator.network_file)
 
         log(host, "Uploading service Quadlet")
-        @ssh_executor.upload(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
+        upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
 
         log(host, "Reloading user systemd")
-        @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
         log(host, "Starting service #{service_unit(new_color)}")
-        @ssh_executor.run!(host, ["systemctl", "--user", "start", service_unit(new_color)])
+        run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
 
         begin
           log(host, "Checking health for #{new_service}")
@@ -119,7 +125,7 @@ module Meridian
           )
 
           log(host, "Switching proxy traffic to #{new_service}")
-          @ssh_executor.run!(host, proxy_deploy_command(proxy, new_color))
+          run_ssh!(host, proxy_deploy_command(proxy, new_color))
         rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError
           cleanup_failed_candidate(host, new_color)
           raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
@@ -127,20 +133,20 @@ module Meridian
 
         if old_active
           log(host, "Stopping service #{service_unit(old_color)}")
-          @ssh_executor.run!(host, ["systemctl", "--user", "stop", service_unit(old_color)])
+          run_ssh!(host, ["systemctl", "--user", "stop", service_unit(old_color)])
         end
 
         log(host, "Removing inactive Quadlet #{container_path(old_color)}")
-        @ssh_executor.run!(host, ["rm", "-f", container_path(old_color)])
+        run_ssh!(host, ["rm", "-f", container_path(old_color)])
 
         log(host, "Reloading user systemd")
-        @ssh_executor.run!(host, ["systemctl", "--user", "daemon-reload"])
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
         log(host, "Recording active color #{new_color.slug}")
-        @ssh_executor.upload(host, ACTIVE_COLOR_FILE, "#{new_color.slug}\n")
+        upload_ssh(host, ACTIVE_COLOR_FILE, "#{new_color.slug}\n")
 
         log(host, "Pruning unused images")
-        prune_result = @ssh_executor.run(host, ["podman", "image", "prune", "-f"])
+        prune_result = run_ssh(host, ["podman", "image", "prune", "-f"])
         unless prune_result.exit_code.zero?
           log(host, "Image prune failed with exit code #{prune_result.exit_code}")
         end
@@ -184,7 +190,9 @@ module Meridian
         if secondary_started
           secondary_count.times do
             role_result = secondary_results.receive
-            abort_rollout.request(role_result.error.not_nil!) if role_result.error
+            if error = role_result.error
+              abort_rollout.request(error)
+            end
           end
         end
 
@@ -192,8 +200,8 @@ module Meridian
           raise error
         end
 
-        if web_result.error
-          raise web_result.error.not_nil!
+        if error = web_result.error
+          raise error
         end
 
         @output.puts "Deploy completed"
@@ -246,7 +254,7 @@ module Meridian
       end
 
       private def stored_active_color(host : String) : Quadlet::Color?
-        result = @ssh_executor.run(host, ["cat", ACTIVE_COLOR_FILE])
+        result = run_ssh(host, ["cat", ACTIVE_COLOR_FILE])
         return unless result.exit_code.zero?
 
         color_name = result.stdout.strip
@@ -258,7 +266,7 @@ module Meridian
       end
 
       private def service_active?(host : String, color : Quadlet::Color) : Bool
-        @ssh_executor.run(host, ["systemctl", "--user", "is-active", service_unit(color)]).exit_code.zero?
+        run_ssh(host, ["systemctl", "--user", "is-active", service_unit(color)]).exit_code.zero?
       rescue ex : SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Failed to inspect service state for #{host}")
       end
@@ -266,7 +274,13 @@ module Meridian
       private def health_checker_for(host : String) : Health::Checker
         Health::Checker.new(
           output: @output,
-          transport: Health::SSHTransport.new(host, @ssh_executor),
+          transport: Health::SSHTransport.new(
+            host,
+            @ssh_executor,
+            user: ssh_user,
+            port: ssh_port,
+            identity_file: ssh_identity_file
+          ),
           label: host
         )
       end
@@ -276,7 +290,7 @@ module Meridian
         proxy : Config::ServerProxyConfig,
         container_name : String,
       ) : String
-        ip_result = @ssh_executor.run!(
+        ip_result = run_ssh!(
           host,
           [
             "podman",
@@ -332,9 +346,9 @@ module Meridian
 
       private def cleanup_failed_candidate(host : String, color : Quadlet::Color) : Nil
         log(host, "Cleaning up failed candidate #{service_name(color)}")
-        @ssh_executor.run(host, ["systemctl", "--user", "stop", service_unit(color)])
-        @ssh_executor.run(host, ["rm", "-f", container_path(color)])
-        @ssh_executor.run(host, ["systemctl", "--user", "daemon-reload"])
+        run_ssh(host, ["systemctl", "--user", "stop", service_unit(color)])
+        run_ssh(host, ["rm", "-f", container_path(color)])
+        run_ssh(host, ["systemctl", "--user", "daemon-reload"])
       rescue ex : SSH::ConnectionError
         log(host, "Cleanup failed: #{ex.message || ex.class.name}")
       end
@@ -383,7 +397,7 @@ module Meridian
             return RoleDeployResult.new(role: role, error: error)
           end
 
-          sleep_between_batches if remaining_hosts.any? && !abort_rollout.requested?
+          sleep_between_batches if remaining_hosts.present? && !abort_rollout.requested?
         end
 
         RoleDeployResult.new(role: role, error: nil)
@@ -430,6 +444,46 @@ module Meridian
         if @config.boot.wait < 0
           raise DeployFailed.new("boot.wait must be non-negative")
         end
+      end
+
+      private def transfer_image_to_host(host : String) : Nil
+        transfer_mode = @config.transfer.try(&.mode)
+
+        if transfer_mode.nil? || transfer_mode.registry?
+          log(host, "Pulling image #{@config.image}")
+          run_ssh!(host, ["podman", "pull", @config.image])
+        elsif transfer_mode.stream?
+          @stream_transfer.transfer(host, @config.image)
+        else
+          raise DeployFailed.new("Incremental transfer is not implemented yet")
+        end
+      rescue ex : Transfer::DependencyMissing | Transfer::TransferFailed
+        raise DeployFailed.new(ex.message || "Image transfer to #{host} failed")
+      end
+
+      private def run_ssh(host : String, command : Array(String)) : SSH::Result
+        @ssh_executor.run(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def run_ssh!(host : String, command : Array(String)) : SSH::Result
+        @ssh_executor.run!(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def upload_ssh(host : String, remote_path : String, content : String) : Nil
+        @ssh_executor.upload(host, remote_path, content, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
+      private def ssh_user : String?
+        @config.ssh.user
+      end
+
+      private def ssh_port : Int32?
+        port = @config.ssh.port
+        port == 22 ? nil : port
+      end
+
+      private def ssh_identity_file : String?
+        @config.ssh.keys.first?
       end
     end
   end

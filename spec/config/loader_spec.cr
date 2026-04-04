@@ -83,6 +83,25 @@ describe "Meridian::Config::Loader" do
       registry.server.should eq("registry.example.com")
     end
 
+    it "parses stream transfer mode without requiring a registry block" do
+      yaml = <<-YAML
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+        YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      config.transfer.try(&.mode).should eq(Meridian::Config::TransferMode::Stream)
+      config.registry.should be_nil
+    end
+
     it "parses clear environment variables" do
       config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
       env = config.env || raise "Expected environment config"
@@ -182,6 +201,26 @@ describe "Meridian::Config::Loader" do
       end
       message = ex.message || raise "Expected validation error message"
       message.should contain("servers")
+    end
+
+    it "raises a descriptive error when transfer.mode is missing" do
+      yaml = <<-YAML
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer: {}
+        YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("transfer.mode")
     end
 
     it "raises an error when the config file does not exist" do

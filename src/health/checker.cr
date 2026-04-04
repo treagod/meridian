@@ -18,11 +18,23 @@ module Meridian
     end
 
     class SSHTransport < Transport
-      def initialize(@host : String, @ssh_executor : SSH::Executor)
+      def initialize(
+        @host : String,
+        @ssh_executor : SSH::Executor,
+        @user : String? = nil,
+        @port : Int32? = nil,
+        @identity_file : String? = nil,
+      )
       end
 
       def get(uri : URI, timeout : Time::Span) : HTTP::Client::Response
-        result = @ssh_executor.run(@host, curl_command(uri, timeout))
+        result = @ssh_executor.run(
+          @host,
+          curl_command(uri, timeout),
+          user: @user,
+          port: @port,
+          identity_file: @identity_file
+        )
         raise IO::Error.new(remote_error_message(result)) unless result.exit_code.zero?
 
         status_code = result.stdout.strip.to_i?

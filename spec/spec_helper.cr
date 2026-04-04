@@ -5,6 +5,48 @@ require "../src/meridian"
 record CLIResult, output : String, exit_code : Int32
 record FakeSSHInvocation, command : String, args : Array(String), input : String?
 
+struct FakeSSHInvocation
+  def host : String?
+    target = target_host
+    return unless target
+
+    if separator_index = target.rindex('@')
+      target[(separator_index + 1)..]
+    else
+      target
+    end
+  end
+
+  def remote_command : String?
+    index = target_index
+    return unless index
+
+    args[index + 1]?
+  end
+
+  private def target_host : String?
+    index = target_index
+    return unless index
+
+    args[index]?
+  end
+
+  private def target_index : Int32?
+    index = 0
+
+    while arg = args[index]?
+      case arg
+      when "-p", "-i"
+        index += 2
+      else
+        return index
+      end
+    end
+
+    nil
+  end
+end
+
 class FakeSSHRunner < Meridian::SSH::Executor::Runner
   record PauseRequest, host : String, remote_command : String?, release : Channel(Nil)
 
@@ -53,9 +95,9 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
   end
 
   private def result_for(invocation : FakeSSHInvocation) : Meridian::SSH::Result
-    if host = invocation.args.first?
+    if host = invocation.host
       if results = @queued_results_by_host[host]?
-        return results.shift if results.any?
+        return results.shift if results.present?
       end
     end
 
@@ -64,8 +106,8 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
 
   private def take_pause_request(invocation : FakeSSHInvocation) : PauseRequest?
     @pause_requests.each_with_index do |pause_request, index|
-      next unless invocation.args.first? == pause_request.host
-      next if pause_request.remote_command && invocation.args[1]? != pause_request.remote_command
+      next unless invocation.host == pause_request.host
+      next if pause_request.remote_command && invocation.remote_command != pause_request.remote_command
 
       return @pause_requests.delete_at(index)
     end

@@ -4,6 +4,7 @@ def build_orchestrator(
   content : String = FULL_CONFIG,
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
+  stream_transfer : Meridian::Transfer::Stream? = nil,
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
 )
   config = load_config(content)
@@ -12,9 +13,43 @@ def build_orchestrator(
     config,
     ssh_executor: executor,
     quadlet_generator: Meridian::Quadlet::Generator.new(config),
+    stream_transfer: stream_transfer,
     output: output,
     batch_sleeper: batch_sleeper
   )
+end
+
+def build_stream_transfer(
+  runner : FakeSSHRunner = FakeSSHRunner.new,
+  output : IO = IO::Memory.new,
+  user : String? = "deploy",
+  port : Int32? = nil,
+  identity_file : String? = nil,
+  local_dependency_checker : Meridian::Transfer::Stream::DependencyChecker = ->(_command : String) { true },
+  monotonic_clock : Meridian::Transfer::Stream::MonotonicClock = -> { Time.instant },
+  pipeline_runner : Meridian::Transfer::Stream::PipelineRunner = ->(_request : Meridian::Transfer::Stream::PipelineRequest) { Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 256_i64) },
+)
+  Meridian::Transfer::Stream.new(
+    Meridian::SSH::Executor.new(runner: runner),
+    output: output,
+    user: user,
+    port: port,
+    identity_file: identity_file,
+    local_dependency_checker: local_dependency_checker,
+    monotonic_clock: monotonic_clock,
+    pipeline_runner: pipeline_runner
+  )
+end
+
+def remote_commands_for(runner : FakeSSHRunner, host : String? = nil) : Array(String)
+  invocations =
+    if host
+      runner.invocations.select { |invocation| invocation.host == host }
+    else
+      runner.invocations
+    end
+
+  invocations.compact_map(&.remote_command)
 end
 
 def ssh_ok(stdout : String = "", stderr : String = "") : Meridian::SSH::Result
@@ -276,7 +311,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       invocation = runner.invocations.first
       invocation.command.should eq("ssh")
-      invocation.args.should eq(["192.168.1.10", "podman pull registry.example.com/myorg/myapp"])
+      invocation.host.should eq("192.168.1.10")
+      invocation.remote_command.should eq("podman pull registry.example.com/myorg/myapp")
     end
 
     it "calls systemctl daemon-reload after writing the Quadlet file" do
@@ -285,7 +321,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[4].args.should eq(["192.168.1.10", "systemctl --user daemon-reload"])
+      runner.invocations[4].remote_command.should eq("systemctl --user daemon-reload")
     end
 
     it "starts the new service" do
@@ -294,7 +330,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[7].args.should eq(["192.168.1.10", "systemctl --user start myapp-green.service"])
+      runner.invocations[7].remote_command.should eq("systemctl --user start myapp-green.service")
     end
 
     it "stops the old service before starting the new one" do
@@ -303,8 +339,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[6].args.should eq(["192.168.1.10", "systemctl --user stop myapp-green.service"])
-      runner.invocations[7].args.should eq(["192.168.1.10", "systemctl --user start myapp-green.service"])
+      runner.invocations[6].remote_command.should eq("systemctl --user stop myapp-green.service")
+      runner.invocations[7].remote_command.should eq("systemctl --user start myapp-green.service")
     end
 
     it "writes the Quadlet file to the correct systemd path" do
@@ -318,10 +354,12 @@ describe "Meridian::Deploy::Orchestrator" do
       network_input = network_upload.input || raise "Expected network upload input"
       container_input = container_upload.input || raise "Expected container upload input"
 
-      network_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp.network"])
+      network_upload.host.should eq("192.168.1.10")
+      network_upload.remote_command.should eq("cat > .config/containers/systemd/myapp.network")
       network_input.should contain("[Network]")
 
-      container_upload.args.should eq(["192.168.1.10", "cat > .config/containers/systemd/myapp-green.container"])
+      container_upload.host.should eq("192.168.1.10")
+      container_upload.remote_command.should eq("cat > .config/containers/systemd/myapp-green.container")
       container_input.should contain("[Container]")
       container_input.should contain("ContainerName=myapp-green")
     end
@@ -356,6 +394,141 @@ describe "Meridian::Deploy::Orchestrator" do
         orchestrator.deploy_to_host("192.168.1.10", "web")
       end
     end
+
+    it "uses configured SSH user, port, and first key for deploy commands" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          ssh:
+            user: deployer
+            port: 2222
+            keys:
+              - /tmp/id_ed25519
+          YAML
+        runner: runner
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      runner.invocations.first.args.should eq([
+        "-p",
+        "2222",
+        "-i",
+        "/tmp/id_ed25519",
+        "deployer@192.168.1.10",
+        "podman pull registry.example.com/myorg/myapp",
+      ])
+    end
+
+    it "uses stream transfer instead of podman pull when transfer mode is stream" do
+      runner = FakeSSHRunner.new
+      requests = [] of Meridian::Transfer::Stream::PipelineRequest
+      stream_transfer = build_stream_transfer(
+        runner: runner,
+        pipeline_runner: ->(request : Meridian::Transfer::Stream::PipelineRequest) do
+          requests << request
+          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 512_i64)
+        end
+      )
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_fail(3, "inactive\n"),
+        ssh_ok,
+      )
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        stream_transfer: stream_transfer
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      remote_commands_for(runner, "192.168.1.10").should_not contain("podman pull registry.example.com/myorg/myapp")
+      requests.size.should eq(1)
+    end
+
+    it "aborts before writing Quadlets when stream transfer fails" do
+      runner = FakeSSHRunner.new
+      stream_transfer = build_stream_transfer(
+        runner: runner,
+        pipeline_runner: ->(_request : Meridian::Transfer::Stream::PipelineRequest) do
+          raise Meridian::Transfer::TransferFailed.new("ssh failed with exit code 1: boom")
+        end
+      )
+      runner.enqueue_results_for_host("192.168.1.10", ssh_ok)
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        stream_transfer: stream_transfer
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /ssh failed with exit code 1/) do
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.should eq(["sh -lc 'command -v zstd >/dev/null'"])
+    end
+
+    it "fails fast when transfer mode is incremental" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: incremental
+          YAML
+        runner: runner
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Incremental transfer is not implemented yet/) do
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      end
+
+      runner.invocations.should be_empty
+    end
   end
 
   describe "#zero_downtime_deploy_to_host" do
@@ -366,7 +539,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected new service start"
       stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old service stop"
 
@@ -380,7 +553,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls") || raise "Expected proxy deploy command"
       stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old service stop"
 
@@ -395,13 +568,11 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       invocation = runner.invocations.find do |candidate|
-        candidate.args[1].starts_with?("podman exec kamal-proxy kamal-proxy deploy")
+        candidate.remote_command.try(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy"))
       end || raise "Expected proxy deploy invocation"
 
-      invocation.args.should eq([
-        "192.168.1.10",
-        "podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls",
-      ])
+      invocation.host.should eq("192.168.1.10")
+      invocation.remote_command.should eq("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
     it "runs the health check before switching proxy traffic" do
@@ -411,7 +582,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       health_index = commands.index("curl --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 5.0 --max-time 5.0 http://10.88.0.12:3000/health") || raise "Expected health check invocation"
       deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls") || raise "Expected proxy deploy invocation"
 
@@ -427,7 +598,7 @@ describe "Meridian::Deploy::Orchestrator" do
         orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
       end
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       commands.should_not contain("systemctl --user stop myapp-green.service")
       commands.should contain("systemctl --user stop myapp-blue.service")
       commands.should contain("rm -f .config/containers/systemd/myapp-blue.container")
@@ -441,7 +612,7 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       marker_upload = runner.invocations.find do |candidate|
-        candidate.args[1] == "cat > .config/containers/systemd/.meridian-color"
+        candidate.remote_command == "cat > .config/containers/systemd/.meridian-color"
       end || raise "Expected active color upload"
 
       marker_upload.input.should eq("blue\n")
@@ -454,7 +625,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations.map(&.args[1]).should contain("rm -f .config/containers/systemd/myapp-green.container")
+      remote_commands_for(runner).should contain("rm -f .config/containers/systemd/myapp-green.container")
     end
 
     it "prunes old images after a successful deploy" do
@@ -464,7 +635,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations.map(&.args[1]).should contain("podman image prune -f")
+      remote_commands_for(runner).should contain("podman image prune -f")
     end
 
     it "uses the stored marker when .meridian-color is present" do
@@ -474,7 +645,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       commands.first.should eq("cat .config/containers/systemd/.meridian-color")
       commands.should contain("systemctl --user start myapp-blue.service")
       commands.count("systemctl --user is-active myapp-blue.service").should eq(0)
@@ -488,7 +659,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations.map(&.args[1]).should contain("systemctl --user start myapp-blue.service")
+      remote_commands_for(runner).should contain("systemctl --user start myapp-blue.service")
     end
 
     it "starts with green when neither colour is active and the marker is missing" do
@@ -498,7 +669,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-green.service")
       commands.should_not contain("systemctl --user stop myapp-blue.service")
       commands.should contain("rm -f .config/containers/systemd/myapp-blue.container")
@@ -517,6 +688,62 @@ describe "Meridian::Deploy::Orchestrator" do
         orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
       end
     end
+
+    it "uses stream transfer instead of podman pull on the zero-downtime path" do
+      runner = FakeSSHRunner.new
+      requests = [] of Meridian::Transfer::Stream::PipelineRequest
+      stream_transfer = build_stream_transfer(
+        runner: runner,
+        pipeline_runner: ->(request : Meridian::Transfer::Stream::PipelineRequest) do
+          requests << request
+          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 1024_i64)
+        end
+      )
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        ssh_fail(1, "", "No such file\n"),
+        ssh_fail(3, "inactive\n"),
+        ssh_ok("active\n"),
+        ssh_ok("active\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok("10.88.0.12\n"),
+        ssh_ok("200"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+      )
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                ssl: true
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        stream_transfer: stream_transfer
+      )
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      remote_commands_for(runner, "192.168.1.10").should_not contain("podman pull registry.example.com/myorg/myapp")
+      requests.size.should eq(1)
+    end
   end
 
   describe "#deploy" do
@@ -529,28 +756,27 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy
 
-      web_invocations = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.10" }
-      web_invocations.map(&.args[1]).should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      remote_commands_for(runner, "192.168.1.10").should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
     it "falls back to the downtime path when proxy config is absent" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(
         content: <<-YAML,
-            service: myapp
-            image: registry.example.com/myorg/myapp
+          service: myapp
+          image: registry.example.com/myorg/myapp
 
-            servers:
-              web:
-                hosts:
-                  - 192.168.1.10
-        YAML
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          YAML
         runner: runner
       )
 
       orchestrator.deploy
 
-      commands = runner.invocations.map(&.args[1])
+      commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-green.service")
       commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
@@ -564,8 +790,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy
 
-      web_1_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.10" }.map(&.args[1])
-      web_2_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.11" }.map(&.args[1])
+      web_1_commands = remote_commands_for(runner, "192.168.1.10")
+      web_2_commands = remote_commands_for(runner, "192.168.1.11")
 
       web_1_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
       web_2_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
@@ -580,7 +806,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy
 
-      worker_commands = runner.invocations.select { |invocation| invocation.args.first? == "192.168.1.12" }.map(&.args[1])
+      worker_commands = remote_commands_for(runner, "192.168.1.12")
       worker_commands.should contain("systemctl --user start myapp-green.service")
       worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
@@ -596,8 +822,8 @@ describe "Meridian::Deploy::Orchestrator" do
       finished = run_deploy_async(orchestrator)
 
       first_invocation = runner.invocation_events.receive
-      first_invocation.args.first?.should eq("192.168.1.10")
-      runner.invocations.map { |invocation| invocation.args.first? || "" }.should eq(["192.168.1.10"])
+      first_invocation.host.should eq("192.168.1.10")
+      runner.invocations.map { |invocation| invocation.host || "" }.should eq(["192.168.1.10"])
 
       first_web_release.send(nil)
       finished.receive.should be_nil
@@ -617,7 +843,7 @@ describe "Meridian::Deploy::Orchestrator" do
       seen_blocked_hosts = [] of String
       until seen_blocked_hosts.size == 2
         invocation = runner.invocation_events.receive
-        host = invocation.args.first || raise "Expected host argument"
+        host = invocation.host || raise "Expected host argument"
         if ["192.168.1.11", "192.168.1.12"].includes?(host)
           seen_blocked_hosts << host unless seen_blocked_hosts.includes?(host)
         end
@@ -641,7 +867,7 @@ describe "Meridian::Deploy::Orchestrator" do
         orchestrator.deploy
       end
 
-      runner.invocations.none? { |invocation| invocation.args.first? == "192.168.1.12" }.should be_true
+      runner.invocations.none? { |invocation| invocation.host == "192.168.1.12" }.should be_true
     end
 
     it "prefixes log output with the host address" do
