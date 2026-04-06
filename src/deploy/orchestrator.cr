@@ -41,11 +41,20 @@ module Meridian
         @ssh_executor : SSH::Executor = SSH::Executor.new,
         quadlet_generator : Quadlet::Generator? = nil,
         stream_transfer : Transfer::Stream? = nil,
+        incremental_transfer : Transfer::Incremental? = nil,
         @output : IO = STDOUT,
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
         @stream_transfer = stream_transfer || Transfer::Stream.new(
+          @ssh_executor,
+          output: @output,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file
+        )
+        @incremental_transfer = incremental_transfer || Transfer::Incremental.new(
+          @config.service,
           @ssh_executor,
           output: @output,
           user: ssh_user,
@@ -455,7 +464,7 @@ module Meridian
         elsif transfer_mode.stream?
           @stream_transfer.transfer(host, @config.image)
         else
-          raise DeployFailed.new("Incremental transfer is not implemented yet")
+          @incremental_transfer.transfer(host, @config.image)
         end
       rescue ex : Transfer::DependencyMissing | Transfer::TransferFailed
         raise DeployFailed.new(ex.message || "Image transfer to #{host} failed")

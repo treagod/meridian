@@ -5,6 +5,7 @@ def build_orchestrator(
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
   stream_transfer : Meridian::Transfer::Stream? = nil,
+  incremental_transfer : Meridian::Transfer::Incremental? = nil,
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
 )
   config = load_config(content)
@@ -14,6 +15,7 @@ def build_orchestrator(
     ssh_executor: executor,
     quadlet_generator: Meridian::Quadlet::Generator.new(config),
     stream_transfer: stream_transfer,
+    incremental_transfer: incremental_transfer,
     output: output,
     batch_sleeper: batch_sleeper
   )
@@ -505,8 +507,9 @@ describe "Meridian::Deploy::Orchestrator" do
       commands.should eq(["sh -lc 'command -v zstd >/dev/null'"])
     end
 
-    it "fails fast when transfer mode is incremental" do
+    it "uses incremental transfer instead of podman pull when transfer mode is incremental" do
       runner = FakeSSHRunner.new
+      incremental_transfer = FakeIncrementalTransfer.new
       orchestrator = build_orchestrator(
         content: <<-YAML,
           service: myapp
@@ -520,10 +523,51 @@ describe "Meridian::Deploy::Orchestrator" do
           transfer:
             mode: incremental
           YAML
-        runner: runner
+        runner: runner,
+        incremental_transfer: incremental_transfer
       )
 
-      expect_raises(Meridian::Deploy::DeployFailed, /Incremental transfer is not implemented yet/) do
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_fail(3, "inactive\n"),
+        ssh_ok,
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      remote_commands_for(runner, "192.168.1.10").should_not contain("podman pull registry.example.com/myorg/myapp")
+      incremental_transfer.transfer_calls.should eq([
+        {host: "192.168.1.10", image: "registry.example.com/myorg/myapp"},
+      ])
+    end
+
+    it "aborts before writing Quadlets when incremental transfer fails" do
+      runner = FakeSSHRunner.new
+      incremental_transfer = FakeIncrementalTransfer.new(
+        Meridian::Transfer::TransferFailed.new("rsync failed with exit code 12: broken pipe")
+      )
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: incremental
+          YAML
+        runner: runner,
+        incremental_transfer: incremental_transfer
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /rsync failed with exit code 12/) do
         orchestrator.deploy_to_host("192.168.1.10", "web")
       end
 
