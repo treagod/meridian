@@ -141,6 +141,29 @@ class FakeDeployOrchestrator < Meridian::Deploy::Orchestrator
   end
 end
 
+class FakeIncrementalTransfer < Meridian::Transfer::Incremental
+  getter transfer_calls = [] of NamedTuple(host: String, image: String)
+  property transfer_error : Meridian::Transfer::TransferFailed?
+
+  def initialize(
+    @transfer_error : Meridian::Transfer::TransferFailed? = nil,
+    output : IO = IO::Memory.new,
+  )
+    super(
+      "test-service",
+      Meridian::SSH::Executor.new(runner: FakeSSHRunner.new),
+      output: output
+    )
+  end
+
+  def transfer(host : String, image : String) : Nil
+    @transfer_calls << {host: host, image: image}
+    if error = @transfer_error
+      raise error
+    end
+  end
+end
+
 class FakeProxyManager < Meridian::Proxy::Manager
   getter setup_calls = 0
   getter remove_calls = 0
