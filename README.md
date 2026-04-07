@@ -5,8 +5,8 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `init`, `exec --host`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `setup` / `proxy remove`.
-> Operational commands and accessory management are still planned.
+> **Implemented:** `init`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `setup` / `proxy remove`.
+> Accessory management is still planned.
 
 ---
 
@@ -75,13 +75,30 @@ Deploys all hosts in `servers.web` in rolling batches controlled by `boot.limit`
 meridian deploy
 ```
 
-### `meridian exec --host`
+### `meridian status`
 
-Runs an arbitrary command on a single host over SSH. This is the manual inspection/debugging command currently implemented; role-based container exec remains planned.
+Shows the blue/green systemd state for every configured host across all roles.
 
 ```bash
-meridian exec --host 192.168.1.10 -- uptime
-meridian exec --host 192.168.1.10 -- podman images
+meridian status
+```
+
+### `meridian logs`
+
+Streams `journalctl` for `myapp-blue.service` and `myapp-green.service`. With `--host`, Meridian tails one host directly. Without it, Meridian tails every configured host and prefixes each line with the hostname.
+
+```bash
+meridian logs
+meridian logs --host 192.168.1.10
+```
+
+### `meridian exec`
+
+Runs a command inside the active blue/green container for a configured role. If the role has multiple hosts, Meridian uses the first host by default; pass `--host` to target another one.
+
+```bash
+meridian exec web -- env
+meridian exec workers --host 192.168.1.12 -- bash
 ```
 
 ### `meridian quadlet`
@@ -92,17 +109,12 @@ Generates the service Quadlet files locally for inspection without touching any 
 meridian quadlet --color green
 ```
 
-### `meridian rollback` *(planned)*
+### `meridian rollback`
 
-Switches kamal-proxy back to the previous container if it is still present.
-
-### `meridian status` / `meridian logs` / `meridian exec` *(planned)*
+Switches kamal-proxy back to the inactive colour on every web host when that container still exists, then rewrites `.meridian-color`.
 
 ```bash
-meridian status
-meridian logs
-meridian logs --host 192.168.1.10
-meridian exec web -- bash
+meridian rollback
 ```
 
 ### Accessories *(planned)*
@@ -257,14 +269,13 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 ## Roadmap
 
 - [x] `meridian init` — detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
-- [x] `meridian exec --host … -- <cmd>` — runs a command on a remote host over SSH
+- [x] `meridian status` / `meridian logs` / role-based `meridian exec` / `meridian rollback` — operational commands
 - [x] `meridian quadlet --color green` — generates Quadlet files locally for inspection
 - [x] `meridian deploy` — rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer
 - [x] `meridian setup` / `meridian proxy remove` — installs and removes kamal-proxy as a Quadlet service
 - [x] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
 - [x] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
 - [x] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
-- [ ] `meridian status` / `meridian logs` / `meridian rollback` — operational commands
 - [ ] Accessory service management — databases, caches, and other infrastructure as Quadlet units
 
 ---

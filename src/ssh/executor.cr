@@ -7,6 +7,10 @@ module Meridian
         abstract def run(command : String, args : Array(String), input : String? = nil) : Result
       end
 
+      abstract class StreamingRunner
+        abstract def run(command : String, args : Array(String), input : IO, output : IO, error : IO) : Int32
+      end
+
       class ProcessRunner < Runner
         def run(command : String, args : Array(String), input : String? = nil) : Result
           stdout = IO::Memory.new
@@ -28,7 +32,16 @@ module Meridian
         end
       end
 
-      def initialize(@runner : Runner = ProcessRunner.new)
+      class ProcessStreamingRunner < StreamingRunner
+        def run(command : String, args : Array(String), input : IO, output : IO, error : IO) : Int32
+          Process.run(command, args, input: input, output: output, error: error).exit_code
+        end
+      end
+
+      def initialize(
+        @runner : Runner = ProcessRunner.new,
+        @streaming_runner : StreamingRunner = ProcessStreamingRunner.new,
+      )
       end
 
       def command_args(
@@ -67,6 +80,30 @@ module Meridian
         raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if result.exit_code == 255
 
         result
+      end
+
+      def stream(
+        host : String,
+        command : Array(String),
+        *,
+        env : Hash(String, String) = {} of String => String,
+        input : IO = STDIN,
+        output : IO = STDOUT,
+        error : IO = STDERR,
+        user : String? = nil,
+        port : Int32? = nil,
+        identity_file : String? = nil,
+      ) : Int32
+        exit_code = @streaming_runner.run(
+          "ssh",
+          command_args(host, command, env: env, user: user, port: port, identity_file: identity_file),
+          input,
+          output,
+          error
+        )
+        raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if exit_code == 255
+
+        exit_code
       end
 
       def run!(

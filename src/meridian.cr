@@ -41,11 +41,14 @@ module Meridian
     ]
 
     record ExecInvocation,
-      host : String,
+      role : String,
       command : Array(String),
-      user : String?,
-      port : Int32?,
-      identity_file : String?
+      host : String?,
+      file : String
+
+    record LogsInvocation,
+      host : String?,
+      file : String
 
     record FileInvocation,
       file : String
@@ -119,11 +122,12 @@ module Meridian
         run_proxy(args, output, error, ssh_executor, proxy_manager_factory)
       when "quadlet"
         run_quadlet(args, output, error)
-      when "rollback", "status", "logs"
-        return print_stub_help(command, output) if help_requested?(args)
-
-        output.puts "Not yet implemented"
-        0
+      when "rollback"
+        run_rollback(args, output, error, ssh_executor)
+      when "status"
+        run_status(args, output, error, ssh_executor)
+      when "logs"
+        run_logs(args, output, error, ssh_executor)
       else
         error.puts "Unknown command: #{command}"
         1
@@ -179,46 +183,47 @@ module Meridian
       invocation = parse_exec_invocation(args, error)
       return 1 unless invocation
 
-      result = ssh_executor.run(
-        invocation.host,
+      config = Config::Loader.load(invocation.file)
+      Commands::Exec.new(config, ssh_executor: ssh_executor, output: output, error: error).run(
+        invocation.role,
         invocation.command,
-        user: invocation.user,
-        port: invocation.port,
-        identity_file: invocation.identity_file
+        invocation.host
       )
-
-      output.print result.stdout
-      error.print result.stderr
-      result.exit_code
-    rescue ex : SSH::ConnectionError
-      error.puts ex.message || "SSH connection failed"
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError | SSH::ConnectionError
+      error.puts ex.message || "Exec failed"
       1
     end
 
     private def self.parse_exec_invocation(args : Array(String), error : IO) : ExecInvocation?
       option_args, remote_command = split_exec_args(args)
+      role = option_args.first?
       host = nil
-      user = nil
-      port = nil
-      identity_file = nil
+      file = "deploy.yml"
+
+      if role.try(&.starts_with?('-'))
+        role = nil
+      end
+
+      parser_args =
+        if role
+          option_args.size > 1 ? option_args[1..] : [] of String
+        else
+          option_args
+        end
 
       parser = OptionParser.new
       parser.on("--host HOST", "SSH host") { |value| host = value }
-      parser.on("--user USER", "SSH user") { |value| user = value }
-      parser.on("--port PORT", "SSH port") do |value|
-        port = value.to_i? || raise ExecParseError.new("Invalid port: #{value}")
-      end
-      parser.on("--identity-file PATH", "SSH identity file") { |value| identity_file = value }
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
       parser.invalid_option { |flag| raise ExecParseError.new("Invalid option: #{flag}") }
       parser.missing_option { |flag| raise ExecParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, _after_dash|
-        raise ExecParseError.new("Command must follow --") unless before_dash.empty?
+        raise ExecParseError.new("Unknown arguments: #{before_dash.join(" ")}") unless before_dash.empty?
       end
 
-      parser.parse(option_args.dup)
+      parser.parse(parser_args.dup)
 
-      unless parsed_host = host
-        error.puts "Missing required option: --host"
+      unless parsed_role = role
+        error.puts "Missing required role"
         return
       end
 
@@ -228,11 +233,10 @@ module Meridian
       end
 
       ExecInvocation.new(
-        host: parsed_host,
+        role: parsed_role,
         command: remote_command,
-        user: user,
-        port: port,
-        identity_file: identity_file
+        host: host,
+        file: file
       )
     rescue ex : ExecParseError
       error.puts ex.message || "Invalid exec arguments"
@@ -404,6 +408,84 @@ module Meridian
       nil
     end
 
+    private def self.run_status(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      return print_status_help(output) if help_requested?(args)
+
+      invocation = parse_file_invocation(args, error, "Invalid status arguments")
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      Commands::Status.new(config, ssh_executor: ssh_executor, output: output, error: error).run
+      0
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError
+      error.puts ex.message || "Status failed"
+      1
+    end
+
+    private def self.run_logs(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      return print_logs_help(output) if help_requested?(args)
+
+      invocation = parse_logs_invocation(args, error)
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      Commands::Logs.new(config, ssh_executor: ssh_executor, output: output, error: error).run(invocation.host)
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError | SSH::ConnectionError
+      error.puts ex.message || "Logs failed"
+      1
+    end
+
+    private def self.parse_logs_invocation(args : Array(String), error : IO) : LogsInvocation?
+      host = nil
+      file = "deploy.yml"
+
+      parser = OptionParser.new
+      parser.on("--host HOST", "Configured host to stream logs from") { |value| host = value }
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
+      parser.invalid_option { |flag| raise FileParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise FileParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise FileParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      LogsInvocation.new(host: host, file: file)
+    rescue ex : FileParseError
+      error.puts ex.message || "Invalid logs arguments"
+      nil
+    end
+
+    private def self.run_rollback(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      return print_rollback_help(output) if help_requested?(args)
+
+      invocation = parse_file_invocation(args, error, "Invalid rollback arguments")
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      Commands::Rollback.new(config, ssh_executor: ssh_executor, output: output, error: error).run
+      0
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Deploy::RollbackFailed
+      error.puts ex.message || "Rollback failed"
+      1
+    end
+
     private def self.help_requested?(args : Array(String), stop_at_separator : Bool = false) : Bool
       help_args =
         if stop_at_separator
@@ -466,15 +548,47 @@ module Meridian
     end
 
     private def self.print_exec_help(io : IO) : Int32
-      io.puts "Usage: meridian exec [options] -- COMMAND [ARGS...]"
+      io.puts "Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]"
       io.puts
-      io.puts "Run an arbitrary command on a remote host over SSH."
+      io.puts "Run a command inside the active container for a configured role."
       io.puts
       io.puts "Options:"
-      io.puts "    --host HOST                SSH host"
-      io.puts "    --user USER                SSH user"
-      io.puts "    --port PORT                SSH port"
-      io.puts "    --identity-file PATH       SSH identity file"
+      io.puts "    --host HOST                Specific host for the role (default: first configured host)"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_status_help(io : IO) : Int32
+      io.puts "Usage: meridian status [options]"
+      io.puts
+      io.puts "Show blue/green service state for all configured hosts."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_logs_help(io : IO) : Int32
+      io.puts "Usage: meridian logs [options]"
+      io.puts
+      io.puts "Stream journalctl logs for the deployed service."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --host HOST                Configured host to stream logs from"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_rollback_help(io : IO) : Int32
+      io.puts "Usage: meridian rollback [options]"
+      io.puts
+      io.puts "Switch kamal-proxy back to the inactive color on each web host."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
       io.puts "    -h, --help                 Show this help"
       0
     end
@@ -509,16 +623,6 @@ module Meridian
       io.puts
       io.puts "Options:"
       io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
-      io.puts "    -h, --help                 Show this help"
-      0
-    end
-
-    private def self.print_stub_help(command : String, io : IO) : Int32
-      io.puts "Usage: meridian #{command}"
-      io.puts
-      io.puts "#{command.capitalize} is not implemented yet."
-      io.puts
-      io.puts "Options:"
       io.puts "    -h, --help                 Show this help"
       0
     end
