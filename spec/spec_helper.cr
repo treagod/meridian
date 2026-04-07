@@ -4,8 +4,52 @@ require "../src/meridian"
 
 record CLIResult, output : String, exit_code : Int32
 record FakeSSHInvocation, command : String, args : Array(String), input : String?
+record FakeSSHStreamInvocation, command : String, args : Array(String)
+record FakeSSHStreamResult, exit_code : Int32, stdout : String = "", stderr : String = ""
 
 struct FakeSSHInvocation
+  def host : String?
+    target = target_host
+    return unless target
+
+    if separator_index = target.rindex('@')
+      target[(separator_index + 1)..]
+    else
+      target
+    end
+  end
+
+  def remote_command : String?
+    index = target_index
+    return unless index
+
+    args[index + 1]?
+  end
+
+  private def target_host : String?
+    index = target_index
+    return unless index
+
+    args[index]?
+  end
+
+  private def target_index : Int32?
+    index = 0
+
+    while arg = args[index]?
+      case arg
+      when "-p", "-i"
+        index += 2
+      else
+        return index
+      end
+    end
+
+    nil
+  end
+end
+
+struct FakeSSHStreamInvocation
   def host : String?
     target = target_host
     return unless target
@@ -113,6 +157,54 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
     end
 
     nil
+  end
+end
+
+class FakeSSHStreamingRunner < Meridian::SSH::Executor::StreamingRunner
+  getter invocations = [] of FakeSSHStreamInvocation
+  getter invocation_events : Channel(FakeSSHStreamInvocation)
+  getter queued_results = [] of FakeSSHStreamResult
+  getter queued_results_by_host : Hash(String, Array(FakeSSHStreamResult))
+  property next_result : FakeSSHStreamResult = FakeSSHStreamResult.new(exit_code: 0)
+
+  def initialize
+    @invocation_events = Channel(FakeSSHStreamInvocation).new(256)
+    @queued_results_by_host = Hash(String, Array(FakeSSHStreamResult)).new do |hash, host|
+      hash[host] = [] of FakeSSHStreamResult
+    end
+  end
+
+  def enqueue_results(*results : FakeSSHStreamResult) : Nil
+    @queued_results.concat(results)
+  end
+
+  def enqueue_results_for_host(host : String, *results : FakeSSHStreamResult) : Nil
+    @queued_results_by_host[host].concat(results)
+  end
+
+  def enqueue_results_for_host(host : String, results : Array(FakeSSHStreamResult)) : Nil
+    @queued_results_by_host[host].concat(results)
+  end
+
+  def run(command : String, args : Array(String), input : IO, output : IO, error : IO) : Int32
+    invocation = FakeSSHStreamInvocation.new(command: command, args: args.dup)
+    @invocations << invocation
+    @invocation_events.send(invocation)
+
+    result = result_for(invocation)
+    output << result.stdout
+    error << result.stderr
+    result.exit_code
+  end
+
+  private def result_for(invocation : FakeSSHStreamInvocation) : FakeSSHStreamResult
+    if host = invocation.host
+      if results = @queued_results_by_host[host]?
+        return results.shift if results.present?
+      end
+    end
+
+    @queued_results.shift? || @next_result
   end
 end
 

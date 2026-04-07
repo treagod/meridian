@@ -131,10 +131,25 @@ describe "Meridian::CLI" do
       end
     end
 
-    it "prints 'Not yet implemented' for the rollback subcommand" do
-      result = run_cli(["rollback"])
-      result.output.should contain("Not yet implemented")
-      result.exit_code.should eq(0)
+    it "runs the rollback subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host("192.168.1.10", ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
+      runner.enqueue_results_for_host("192.168.1.11", ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["rollback", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/.meridian-color"))
+        uploads.size.should eq(2)
+      end
     end
 
     it "prints help for the init subcommand" do
@@ -161,24 +176,48 @@ describe "Meridian::CLI" do
       result.output.should contain("--file PATH")
     end
 
-    it "prints 'Not yet implemented' for the status subcommand" do
-      result = run_cli(["status"])
-      result.output.should contain("Not yet implemented")
-      result.exit_code.should eq(0)
+    it "runs the status subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["status", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        result.output.should contain("role")
+        result.output.should contain("192.168.1.10")
+        result.output.should contain("192.168.1.12")
+      end
     end
 
-    it "prints help for a planned subcommand" do
+    it "prints help for the status subcommand" do
       result = run_cli(["status", "--help"])
 
       result.exit_code.should eq(0)
-      result.output.should contain("Usage: meridian status")
-      result.output.should contain("not implemented yet")
+      result.output.should contain("Usage: meridian status [options]")
+      result.output.should contain("--file PATH")
     end
 
-    it "prints 'Not yet implemented' for the logs subcommand" do
-      result = run_cli(["logs"])
-      result.output.should contain("Not yet implemented")
-      result.exit_code.should eq(0)
+    it "runs the logs subcommand on the selected host" do
+      runner = FakeSSHRunner.new
+      streaming_runner = FakeSSHStreamingRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["logs", "--host", "192.168.1.10", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        streaming_runner.invocations.map(&.host).should eq(["192.168.1.10"])
+      end
     end
 
     it "runs the proxy remove subcommand with the loaded config" do
@@ -244,47 +283,76 @@ describe "Meridian::CLI" do
       result.output.should contain("--file PATH")
     end
 
-    it "runs the exec subcommand over SSH when a host and command are provided" do
+    it "runs the exec subcommand inside the active role container" do
       runner = FakeSSHRunner.new
-      executor = Meridian::SSH::Executor.new(runner: runner)
+      streaming_runner = FakeSSHStreamingRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
 
-      result = run_cli(["exec", "--host", "1.2.3.4", "--", "uptime"], ssh_executor: executor)
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+        runner.enqueue_results(
+          ssh_ok("blue\n"),
+          ssh_ok("true\n"),
+        )
 
-      invocation = runner.invocations.last
-      invocation.command.should eq("ssh")
-      invocation.args.should eq(["1.2.3.4", "uptime"])
-      result.exit_code.should eq(0)
+        result = run_cli(["exec", "web", "--file", config_path, "--", "uptime"], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        streaming_runner.invocations.last.host.should eq("192.168.1.10")
+        streaming_runner.invocations.last.remote_command.should eq("podman exec -i myapp-blue uptime")
+      end
     end
 
     it "propagates the exec exit code" do
       runner = FakeSSHRunner.new
-      runner.next_result = Meridian::SSH::Result.new(exit_code: 23, stdout: "", stderr: "failed\n")
-      executor = Meridian::SSH::Executor.new(runner: runner)
+      streaming_runner = FakeSSHStreamingRunner.new
+      streaming_runner.next_result = FakeSSHStreamResult.new(exit_code: 23, stderr: "failed\n")
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
 
-      result = run_cli(["exec", "--host", "1.2.3.4", "--", "false"], ssh_executor: executor)
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+        runner.enqueue_results(
+          ssh_ok("blue\n"),
+          ssh_ok("true\n"),
+        )
 
-      result.exit_code.should eq(23)
+        result = run_cli(["exec", "web", "--file", config_path, "--", "false"], ssh_executor: executor)
+
+        result.exit_code.should eq(23)
+      end
     end
 
     it "prints stdout and stderr from exec" do
       runner = FakeSSHRunner.new
-      runner.next_result = Meridian::SSH::Result.new(exit_code: 0, stdout: "hello\n", stderr: "warn\n")
-      executor = Meridian::SSH::Executor.new(runner: runner)
+      streaming_runner = FakeSSHStreamingRunner.new
+      streaming_runner.next_result = FakeSSHStreamResult.new(exit_code: 0, stdout: "hello\n", stderr: "warn\n")
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
 
-      result = run_cli(["exec", "--host", "1.2.3.4", "--", "uptime"], ssh_executor: executor)
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+        runner.enqueue_results(
+          ssh_ok("blue\n"),
+          ssh_ok("true\n"),
+        )
 
-      result.output.should eq("hello\nwarn\n")
+        result = run_cli(["exec", "web", "--file", config_path, "--", "uptime"], ssh_executor: executor)
+
+        result.output.should eq("hello\nwarn\n")
+      end
     end
 
-    it "exits with a non-zero code when exec is missing a host" do
+    it "exits with a non-zero code when exec is missing a role" do
       result = run_cli(["exec", "--", "uptime"])
 
       result.exit_code.should eq(1)
-      result.output.should contain("Missing required option: --host")
+      result.output.should contain("Missing required role")
     end
 
     it "exits with a non-zero code when exec is missing a command" do
-      result = run_cli(["exec", "--host", "1.2.3.4", "--"])
+      result = run_cli(["exec", "web", "--"])
 
       result.exit_code.should eq(1)
       result.output.should contain("Missing command after --")
@@ -294,9 +362,9 @@ describe "Meridian::CLI" do
       result = run_cli(["exec", "--help"])
 
       result.exit_code.should eq(0)
-      result.output.should contain("Usage: meridian exec [options] -- COMMAND [ARGS...]")
+      result.output.should contain("Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]")
       result.output.should contain("--host HOST")
-      result.output.should contain("--identity-file PATH")
+      result.output.should contain("--file PATH")
     end
 
     it "writes a quadlet preview when a color, file, and output directory are provided" do
