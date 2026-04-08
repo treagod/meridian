@@ -5,8 +5,7 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `init`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `setup` / `proxy remove`.
-> Accessory management is still planned.
+> **Implemented:** `init`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `setup` / `proxy remove`, and `accessory start|stop|logs`.
 
 ---
 
@@ -44,8 +43,6 @@ meridian deploy
 ---
 
 ## Commands
-
-Commands marked *(planned)* are not yet implemented.
 
 Run `meridian COMMAND --help` for command-specific usage and options.
 
@@ -117,10 +114,13 @@ Switches kamal-proxy back to the inactive colour on every web host when that con
 meridian rollback
 ```
 
-### Accessories *(planned)*
+### `meridian accessory`
+
+Manages standalone accessory services on their configured hosts. `start` uploads the accessory Quadlet and starts the unit, `stop` only stops that accessory unit, and `logs` tails `journalctl` for that unit. Meridian currently renders accessory `image`, `port`, `volumes`, `env.clear`, and optional `cmd`. Secret environment variable injection for accessories is not implemented yet.
 
 ```bash
 meridian accessory start db
+meridian accessory logs db
 meridian accessory stop db
 ```
 
@@ -177,7 +177,7 @@ env:
     RAILS_ENV: production
     DATABASE_HOST: db.internal
   secret:
-    - SECRET_KEY_BASE     # read from environment at deploy time
+    - SECRET_KEY_BASE     # generated into .env by `meridian init`; runtime injection is not implemented yet
     - DATABASE_URL
 
 ssh:
@@ -197,8 +197,9 @@ accessories:
     volumes:
       - pgdata:/var/lib/postgresql/data
     env:
-      secret:
-        - POSTGRES_PASSWORD
+      clear:
+        POSTGRES_DB: myapp
+    cmd: postgres -c shared_buffers=256MB
 ```
 
 ---
@@ -276,7 +277,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
 - [x] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
 - [x] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
-- [ ] Accessory service management — databases, caches, and other infrastructure as Quadlet units
+- [x] Accessory service management — databases, caches, and other infrastructure as standalone Quadlet units
 
 ---
 
