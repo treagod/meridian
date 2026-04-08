@@ -4,6 +4,30 @@ def build_quadlet_generator(content : String = FULL_CONFIG)
   Meridian::Quadlet::Generator.new(load_config(content))
 end
 
+def accessory_generator_config : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    accessories:
+      db:
+        image: docker.io/library/postgres:16
+        host: 192.168.1.20
+        port: "5432:5432"
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+        env:
+          clear:
+            POSTGRES_DB: meridian
+        cmd: postgres -c shared_buffers=256MB
+  YAML
+end
+
 describe "Meridian::Quadlet::Generator" do
   describe "#container_file" do
     it "includes the [Container] section header" do
@@ -132,6 +156,57 @@ describe "Meridian::Quadlet::Generator" do
     end
   end
 
+  describe "#accessory_container_file" do
+    it "names the accessory container after the accessory key" do
+      config = load_config(FULL_CONFIG)
+      accessory = config.accessories.not_nil!["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("ContainerName=db")
+      output.should contain("Image=docker.io/library/postgres:16")
+    end
+
+    it "publishes the configured port and mounts volumes" do
+      config = load_config(FULL_CONFIG)
+      accessory = config.accessories.not_nil!["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("PublishPort=5432:5432")
+      output.should contain("Volume=pgdata:/var/lib/postgresql/data")
+    end
+
+    it "includes clear environment variables and command overrides" do
+      config = load_config(accessory_generator_config)
+      accessory = config.accessories.not_nil!["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("Environment=POSTGRES_DB=meridian")
+      output.should contain("Exec=postgres -c shared_buffers=256MB")
+    end
+
+    it "raises when the accessory image is missing" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            db:
+              host: 192.168.1.20
+        YAML
+
+      accessory = config.accessories.not_nil!["db"]
+
+      expect_raises(ArgumentError, /Accessory db is missing required image/) do
+        Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+      end
+    end
+  end
+
   describe "#write_to_directory" do
     it "creates a .container file in the output directory" do
       with_tempdir do |path|
@@ -162,6 +237,14 @@ describe "Meridian::Quadlet::Generator" do
         build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
 
         File.exists?(File.join(path, "myapp-blue.container")).should be_false
+      end
+    end
+
+    it "creates accessory container files in the output directory" do
+      with_tempdir do |path|
+        build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        File.exists?(File.join(path, "db.container")).should be_true
       end
     end
   end

@@ -17,6 +17,7 @@ describe "Meridian::CLI" do
       result.output.should contain("status")
       result.output.should contain("logs")
       result.output.should contain("exec")
+      result.output.should contain("accessory")
       result.output.should contain("quadlet")
       result.output.should contain("proxy")
       result.output.should contain("Run `meridian COMMAND --help`")
@@ -240,6 +241,58 @@ describe "Meridian::CLI" do
       end
     end
 
+    it "runs the accessory start subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "start", "db", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        runner.invocations.compact_map(&.remote_command).should contain("cat > .config/containers/systemd/db.container")
+      end
+    end
+
+    it "runs the accessory stop subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "stop", "db", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        runner.invocations.compact_map(&.remote_command).should contain("systemctl --user stop db.service")
+      end
+    end
+
+    it "runs the accessory logs subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      streaming_runner = FakeSSHStreamingRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "logs", "db", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        streaming_runner.invocations.map(&.host).should eq(["192.168.1.20"])
+      end
+    end
+
     it "prints a proxy remove error and exits non-zero when removal fails" do
       proxy_manager_factory = Meridian::CLI::ProxyManagerFactory.new do |config, _ssh_executor, output|
         FakeProxyManager.new(
@@ -367,6 +420,54 @@ describe "Meridian::CLI" do
       result.output.should contain("--file PATH")
     end
 
+    it "prints help for the accessory command" do
+      result = run_cli(["accessory", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian accessory SUBCOMMAND NAME [options]")
+      result.output.should contain("start")
+      result.output.should contain("stop")
+      result.output.should contain("logs")
+    end
+
+    it "prints help for the accessory start subcommand" do
+      result = run_cli(["accessory", "start", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian accessory start NAME [options]")
+      result.output.should contain("--file PATH")
+    end
+
+    it "prints help for the accessory stop subcommand" do
+      result = run_cli(["accessory", "stop", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian accessory stop NAME [options]")
+      result.output.should contain("--file PATH")
+    end
+
+    it "prints help for the accessory logs subcommand" do
+      result = run_cli(["accessory", "logs", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian accessory logs NAME [options]")
+      result.output.should contain("--file PATH")
+    end
+
+    it "exits with a non-zero code for unknown accessory subcommands" do
+      result = run_cli(["accessory", "bogus"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("Unknown accessory subcommand: bogus")
+    end
+
+    it "exits with a non-zero code when accessory is missing a name" do
+      result = run_cli(["accessory", "start"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("Missing accessory name")
+    end
+
     it "writes a quadlet preview when a color, file, and output directory are provided" do
       with_tempdir do |path|
         config_path = File.join(path, "deploy.yml")
@@ -380,6 +481,7 @@ describe "Meridian::CLI" do
         File.exists?(File.join(output_dir, "myapp-green.container")).should be_true
         File.exists?(File.join(output_dir, "myapp.network")).should be_true
         File.exists?(File.join(output_dir, "kamal-proxy.container")).should be_true
+        File.exists?(File.join(output_dir, "db.container")).should be_true
       end
     end
 
@@ -394,6 +496,7 @@ describe "Meridian::CLI" do
           result.exit_code.should eq(0)
           File.exists?(File.join(path, "quadlet-preview", "myapp-green.container")).should be_true
           File.exists?(File.join(path, "quadlet-preview", "myapp.network")).should be_true
+          File.exists?(File.join(path, "quadlet-preview", "db.container")).should be_true
         end
       end
     end

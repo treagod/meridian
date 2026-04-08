@@ -59,6 +59,10 @@ module Meridian
         @ssh_executor.run(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
       end
 
+      protected def run_ssh!(host : String, command : Array(String)) : SSH::Result
+        @ssh_executor.run!(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+      end
+
       protected def stream_ssh(
         host : String,
         command : Array(String),
@@ -117,6 +121,26 @@ module Meridian
         run_ssh(host, ["systemctl", "--user", "is-active", service_unit(color)]).exit_code.zero?
       rescue ex : SSH::ConnectionError
         raise ArgumentError.new(ex.message || "Failed to inspect service state for #{host}")
+      end
+
+      protected def accessory_config(name : String) : Config::AccessoryConfig
+        accessories = @config.accessories || raise Config::UnknownAccessory.new("Unknown accessory: #{name}")
+        accessories[name]? || raise Config::UnknownAccessory.new("Unknown accessory: #{name}")
+      end
+
+      protected def accessory_host(name : String, accessory : Config::AccessoryConfig) : String
+        host = accessory.host.to_s.strip
+        raise ArgumentError.new("Accessory #{name} is missing required host") if host.empty?
+
+        host
+      end
+
+      protected def accessory_quadlet_path(name : String) : String
+        File.join(Quadlet::DIRECTORY, "#{name}.container")
+      end
+
+      protected def accessory_service_unit(name : String) : String
+        "#{name}.service"
       end
 
       protected def container_exists?(host : String, container_name : String) : Bool

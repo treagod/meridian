@@ -1,5 +1,6 @@
 require "option_parser"
 require "./errors"
+require "./commands/base"
 require "./commands/**"
 require "./config/loader"
 require "./deploy/orchestrator"
@@ -36,6 +37,7 @@ module Meridian
       "status",
       "logs",
       "exec",
+      "accessory",
       "quadlet",
       "proxy",
     ]
@@ -48,6 +50,10 @@ module Meridian
 
     record LogsInvocation,
       host : String?,
+      file : String
+
+    record AccessoryInvocation,
+      name : String,
       file : String
 
     record FileInvocation,
@@ -71,6 +77,9 @@ module Meridian
     end
 
     private class InitParseError < Exception
+    end
+
+    private class AccessoryParseError < Exception
     end
 
     def self.run(
@@ -118,6 +127,8 @@ module Meridian
         run_setup(args, output, error, ssh_executor, proxy_manager_factory)
       when "exec"
         run_exec(args, output, error, ssh_executor)
+      when "accessory"
+        run_accessory(args, output, error, ssh_executor)
       when "proxy"
         run_proxy(args, output, error, ssh_executor, proxy_manager_factory)
       when "quadlet"
@@ -361,6 +372,98 @@ module Meridian
       1
     end
 
+    private def self.run_accessory(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      first_arg = args.first?
+      return print_accessory_help(output) if first_arg.try(&.in?(HELP_FLAGS))
+
+      subcommand = args.first?
+      unless subcommand
+        error.puts "Missing accessory subcommand"
+        return 1
+      end
+
+      case subcommand
+      when "start"
+        return print_accessory_start_help(output) if help_requested?(args[1..])
+
+        invocation = parse_accessory_invocation(args[1..], error, "Invalid accessory start arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Accessory.new(config, ssh_executor: ssh_executor, output: output, error: error).start(invocation.name)
+        0
+      when "stop"
+        return print_accessory_stop_help(output) if help_requested?(args[1..])
+
+        invocation = parse_accessory_invocation(args[1..], error, "Invalid accessory stop arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Accessory.new(config, ssh_executor: ssh_executor, output: output, error: error).stop(invocation.name)
+        0
+      when "logs"
+        return print_accessory_logs_help(output) if help_requested?(args[1..])
+
+        invocation = parse_accessory_invocation(args[1..], error, "Invalid accessory logs arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Accessory.new(config, ssh_executor: ssh_executor, output: output, error: error).logs(invocation.name)
+      else
+        error.puts "Unknown accessory subcommand: #{subcommand}"
+        1
+      end
+    rescue ex : Config::ValidationError | Config::UnknownAccessory | YAML::ParseException | File::NotFoundError | ArgumentError | SSH::CommandFailed | SSH::ConnectionError
+      error.puts ex.message || "Accessory command failed"
+      1
+    end
+
+    private def self.parse_accessory_invocation(
+      args : Array(String),
+      error : IO,
+      fallback : String,
+    ) : AccessoryInvocation?
+      name = args.first?
+      file = "deploy.yml"
+
+      if name.try(&.starts_with?('-'))
+        name = nil
+      end
+
+      parser_args =
+        if name
+          args.size > 1 ? args[1..] : [] of String
+        else
+          args
+        end
+
+      parser = OptionParser.new
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
+      parser.invalid_option { |flag| raise AccessoryParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise AccessoryParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise AccessoryParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(parser_args.dup)
+
+      unless parsed_name = name
+        error.puts "Missing accessory name"
+        return
+      end
+
+      AccessoryInvocation.new(name: parsed_name, file: file)
+    rescue ex : AccessoryParseError
+      error.puts ex.message || fallback
+      nil
+    end
+
     private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32
       return print_quadlet_help(output) if help_requested?(args)
 
@@ -554,6 +657,51 @@ module Meridian
       io.puts
       io.puts "Options:"
       io.puts "    --host HOST                Specific host for the role (default: first configured host)"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_accessory_help(io : IO) : Int32
+      io.puts "Usage: meridian accessory SUBCOMMAND NAME [options]"
+      io.puts
+      io.puts "Accessory subcommands:"
+      io.puts "    start                      Upload and start an accessory service"
+      io.puts "    stop                       Stop an accessory service"
+      io.puts "    logs                       Stream logs for an accessory service"
+      io.puts
+      io.puts "Run `meridian accessory SUBCOMMAND --help` for subcommand options."
+      0
+    end
+
+    private def self.print_accessory_start_help(io : IO) : Int32
+      io.puts "Usage: meridian accessory start NAME [options]"
+      io.puts
+      io.puts "Upload the accessory Quadlet and start the accessory service."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_accessory_stop_help(io : IO) : Int32
+      io.puts "Usage: meridian accessory stop NAME [options]"
+      io.puts
+      io.puts "Stop the accessory service on its configured host."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_accessory_logs_help(io : IO) : Int32
+      io.puts "Usage: meridian accessory logs NAME [options]"
+      io.puts
+      io.puts "Stream journalctl logs for the accessory service."
+      io.puts
+      io.puts "Options:"
       io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
       io.puts "    -h, --help                 Show this help"
       0

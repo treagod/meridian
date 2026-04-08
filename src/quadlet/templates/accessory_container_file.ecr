@@ -1,0 +1,21 @@
+[Container]
+Image=<%= @image %>
+ContainerName=<%= @name %>
+<% if port = @port %>
+PublishPort=<%= port %>
+<% end %>
+<% @volumes.each do |volume| %>
+Volume=<%= volume %>
+<% end %>
+<% @environment.each do |key, value| %>
+Environment=<%= key %>=<%= value %>
+<% end %>
+<% if command = @command %>
+Exec=<%= command %>
+<% end %>
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

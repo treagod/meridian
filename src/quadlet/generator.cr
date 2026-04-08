@@ -47,6 +47,20 @@ module Meridian
         ).to_s
       end
 
+      def accessory_container_file(name : String, accessory : Config::AccessoryConfig) : String
+        image = accessory.image || raise ArgumentError.new("Accessory #{name} is missing required image")
+        environment = accessory.env.try(&.clear) || EMPTY_ENV
+
+        AccessoryContainerTemplate.new(
+          name: name,
+          image: image,
+          port: accessory.port,
+          volumes: accessory.volumes,
+          environment: environment,
+          command: accessory.cmd
+        ).to_s
+      end
+
       def write_to_directory(output_dir : String, color : Color) : Nil
         web_server = @config.servers["web"]? || raise Config::UnknownRole.new("Unknown role: web")
 
@@ -61,9 +75,14 @@ module Meridian
         if @config.proxy
           File.write(File.join(output_dir, "kamal-proxy.container"), proxy_container_file)
         end
+
+        (@config.accessories || EMPTY_ACCESSORIES).each do |name, accessory|
+          File.write(File.join(output_dir, "#{name}.container"), accessory_container_file(name, accessory))
+        end
       end
 
-      private EMPTY_ENV = {} of String => String
+      private EMPTY_ENV         = {} of String => String
+      private EMPTY_ACCESSORIES = {} of String => Config::AccessoryConfig
 
       private class ContainerTemplate
         def initialize(
@@ -95,6 +114,20 @@ module Meridian
         end
 
         ECR.def_to_s "src/quadlet/templates/proxy_container_file.ecr"
+      end
+
+      private class AccessoryContainerTemplate
+        def initialize(
+          @name : String,
+          @image : String,
+          @port : String?,
+          @volumes : Array(String),
+          @environment : Hash(String, String),
+          @command : String?,
+        )
+        end
+
+        ECR.def_to_s "src/quadlet/templates/accessory_container_file.ecr"
       end
     end
   end
