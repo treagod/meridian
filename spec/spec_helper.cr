@@ -291,6 +291,31 @@ class FakeProxyManager < Meridian::Proxy::Manager
   end
 end
 
+record FakeBootstrapInvocation,
+  command : String,
+  args : Array(String),
+  step : String,
+  interactive : Bool
+
+class FakeBootstrapRunner < Meridian::Server::Bootstrapper::Runner
+  getter invocations = [] of FakeBootstrapInvocation
+  @check_results = [] of Bool
+
+  def enqueue_check(result : Bool) : Nil
+    @check_results << result
+  end
+
+  def run_interactive(command : String, args : Array(String), step : String) : Nil
+    @invocations << FakeBootstrapInvocation.new(command: command, args: args.dup, step: step, interactive: true)
+  end
+
+  def run_check(command : String, args : Array(String), step : String) : Bool
+    @invocations << FakeBootstrapInvocation.new(command: command, args: args.dup, step: step, interactive: false)
+    result = @check_results.shift?
+    result.nil? ? true : result
+  end
+end
+
 def run_cli(
   args : Array(String),
   *,
@@ -310,6 +335,10 @@ def run_cli(
     proxy_manager_factory: proxy_manager_factory
   )
   CLIResult.new(output: io.to_s, exit_code: exit_code)
+end
+
+def ssh_ok(stdout : String = "") : Meridian::SSH::Result
+  Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: "")
 end
 
 def write_config(content : String) : String
@@ -417,4 +446,29 @@ FULL_CONFIG = <<-YAML
         env:
           secret:
             - POSTGRES_PASSWORD
+  YAML
+
+FULL_CONFIG_WITH_KEYS = <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    proxy:
+      image: ghcr.io/basecamp/kamal-proxy:latest
+
+    registry:
+      server: registry.example.com
+      username: deploy
+      password:
+        - REGISTRY_PASSWORD
+
+    ssh:
+      user: deploy
+      port: 2222
+      keys:
+        - /tmp/meridian_test_key
   YAML

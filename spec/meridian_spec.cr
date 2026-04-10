@@ -544,5 +544,48 @@ describe "Meridian::CLI" do
       result = run_cli(["nonexistent-command"])
       result.output.should contain("Unknown command: nonexistent-command")
     end
+
+    it "prints server subcommand help" do
+      result = run_cli(["server", "--help"])
+      result.exit_code.should eq(0)
+      result.output.should contain("bootstrap")
+    end
+
+    it "prints server bootstrap help" do
+      result = run_cli(["server", "bootstrap", "--help"])
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian server bootstrap")
+      result.output.should contain("--host HOST")
+      result.output.should contain("--deploy-user USER")
+    end
+
+    it "exits non-zero when server bootstrap has no --host and multiple hosts are configured" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["server", "bootstrap", "--file", config_path])
+        result.exit_code.should eq(1)
+        result.output.should contain("Multiple hosts")
+      end
+    end
+
+    it "exits non-zero for unknown server subcommand" do
+      result = run_cli(["server", "unknown"])
+      result.exit_code.should eq(1)
+      result.output.should contain("Unknown server subcommand: unknown")
+    end
+
+    it "exits non-zero when server subcommand is missing" do
+      result = run_cli(["server"])
+      result.exit_code.should eq(1)
+      result.output.should contain("Missing server subcommand")
+    end
+
+    it "includes server in the global help output" do
+      result = run_cli(["--help"])
+      result.exit_code.should eq(0)
+      result.output.should contain("server")
+    end
   end
 end

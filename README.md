@@ -5,7 +5,7 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `init`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `setup` / `proxy remove`, and `accessory start|stop|logs`.
+> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, and `accessory start|stop|logs`.
 
 ---
 
@@ -30,6 +30,9 @@ sudo mv meridian /usr/local/bin/
 ## Quick start
 
 ```bash
+# 0. Provision a fresh server (Debian/Ubuntu + Podman + UFW + deploy user)
+meridian server bootstrap --host 1.2.3.4
+
 # 1. Generate deploy.yml and .env from your project directory
 meridian init
 
@@ -45,6 +48,18 @@ meridian deploy
 ## Commands
 
 Run `meridian COMMAND --help` for command-specific usage and options.
+
+### `meridian server bootstrap`
+
+Provisions a fresh Debian/Ubuntu server so it is ready for Meridian deploys. Connects as root over SSH (interactive password prompt), installs Podman and rootless helpers, configures UFW for SSH plus `80/tcp` and `443/tcp`, creates the deploy user, installs your SSH public key, configures systemd lingering and subuid/subgid maps, creates `~/.config/containers/systemd/` and `~/.local/share/containers/`, installs transfer dependencies based on `transfer.mode`, then hardens SSH (disables root login and password authentication). The public key is derived from the first path in `ssh.keys` by appending `.pub`; the deploy user defaults to `ssh.user` from `deploy.yml`. If `transfer.mode` is omitted, Meridian prepares the host for registry pulls with no extra transfer packages.
+
+```bash
+meridian server bootstrap --host 1.2.3.4
+meridian server bootstrap --host 1.2.3.4 --root-user ubuntu --rootless-port-start 443
+meridian server bootstrap --host 1.2.3.4 --passwordless-sudo no --enable-auto-updates no
+```
+
+**Requires:** a Debian/Ubuntu server reachable as `--root-user` (default `root`) via SSH, and at least one key path in `ssh.keys` with a matching `.pub` file.
 
 ### `meridian init`
 
@@ -262,8 +277,8 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 **On each target server:**
 - Podman 4.4 or later (Quadlet support)
 - systemd
-- `zstd` — only for stream transfer mode
-- `rsync` and `skopeo` — only for incremental transfer mode
+- `zstd` — only for stream transfer mode; `meridian server bootstrap` installs it automatically
+- `rsync` and `skopeo` — only for incremental transfer mode; `meridian server bootstrap` installs them automatically
 
 ---
 
@@ -278,6 +293,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
 - [x] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
 - [x] Accessory service management — databases, caches, and other infrastructure as standalone Quadlet units
+- [x] Bootstrap completeness — `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
 
 ---
 

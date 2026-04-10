@@ -60,4 +60,9 @@ module Meridian
     class GenerationError < Error
     end
   end
+
+  module Server
+    class BootstrapError < Exception
+    end
+  end
 end
