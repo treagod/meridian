@@ -8,6 +8,7 @@ require "./health/checker"
 require "./init/**"
 require "./proxy/manager"
 require "./quadlet/generator"
+require "./server/bootstrapper"
 require "./ssh/executor"
 require "./transfer/incremental"
 require "./transfer/stream"
@@ -40,6 +41,7 @@ module Meridian
       "accessory",
       "quadlet",
       "proxy",
+      "server",
     ]
 
     record ExecInvocation,
@@ -67,19 +69,19 @@ module Meridian
     record InitInvocation,
       force : Bool
 
-    private class FileParseError < Exception
-    end
+    record ServerBootstrapInvocation,
+      host : String?,
+      port : Int32?,
+      root_user : String,
+      deploy_user : String?,
+      accept_new_host_key : Bool,
+      enable_auto_updates : Bool,
+      passwordless_sudo : Bool,
+      rootless_low_ports : Bool,
+      rootless_port_start : Int32,
+      file : String
 
-    private class ExecParseError < Exception
-    end
-
-    private class QuadletParseError < Exception
-    end
-
-    private class InitParseError < Exception
-    end
-
-    private class AccessoryParseError < Exception
+    private class ParseError < Exception
     end
 
     def self.run(
@@ -139,6 +141,8 @@ module Meridian
         run_status(args, output, error, ssh_executor)
       when "logs"
         run_logs(args, output, error, ssh_executor)
+      when "server"
+        run_server(args, output, error, ssh_executor)
       else
         error.puts "Unknown command: #{command}"
         1
@@ -168,17 +172,17 @@ module Meridian
 
       parser = OptionParser.new
       parser.on("--force", "Overwrite existing deploy.yml and .env") { force = true }
-      parser.invalid_option { |flag| raise InitParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise InitParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise InitParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(args.dup)
 
       InitInvocation.new(force: force)
-    rescue ex : InitParseError
+    rescue ex : ParseError
       error.puts ex.message || "Invalid init arguments"
       nil
     end
@@ -225,10 +229,10 @@ module Meridian
       parser = OptionParser.new
       parser.on("--host HOST", "SSH host") { |value| host = value }
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise ExecParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise ExecParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, _after_dash|
-        raise ExecParseError.new("Unknown arguments: #{before_dash.join(" ")}") unless before_dash.empty?
+        raise ParseError.new("Unknown arguments: #{before_dash.join(" ")}") unless before_dash.empty?
       end
 
       parser.parse(parser_args.dup)
@@ -249,7 +253,7 @@ module Meridian
         host: host,
         file: file
       )
-    rescue ex : ExecParseError
+    rescue ex : ParseError
       error.puts ex.message || "Invalid exec arguments"
       nil
     end
@@ -321,17 +325,17 @@ module Meridian
 
       parser = OptionParser.new
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise FileParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise FileParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise FileParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(args.dup)
 
       FileInvocation.new(file: file)
-    rescue ex : FileParseError
+    rescue ex : ParseError
       error.puts ex.message || fallback
       nil
     end
@@ -343,10 +347,9 @@ module Meridian
       ssh_executor : SSH::Executor,
       proxy_manager_factory : ProxyManagerFactory,
     ) : Int32
-      first_arg = args.first?
-      return print_proxy_help(output) if first_arg.try(&.in?(HELP_FLAGS))
-
       subcommand = args.first?
+      return print_proxy_help(output) if subcommand.try(&.in?(HELP_FLAGS))
+
       unless subcommand
         error.puts "Missing proxy subcommand"
         return 1
@@ -378,10 +381,9 @@ module Meridian
       error : IO,
       ssh_executor : SSH::Executor,
     ) : Int32
-      first_arg = args.first?
-      return print_accessory_help(output) if first_arg.try(&.in?(HELP_FLAGS))
-
       subcommand = args.first?
+      return print_accessory_help(output) if subcommand.try(&.in?(HELP_FLAGS))
+
       unless subcommand
         error.puts "Missing accessory subcommand"
         return 1
@@ -444,11 +446,11 @@ module Meridian
 
       parser = OptionParser.new
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise AccessoryParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise AccessoryParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise AccessoryParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(parser_args.dup)
@@ -459,7 +461,7 @@ module Meridian
       end
 
       AccessoryInvocation.new(name: parsed_name, file: file)
-    rescue ex : AccessoryParseError
+    rescue ex : ParseError
       error.puts ex.message || fallback
       nil
     end
@@ -487,15 +489,15 @@ module Meridian
 
       parser = OptionParser.new
       parser.on("--color COLOR", "Deployment color (blue or green)") do |value|
-        color = Quadlet::Color.parse?(value) || raise QuadletParseError.new("Invalid color: #{value}")
+        color = Quadlet::Color.parse?(value) || raise ParseError.new("Invalid color: #{value}")
       end
       parser.on("--output-dir DIR", "Directory for generated Quadlet files") { |value| output_dir = value }
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise QuadletParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise QuadletParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise QuadletParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(args.dup)
@@ -506,7 +508,7 @@ module Meridian
       end
 
       QuadletInvocation.new(color: parsed_color, output_dir: output_dir, file: file)
-    rescue ex : QuadletParseError | ArgumentError
+    rescue ex : ParseError | ArgumentError
       error.puts ex.message || "Invalid quadlet arguments"
       nil
     end
@@ -555,17 +557,17 @@ module Meridian
       parser = OptionParser.new
       parser.on("--host HOST", "Configured host to stream logs from") { |value| host = value }
       parser.on("--file PATH", "Path to deploy config") { |value| file = value }
-      parser.invalid_option { |flag| raise FileParseError.new("Invalid option: #{flag}") }
-      parser.missing_option { |flag| raise FileParseError.new("Missing option value: #{flag}") }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
       parser.unknown_args do |before_dash, after_dash|
         unknown = before_dash + after_dash
-        raise FileParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
       end
 
       parser.parse(args.dup)
 
       LogsInvocation.new(host: host, file: file)
-    rescue ex : FileParseError
+    rescue ex : ParseError
       error.puts ex.message || "Invalid logs arguments"
       nil
     end
@@ -587,6 +589,104 @@ module Meridian
     rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Deploy::RollbackFailed
       error.puts ex.message || "Rollback failed"
       1
+    end
+
+    private def self.run_server(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      subcommand = args.first?
+      return print_server_help(output) if subcommand.try(&.in?(HELP_FLAGS))
+
+      unless subcommand
+        error.puts "Missing server subcommand"
+        return 1
+      end
+
+      case subcommand
+      when "bootstrap"
+        return print_server_bootstrap_help(output) if help_requested?(args[1..])
+
+        invocation = parse_server_bootstrap_invocation(args[1..], error)
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Server.new(config, ssh_executor: ssh_executor, output: output, error: error).bootstrap(invocation)
+        0
+      else
+        error.puts "Unknown server subcommand: #{subcommand}"
+        1
+      end
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | Server::BootstrapError
+      error.puts ex.message || "Server bootstrap failed"
+      1
+    end
+
+    private def self.parse_server_bootstrap_invocation(args : Array(String), error : IO) : ServerBootstrapInvocation?
+      host = nil.as(String?)
+      port = nil.as(Int32?)
+      root_user = "root"
+      deploy_user = nil.as(String?)
+      accept_new_host_key = true
+      enable_auto_updates = true
+      passwordless_sudo = true
+      rootless_low_ports = true
+      rootless_port_start = 80
+      file = "deploy.yml"
+
+      parser = OptionParser.new
+      parser.on("--host HOST", "Server IP or hostname (default: inferred when only one host in deploy.yml)") { |v| host = v }
+      parser.on("--port PORT", "SSH port (overrides deploy.yml default)") { |v| port = v.to_i }
+      parser.on("--root-user USER", "Initial privileged SSH user (default: root)") { |v| root_user = v }
+      parser.on("--deploy-user USER", "User to create (default: from deploy.yml ssh.user)") { |v| deploy_user = v }
+      parser.on("--accept-new-host-key", "Use StrictHostKeyChecking=accept-new (default)") { accept_new_host_key = true }
+      parser.on("--no-accept-new-host-key", "Use StrictHostKeyChecking=yes") { accept_new_host_key = false }
+      parser.on("--enable-auto-updates BOOL", "Enable unattended security updates (default: yes)") do |v|
+        enable_auto_updates = parse_bool_flag(v, "--enable-auto-updates")
+      end
+      parser.on("--passwordless-sudo BOOL", "Passwordless sudo for deploy user (default: yes)") do |v|
+        passwordless_sudo = parse_bool_flag(v, "--passwordless-sudo")
+      end
+      parser.on("--rootless-low-ports BOOL", "Allow rootless low-port binding (default: yes)") do |v|
+        rootless_low_ports = parse_bool_flag(v, "--rootless-low-ports")
+      end
+      parser.on("--rootless-port-start PORT", "Lowest unprivileged port (default: 80)") { |v| rootless_port_start = v.to_i }
+      parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| file = v }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      ServerBootstrapInvocation.new(
+        host: host,
+        port: port,
+        root_user: root_user,
+        deploy_user: deploy_user,
+        accept_new_host_key: accept_new_host_key,
+        enable_auto_updates: enable_auto_updates,
+        passwordless_sudo: passwordless_sudo,
+        rootless_low_ports: rootless_low_ports,
+        rootless_port_start: rootless_port_start,
+        file: file,
+      )
+    rescue ex : ParseError
+      error.puts ex.message || "Invalid server bootstrap arguments"
+      nil
+    end
+
+    private def self.parse_bool_flag(value : String, flag : String) : Bool
+      case value.strip.downcase
+      when "1", "true", "yes", "y", "on"  then true
+      when "0", "false", "no", "n", "off" then false
+      else
+        raise ParseError.new("#{flag} must be one of: yes/no, true/false, 1/0")
+      end
     end
 
     private def self.help_requested?(args : Array(String), stop_at_separator : Bool = false) : Bool
@@ -749,6 +849,39 @@ module Meridian
       io.puts "Options:"
       io.puts "    --color COLOR              Deployment color (blue or green)"
       io.puts "    --output-dir DIR           Directory for generated Quadlet files"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_server_help(io : IO) : Int32
+      io.puts "Usage: meridian server SUBCOMMAND [options]"
+      io.puts
+      io.puts "Server subcommands:"
+      io.puts "    bootstrap                  Provision a fresh server for Meridian deploys"
+      io.puts
+      io.puts "Run `meridian server SUBCOMMAND --help` for subcommand options."
+      0
+    end
+
+    private def self.print_server_bootstrap_help(io : IO) : Int32
+      io.puts "Usage: meridian server bootstrap --host HOST [options]"
+      io.puts
+      io.puts "Provision a fresh Debian/Ubuntu server: installs Podman, UFW, and transfer tools"
+      io.puts "for the configured transfer mode, creates the deploy user and rootless directories,"
+      io.puts "installs your SSH public key, then hardens SSH."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --host HOST                Server IP or hostname (inferred if only one host in deploy.yml)"
+      io.puts "    --port PORT                SSH port (overrides deploy.yml default)"
+      io.puts "    --root-user USER           Initial privileged SSH user (default: root)"
+      io.puts "    --deploy-user USER         User to create (default: from deploy.yml ssh.user)"
+      io.puts "    --accept-new-host-key      Trust new host keys (default)"
+      io.puts "    --no-accept-new-host-key   Require known host key"
+      io.puts "    --enable-auto-updates BOOL Unattended security updates (default: yes)"
+      io.puts "    --passwordless-sudo BOOL   Passwordless sudo for deploy user (default: yes)"
+      io.puts "    --rootless-low-ports BOOL  Allow rootless low-port binding (default: yes)"
+      io.puts "    --rootless-port-start PORT Lowest unprivileged port (default: 80)"
       io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
       io.puts "    -h, --help                 Show this help"
       0

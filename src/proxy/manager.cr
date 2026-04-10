@@ -88,7 +88,7 @@ module Meridian
         @ssh_executor.upload(host, remote_path, content, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
       end
 
-      private def ssh_user : String?
+      private def ssh_user : String
         @config.ssh.user
       end
 

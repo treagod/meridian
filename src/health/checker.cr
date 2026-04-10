@@ -46,7 +46,7 @@ module Meridian
       end
 
       private def curl_command(uri : URI, timeout : Time::Span) : Array(String)
-        timeout_seconds = (timeout.total_milliseconds / 1000.0).to_s
+        timeout_seconds = timeout.total_seconds.to_s
 
         [
           "curl",

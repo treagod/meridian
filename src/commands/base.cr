@@ -156,11 +156,49 @@ module Meridian
         raise ArgumentError.new(ex.message || "Failed to inspect container state for #{host}")
       end
 
+      protected def proxy_deploy_command(
+        proxy : Config::ServerProxyConfig,
+        color : Quadlet::Color,
+      ) : Array(String)
+        command = [
+          "podman",
+          "exec",
+          "kamal-proxy",
+          "kamal-proxy",
+          "deploy",
+          @config.service,
+          "--target",
+          "#{service_name(color)}:#{proxy.app_port}",
+          "--health-check-path",
+          proxy.healthcheck.path,
+          "--health-check-interval",
+          "#{proxy.healthcheck.interval}s",
+          "--health-check-timeout",
+          "#{proxy.healthcheck.timeout}s",
+        ]
+
+        if host = proxy.host
+          command << "--host"
+          command << host
+        end
+
+        if proxy.ssl?
+          command << "--tls"
+        end
+
+        if path = proxy.path
+          command << "--path-prefix"
+          command << path
+        end
+
+        command
+      end
+
       protected def ssh_command_failed(host : String, exit_code : Int32) : SSH::CommandFailed
         SSH::CommandFailed.new("Remote command on #{target_host(host)} failed with exit code #{exit_code}")
       end
 
-      private def ssh_user : String?
+      private def ssh_user : String
         @config.ssh.user
       end
 

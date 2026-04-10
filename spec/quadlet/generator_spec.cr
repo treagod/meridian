@@ -79,7 +79,7 @@ describe "Meridian::Quadlet::Generator" do
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
 
       output.should contain("[Install]")
-      output.should contain("WantedBy=multi-user.target")
+      output.should contain("WantedBy=default.target")
     end
 
     it "includes the network reference" do

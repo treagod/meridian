@@ -30,52 +30,12 @@ module Meridian
           log(host, "Recording active color #{rollback_color.slug}")
           upload_ssh(host, ACTIVE_COLOR_FILE, "#{rollback_color.slug}\n")
         end
-      rescue ex : Config::UnknownRole | ArgumentError
-        raise Deploy::RollbackFailed.new(ex.message || "Rollback failed")
-      rescue ex : SSH::CommandFailed | SSH::ConnectionError
+      rescue ex : Config::UnknownRole | ArgumentError | SSH::CommandFailed | SSH::ConnectionError
         raise Deploy::RollbackFailed.new(ex.message || "Rollback failed")
       end
 
       private def web_proxy : Config::ServerProxyConfig
         server_config("web").proxy || raise Deploy::RollbackFailed.new("Missing proxy configuration for role: web")
-      end
-
-      private def proxy_deploy_command(
-        proxy : Config::ServerProxyConfig,
-        color : Quadlet::Color,
-      ) : Array(String)
-        command = [
-          "podman",
-          "exec",
-          "kamal-proxy",
-          "kamal-proxy",
-          "deploy",
-          @config.service,
-          "--target",
-          "#{service_name(color)}:#{proxy.app_port}",
-          "--health-check-path",
-          proxy.healthcheck.path,
-          "--health-check-interval",
-          "#{proxy.healthcheck.interval}s",
-          "--health-check-timeout",
-          "#{proxy.healthcheck.timeout}s",
-        ]
-
-        if host = proxy.host
-          command << "--host"
-          command << host
-        end
-
-        if proxy.ssl?
-          command << "--tls"
-        end
-
-        if path = proxy.path
-          command << "--path-prefix"
-          command << path
-        end
-
-        command
       end
 
       private def log(host : String, message : String) : Nil
