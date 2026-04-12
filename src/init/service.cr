@@ -31,8 +31,7 @@ module Meridian
       registry_server : String?,
       registry_username : String?,
       clear_env : Hash(String, String),
-      healthcheck_path : String?,
-      dockerfile_present : Bool
+      healthcheck_path : String?
 
     class Service
       def initialize(
@@ -162,8 +161,7 @@ module Meridian
           registry_server: registry_server,
           registry_username: registry_username,
           clear_env: framework.try(&.clear_env) || EMPTY_ENV,
-          healthcheck_path: framework.try(&.healthcheck_path),
-          dockerfile_present: detected.dockerfile_present
+          healthcheck_path: framework.try(&.healthcheck_path)
         )
       end
 
@@ -238,14 +236,6 @@ module Meridian
           yaml.mapping do
             write_scalar_field(yaml, "service", answers.service_name)
             write_scalar_field(yaml, "image", answers.image)
-
-            if answers.dockerfile_present
-              yaml.scalar "build"
-              yaml.mapping do
-                write_scalar_field(yaml, "dockerfile", "Dockerfile")
-                write_scalar_field(yaml, "context", ".")
-              end
-            end
 
             yaml.scalar "servers"
             yaml.mapping do

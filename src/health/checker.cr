@@ -24,6 +24,10 @@ module Meridian
         @user : String? = nil,
         @port : Int32? = nil,
         @identity_file : String? = nil,
+        @proxy_jump : String? = nil,
+        @connect_timeout : Int32? = nil,
+        @keepalive : Bool? = nil,
+        @keepalive_interval : Int32? = nil,
       )
       end
 
@@ -33,7 +37,11 @@ module Meridian
           curl_command(uri, timeout),
           user: @user,
           port: @port,
-          identity_file: @identity_file
+          identity_file: @identity_file,
+          proxy_jump: @proxy_jump,
+          connect_timeout: @connect_timeout,
+          keepalive: @keepalive,
+          keepalive_interval: @keepalive_interval
         )
         raise IO::Error.new(remote_error_message(result)) unless result.exit_code.zero?
 

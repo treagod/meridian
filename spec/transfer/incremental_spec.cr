@@ -15,6 +15,10 @@ def build_test_incremental(
   user : String? = "deploy",
   port : Int32? = nil,
   identity_file : String? = nil,
+  proxy_jump : String? = nil,
+  connect_timeout : Int32? = nil,
+  keepalive : Bool? = nil,
+  keepalive_interval : Int32? = nil,
   local_dependency_checker : Meridian::Transfer::Incremental::DependencyChecker = ->(_command : String) { true },
   monotonic_clock : Meridian::Transfer::Incremental::MonotonicClock = -> { Time.instant },
   local_command_runner : Meridian::Transfer::Incremental::LocalCommandRunner = ->(_request : Meridian::Transfer::Incremental::LocalCommandRequest) { Meridian::Transfer::Incremental::LocalCommandResult.new(exit_code: 0, stdout: "", stderr: "") },
@@ -26,6 +30,10 @@ def build_test_incremental(
     user: user,
     port: port,
     identity_file: identity_file,
+    proxy_jump: proxy_jump,
+    connect_timeout: connect_timeout,
+    keepalive: keepalive,
+    keepalive_interval: keepalive_interval,
     local_dependency_checker: local_dependency_checker,
     monotonic_clock: monotonic_clock,
     local_command_runner: local_command_runner
@@ -118,6 +126,33 @@ describe "Meridian::Transfer::Incremental" do
       rsync_request.command.should contain("deployer@192.168.1.10:/tmp/meridian-oci/myapp/")
       rsync_shell = rsync_request.command[rsync_request.command.index("-e").not_nil! + 1]
       rsync_shell.should eq("ssh -p 2222 -i /tmp/id_ed25519")
+    end
+
+    it "threads proxy jump, timeout, and keepalive into the rsync ssh shell" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
+      requests = [] of Meridian::Transfer::Incremental::LocalCommandRequest
+      incremental = build_test_incremental(
+        runner: runner,
+        proxy_jump: "bastion.example.com",
+        connect_timeout: 10,
+        keepalive: true,
+        keepalive_interval: 30,
+        local_command_runner: ->(request : Meridian::Transfer::Incremental::LocalCommandRequest) do
+          requests << request
+          Meridian::Transfer::Incremental::LocalCommandResult.new(
+            exit_code: 0,
+            stdout: "Total bytes sent: 512\n",
+            stderr: ""
+          )
+        end
+      )
+
+      incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
+
+      rsync_request = requests[1]
+      rsync_shell = rsync_request.command[rsync_request.command.index("-e").not_nil! + 1]
+      rsync_shell.should eq("ssh -J bastion.example.com -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3")
     end
 
     it "imports the OCI directory into Podman storage on the remote host via skopeo" do

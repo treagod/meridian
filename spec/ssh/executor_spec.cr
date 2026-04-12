@@ -70,6 +70,104 @@ describe "Meridian::SSH::Executor" do
       invocation.args.should eq(["-p", "2222", "-i", "/tmp/id_ed25519", "deploy@1.2.3.4", "uptime"])
     end
 
+    it "adds proxy jump and connect timeout options" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run(
+        "1.2.3.4",
+        ["uptime"],
+        proxy_jump: "bastion.example.com",
+        connect_timeout: 15
+      )
+
+      invocation = runner.invocations.last
+      invocation.args.should eq([
+        "-J",
+        "bastion.example.com",
+        "-o",
+        "ConnectTimeout=15",
+        "1.2.3.4",
+        "uptime",
+      ])
+    end
+
+    it "adds keepalive options when enabled" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run(
+        "1.2.3.4",
+        ["uptime"],
+        keepalive: true,
+        keepalive_interval: 45
+      )
+
+      invocation = runner.invocations.last
+      invocation.args.should eq([
+        "-o",
+        "ServerAliveInterval=45",
+        "-o",
+        "ServerAliveCountMax=3",
+        "1.2.3.4",
+        "uptime",
+      ])
+    end
+
+    it "disables keepalive when configured" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run(
+        "1.2.3.4",
+        ["uptime"],
+        keepalive: false
+      )
+
+      invocation = runner.invocations.last
+      invocation.args.should eq([
+        "-o",
+        "ServerAliveInterval=0",
+        "1.2.3.4",
+        "uptime",
+      ])
+    end
+
+    it "orders SSH options before the target host consistently" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run(
+        "1.2.3.4",
+        ["uptime"],
+        user: "deploy",
+        port: 2222,
+        identity_file: "/tmp/id_ed25519",
+        proxy_jump: "bastion.example.com",
+        connect_timeout: 12,
+        keepalive: true,
+        keepalive_interval: 60
+      )
+
+      invocation = runner.invocations.last
+      invocation.args.should eq([
+        "-p",
+        "2222",
+        "-i",
+        "/tmp/id_ed25519",
+        "-J",
+        "bastion.example.com",
+        "-o",
+        "ConnectTimeout=12",
+        "-o",
+        "ServerAliveInterval=60",
+        "-o",
+        "ServerAliveCountMax=3",
+        "deploy@1.2.3.4",
+        "uptime",
+      ])
+    end
+
     it "passes environment variables to the remote command" do
       runner = FakeSSHRunner.new
       executor = Meridian::SSH::Executor.new(runner: runner)

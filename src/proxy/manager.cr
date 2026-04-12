@@ -77,15 +77,46 @@ module Meridian
       end
 
       private def run_ssh(host : String, command : Array(String)) : SSH::Result
-        @ssh_executor.run(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+        @ssh_executor.run(
+          host,
+          command,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump,
+          connect_timeout: ssh_connect_timeout,
+          keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval
+        )
       end
 
       private def run_ssh!(host : String, command : Array(String)) : SSH::Result
-        @ssh_executor.run!(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+        @ssh_executor.run!(
+          host,
+          command,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump,
+          connect_timeout: ssh_connect_timeout,
+          keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval
+        )
       end
 
       private def upload_ssh(host : String, remote_path : String, content : String) : Nil
-        @ssh_executor.upload(host, remote_path, content, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file)
+        @ssh_executor.upload(
+          host,
+          remote_path,
+          content,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump,
+          connect_timeout: ssh_connect_timeout,
+          keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval
+        )
       end
 
       private def ssh_user : String
@@ -99,6 +130,22 @@ module Meridian
 
       private def ssh_identity_file : String?
         @config.ssh.keys.first?
+      end
+
+      private def ssh_proxy_jump : String?
+        @config.ssh.proxy_jump
+      end
+
+      private def ssh_connect_timeout : Int32
+        @config.ssh.connect_timeout
+      end
+
+      private def ssh_keepalive : Bool
+        @config.ssh.keepalive?
+      end
+
+      private def ssh_keepalive_interval : Int32
+        @config.ssh.keepalive_interval
       end
     end
   end

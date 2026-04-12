@@ -28,6 +28,10 @@ module Meridian
         @user : String? = nil,
         @port : Int32? = nil,
         @identity_file : String? = nil,
+        @proxy_jump : String? = nil,
+        @connect_timeout : Int32? = nil,
+        @keepalive : Bool? = nil,
+        @keepalive_interval : Int32? = nil,
         local_dependency_checker : DependencyChecker? = nil,
         monotonic_clock : MonotonicClock? = nil,
         local_command_runner : LocalCommandRunner? = nil,
@@ -98,7 +102,11 @@ module Meridian
           ["sh", "-lc", "command -v #{Process.quote_posix(dependency)} >/dev/null"],
           user: @user,
           port: @port,
-          identity_file: @identity_file
+          identity_file: @identity_file,
+          proxy_jump: @proxy_jump,
+          connect_timeout: @connect_timeout,
+          keepalive: @keepalive,
+          keepalive_interval: @keepalive_interval
         )
         return if result.exit_code.zero?
 
@@ -131,7 +139,11 @@ module Meridian
           command,
           user: @user,
           port: @port,
-          identity_file: @identity_file
+          identity_file: @identity_file,
+          proxy_jump: @proxy_jump,
+          connect_timeout: @connect_timeout,
+          keepalive: @keepalive,
+          keepalive_interval: @keepalive_interval
         )
         return result if result.exit_code.zero?
 
@@ -202,13 +214,32 @@ module Meridian
           args << identity_file
         end
 
+        if proxy_jump = @proxy_jump
+          args << "-J"
+          args << proxy_jump
+        end
+
+        if connect_timeout = @connect_timeout
+          args << "-o"
+          args << "ConnectTimeout=#{connect_timeout}"
+        end
+
+        if @keepalive == false
+          args << "-o"
+          args << "ServerAliveInterval=0"
+        elsif @keepalive
+          args << "-o"
+          args << "ServerAliveInterval=#{@keepalive_interval || 30}"
+          args << "-o"
+          args << "ServerAliveCountMax=3"
+        end
+
         Process.quote_posix(args)
       end
 
       private def print_line(host : String, message : String) : Nil
         @output.puts "[#{host}] #{message}"
       end
-
     end
   end
 end
