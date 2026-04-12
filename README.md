@@ -63,7 +63,7 @@ meridian server bootstrap --host 1.2.3.4 --passwordless-sudo no --enable-auto-up
 
 ### `meridian init`
 
-Detects what it can from the project directory (service name, Git remote, Dockerfile, framework), prompts for the rest, and generates `deploy.yml` and `.env`.
+Detects what it can from the project directory (service name, Git remote, Dockerfile, framework), prompts for the rest, and generates `deploy.yml` and `.env`. Dockerfile detection is currently informational only; Meridian does not support a `build:` section yet.
 
 ```bash
 meridian init           # refuses to overwrite an existing deploy.yml
@@ -199,6 +199,9 @@ ssh:
   user: deploy
   port: 22
   # proxy_jump: bastion.example.com
+  # connect_timeout: 10
+  # keepalive: true
+  # keepalive_interval: 30
 
 boot:
   limit: 1     # deploy to this many hosts at a time
@@ -240,6 +243,12 @@ Meridian exports the local image to `/tmp/meridian-oci/<service>` with `skopeo c
 | Repeated deploys with small image changes | `incremental` |
 | CI/CD with fast internet and a registry | Registry (default) |
 | Layer-only incremental sync | `incremental` |
+
+---
+
+## SSH Configuration
+
+Meridian currently honors `ssh.user`, `ssh.port`, the first path in `ssh.keys`, `ssh.proxy_jump`, `ssh.connect_timeout`, `ssh.keepalive`, and `ssh.keepalive_interval` for deploys, setup, logs, exec, rollback, accessory commands, and remote health checks. Unknown config keys are rejected, and `build:` is reserved but not yet supported.
 
 ---
 
@@ -294,6 +303,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
 - [x] Accessory service management — databases, caches, and other infrastructure as standalone Quadlet units
 - [x] Bootstrap completeness — `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
+- [x] Honest config contract — unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
 
 ---
 

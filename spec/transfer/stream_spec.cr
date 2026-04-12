@@ -14,6 +14,10 @@ def build_test_stream(
   user : String? = "deploy",
   port : Int32? = nil,
   identity_file : String? = nil,
+  proxy_jump : String? = nil,
+  connect_timeout : Int32? = nil,
+  keepalive : Bool? = nil,
+  keepalive_interval : Int32? = nil,
   local_dependency_checker : Meridian::Transfer::Stream::DependencyChecker = ->(_command : String) { true },
   monotonic_clock : Meridian::Transfer::Stream::MonotonicClock = -> { Time.instant },
   pipeline_runner : Meridian::Transfer::Stream::PipelineRunner = ->(_request : Meridian::Transfer::Stream::PipelineRequest) { Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 256_i64) },
@@ -24,6 +28,10 @@ def build_test_stream(
     user: user,
     port: port,
     identity_file: identity_file,
+    proxy_jump: proxy_jump,
+    connect_timeout: connect_timeout,
+    keepalive: keepalive,
+    keepalive_interval: keepalive_interval,
     local_dependency_checker: local_dependency_checker,
     monotonic_clock: monotonic_clock,
     pipeline_runner: pipeline_runner
@@ -93,6 +101,39 @@ describe "Meridian::Transfer::Stream" do
         "-i",
         "/tmp/id_ed25519",
         "deployer@192.168.1.10",
+        "zstd --decompress --stdout | podman load",
+      ])
+    end
+
+    it "includes configured SSH options in pipeline ssh args" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host("192.168.1.10", transfer_ssh_ok)
+      request = nil.as(Meridian::Transfer::Stream::PipelineRequest?)
+      stream = build_test_stream(
+        runner: runner,
+        proxy_jump: "bastion.example.com",
+        connect_timeout: 10,
+        keepalive: true,
+        keepalive_interval: 30,
+        pipeline_runner: ->(candidate : Meridian::Transfer::Stream::PipelineRequest) do
+          request = candidate
+          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 256_i64)
+        end
+      )
+
+      stream.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
+
+      captured_request = request.as(Meridian::Transfer::Stream::PipelineRequest)
+      captured_request.ssh_args.should eq([
+        "-J",
+        "bastion.example.com",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "deploy@192.168.1.10",
         "zstd --decompress --stdout | podman load",
       ])
     end

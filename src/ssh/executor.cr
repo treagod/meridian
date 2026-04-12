@@ -52,8 +52,23 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Array(String)
-        ssh_args(host, command, env, user, port, identity_file)
+        ssh_args(
+          host,
+          command,
+          env,
+          user,
+          port,
+          identity_file,
+          proxy_jump,
+          connect_timeout,
+          keepalive,
+          keepalive_interval
+        )
       end
 
       def command_args(
@@ -63,8 +78,22 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Array(String)
-        ssh_args(host, remote_command, user, port, identity_file)
+        ssh_args(
+          host,
+          remote_command,
+          user,
+          port,
+          identity_file,
+          proxy_jump,
+          connect_timeout,
+          keepalive,
+          keepalive_interval
+        )
       end
 
       def run(
@@ -75,8 +104,26 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Result
-        result = @runner.run("ssh", command_args(host, command, env: env, user: user, port: port, identity_file: identity_file))
+        result = @runner.run(
+          "ssh",
+          command_args(
+            host,
+            command,
+            env: env,
+            user: user,
+            port: port,
+            identity_file: identity_file,
+            proxy_jump: proxy_jump,
+            connect_timeout: connect_timeout,
+            keepalive: keepalive,
+            keepalive_interval: keepalive_interval
+          )
+        )
         raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if result.exit_code == 255
 
         result
@@ -93,10 +140,25 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Int32
         exit_code = @streaming_runner.run(
           "ssh",
-          command_args(host, command, env: env, user: user, port: port, identity_file: identity_file),
+          command_args(
+            host,
+            command,
+            env: env,
+            user: user,
+            port: port,
+            identity_file: identity_file,
+            proxy_jump: proxy_jump,
+            connect_timeout: connect_timeout,
+            keepalive: keepalive,
+            keepalive_interval: keepalive_interval
+          ),
           input,
           output,
           error
@@ -114,8 +176,23 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Result
-        result = run(host, command, env: env, user: user, port: port, identity_file: identity_file)
+        result = run(
+          host,
+          command,
+          env: env,
+          user: user,
+          port: port,
+          identity_file: identity_file,
+          proxy_jump: proxy_jump,
+          connect_timeout: connect_timeout,
+          keepalive: keepalive,
+          keepalive_interval: keepalive_interval
+        )
         return result if result.exit_code.zero?
 
         raise CommandFailed.new("Remote command on #{target_host(host, user)} failed with exit code #{result.exit_code}")
@@ -129,10 +206,24 @@ module Meridian
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
+        proxy_jump : String? = nil,
+        connect_timeout : Int32? = nil,
+        keepalive : Bool? = nil,
+        keepalive_interval : Int32? = nil,
       ) : Nil
         result = @runner.run(
           "ssh",
-          command_args(host, "cat > #{Process.quote_posix(remote_path)}", user: user, port: port, identity_file: identity_file),
+          command_args(
+            host,
+            "cat > #{Process.quote_posix(remote_path)}",
+            user: user,
+            port: port,
+            identity_file: identity_file,
+            proxy_jump: proxy_jump,
+            connect_timeout: connect_timeout,
+            keepalive: keepalive,
+            keepalive_interval: keepalive_interval
+          ),
           input: content
         )
 
@@ -149,8 +240,22 @@ module Meridian
         user : String?,
         port : Int32?,
         identity_file : String?,
+        proxy_jump : String?,
+        connect_timeout : Int32?,
+        keepalive : Bool?,
+        keepalive_interval : Int32?,
       ) : Array(String)
-        ssh_args(host, build_remote_command(command, env), user, port, identity_file)
+        ssh_args(
+          host,
+          build_remote_command(command, env),
+          user,
+          port,
+          identity_file,
+          proxy_jump,
+          connect_timeout,
+          keepalive,
+          keepalive_interval
+        )
       end
 
       private def ssh_args(
@@ -159,6 +264,10 @@ module Meridian
         user : String?,
         port : Int32?,
         identity_file : String?,
+        proxy_jump : String?,
+        connect_timeout : Int32?,
+        keepalive : Bool?,
+        keepalive_interval : Int32?,
       ) : Array(String)
         args = [] of String
 
@@ -170,6 +279,26 @@ module Meridian
         if identity_file
           args << "-i"
           args << identity_file
+        end
+
+        if proxy_jump
+          args << "-J"
+          args << proxy_jump
+        end
+
+        if connect_timeout
+          args << "-o"
+          args << "ConnectTimeout=#{connect_timeout}"
+        end
+
+        if keepalive == false
+          args << "-o"
+          args << "ServerAliveInterval=0"
+        elsif keepalive
+          args << "-o"
+          args << "ServerAliveInterval=#{keepalive_interval || 30}"
+          args << "-o"
+          args << "ServerAliveCountMax=3"
         end
 
         args << target_host(host, user)

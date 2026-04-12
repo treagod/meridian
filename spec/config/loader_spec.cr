@@ -9,33 +9,32 @@ describe "Meridian::Config::Loader" do
       config.image.should eq("registry.example.com/myorg/myapp")
     end
 
-    it "parses the build block when present" do
+    it "raises a validation error when build config is present" do
       yaml = <<-YAML
-          service: myapp
-          image: registry.example.com/myorg/myapp
+        service: myapp
+        image: registry.example.com/myorg/myapp
 
-          build:
-            dockerfile: Dockerfile.prod
-            context: .
-            args:
-              RAILS_ENV: production
-            platform: linux/amd64
-            builder: remote-builder
+        build:
+          dockerfile: Dockerfile.prod
+          context: .
+          args:
+            RAILS_ENV: production
+          platform: linux/amd64
+          builder: remote-builder
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
-        YAML
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+      YAML
 
-      config = Meridian::Config::Loader.parse(yaml)
-      build = config.build || raise "Expected build config"
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.parse(yaml)
+      end
 
-      build.dockerfile.should eq("Dockerfile.prod")
-      build.context.should eq(".")
-      build.args["RAILS_ENV"].should eq("production")
-      build.platform.should eq("linux/amd64")
-      build.builder.should eq("remote-builder")
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("build")
+      message.should contain("not yet supported")
     end
   end
 
@@ -85,21 +84,82 @@ describe "Meridian::Config::Loader" do
 
     it "parses stream transfer mode without requiring a registry block" do
       yaml = <<-YAML
-          service: myapp
-          image: registry.example.com/myorg/myapp
+        service: myapp
+        image: registry.example.com/myorg/myapp
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
 
-          transfer:
-            mode: stream
-        YAML
+        transfer:
+          mode: stream
+      YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.transfer.try(&.mode).should eq(Meridian::Config::TransferMode::Stream)
       config.registry.should be_nil
+    end
+
+    it "raises a validation error when replicas is configured" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            replicas: 2
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("replicas")
+    end
+
+    it "raises a validation error when response_buffer is configured" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              response_buffer: 1024
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("response_buffer")
+    end
+
+    it "raises a validation error for unknown config keys" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            typo: true
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("typo")
     end
 
     it "parses clear environment variables" do
@@ -149,16 +209,16 @@ describe "Meridian::Config::Loader" do
 
     it "raises a descriptive error when the service key is missing" do
       yaml = <<-YAML
-          image: registry.example.com/myorg/myapp
+        image: registry.example.com/myorg/myapp
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
 
-          proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
-        YAML
+        proxy:
+          image: ghcr.io/basecamp/kamal-proxy:latest
+      YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -169,16 +229,16 @@ describe "Meridian::Config::Loader" do
 
     it "raises a descriptive error when the image key is missing" do
       yaml = <<-YAML
-          service: myapp
+        service: myapp
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
 
-          proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
-        YAML
+        proxy:
+          image: ghcr.io/basecamp/kamal-proxy:latest
+      YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -189,12 +249,12 @@ describe "Meridian::Config::Loader" do
 
     it "raises a descriptive error when no servers are defined" do
       yaml = <<-YAML
-          service: myapp
-          image: registry.example.com/myorg/myapp
+        service: myapp
+        image: registry.example.com/myorg/myapp
 
-          proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
-        YAML
+        proxy:
+          image: ghcr.io/basecamp/kamal-proxy:latest
+      YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -205,16 +265,16 @@ describe "Meridian::Config::Loader" do
 
     it "raises a descriptive error when transfer.mode is missing" do
       yaml = <<-YAML
-          service: myapp
-          image: registry.example.com/myorg/myapp
+        service: myapp
+        image: registry.example.com/myorg/myapp
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
 
-          transfer: {}
-        YAML
+        transfer: {}
+      YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))

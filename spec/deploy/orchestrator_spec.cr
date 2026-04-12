@@ -43,17 +43,6 @@ def build_stream_transfer(
   )
 end
 
-def remote_commands_for(runner : FakeSSHRunner, host : String? = nil) : Array(String)
-  invocations =
-    if host
-      runner.invocations.select { |invocation| invocation.host == host }
-    else
-      runner.invocations
-    end
-
-  invocations.compact_map(&.remote_command)
-end
-
 def ssh_ok(stdout : String = "", stderr : String = "") : Meridian::SSH::Result
   Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: stderr)
 end
@@ -425,6 +414,12 @@ describe "Meridian::Deploy::Orchestrator" do
         "2222",
         "-i",
         "/tmp/id_ed25519",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
         "deployer@192.168.1.10",
         "podman pull registry.example.com/myorg/myapp",
       ])

@@ -38,7 +38,7 @@ struct FakeSSHInvocation
 
     while arg = args[index]?
       case arg
-      when "-p", "-i"
+      when "-p", "-i", "-J", "-o"
         index += 2
       else
         return index
@@ -80,7 +80,7 @@ struct FakeSSHStreamInvocation
 
     while arg = args[index]?
       case arg
-      when "-p", "-i"
+      when "-p", "-i", "-J", "-o"
         index += 2
       else
         return index
@@ -339,6 +339,17 @@ end
 
 def ssh_ok(stdout : String = "") : Meridian::SSH::Result
   Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: "")
+end
+
+def remote_commands_for(runner : FakeSSHRunner, host : String? = nil) : Array(String)
+  invocations =
+    if host
+      runner.invocations.select { |invocation| invocation.host == host }
+    else
+      runner.invocations
+    end
+
+  invocations.compact_map(&.remote_command)
 end
 
 def write_config(content : String) : String

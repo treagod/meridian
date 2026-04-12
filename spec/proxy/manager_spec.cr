@@ -127,6 +127,10 @@ describe "Meridian::Proxy::Manager" do
             port: 2222
             keys:
               - /tmp/id_ed25519
+            proxy_jump: bastion.example.com
+            connect_timeout: 12
+            keepalive: true
+            keepalive_interval: 45
           YAML
         runner: runner
       )
@@ -138,6 +142,14 @@ describe "Meridian::Proxy::Manager" do
         "2222",
         "-i",
         "/tmp/id_ed25519",
+        "-J",
+        "bastion.example.com",
+        "-o",
+        "ConnectTimeout=12",
+        "-o",
+        "ServerAliveInterval=45",
+        "-o",
+        "ServerAliveCountMax=3",
         "deployer@192.168.1.10",
         "mkdir -p .config/containers/systemd",
       ])

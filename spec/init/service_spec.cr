@@ -37,7 +37,7 @@ describe "Meridian::Init::Service" do
     end
   end
 
-  it "emits a build block when a Dockerfile is present" do
+  it "does not emit a build block when a Dockerfile is present" do
     with_tempdir do |path|
       write_project_file(path, "Dockerfile", "FROM alpine:3.20\n")
       output = run_init_service(
@@ -46,10 +46,7 @@ describe "Meridian::Init::Service" do
       )
 
       config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
-      build = config.build || raise "Expected build config"
-
-      build.dockerfile.should eq("Dockerfile")
-      build.context.should eq(".")
+      config.build.should be_nil
       output.should contain("Dockerfile present")
     end
   end
