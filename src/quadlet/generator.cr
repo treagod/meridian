@@ -43,7 +43,8 @@ module Meridian
           service: @config.service,
           image: image,
           http_port: proxy.http_port,
-          https_port: proxy.https_port
+          https_port: proxy.https_port,
+          data_dir: proxy.data_dir
         ).to_s
       end
 
@@ -110,6 +111,7 @@ module Meridian
           @image : String,
           @http_port : Int32,
           @https_port : Int32,
+          @data_dir : String,
         )
         end
 

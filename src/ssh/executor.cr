@@ -101,6 +101,7 @@ module Meridian
         command : Array(String),
         *,
         env : Hash(String, String) = {} of String => String,
+        input : String? = nil,
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
@@ -122,7 +123,8 @@ module Meridian
             connect_timeout: connect_timeout,
             keepalive: keepalive,
             keepalive_interval: keepalive_interval
-          )
+          ),
+          input
         )
         raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if result.exit_code == 255
 
@@ -173,6 +175,7 @@ module Meridian
         command : Array(String),
         *,
         env : Hash(String, String) = {} of String => String,
+        input : String? = nil,
         user : String? = nil,
         port : Int32? = nil,
         identity_file : String? = nil,
@@ -185,6 +188,7 @@ module Meridian
           host,
           command,
           env: env,
+          input: input,
           user: user,
           port: port,
           identity_file: identity_file,

@@ -91,6 +91,47 @@ describe "Meridian::Proxy::Manager" do
       end
     end
 
+    it "includes the default data_dir volume in the uploaded Quadlet" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
+      uploads.each do |upload|
+        upload_input = upload.input || raise "Expected upload input"
+        upload_input.should contain("Volume=/var/lib/kamal-proxy:/var/lib/kamal-proxy")
+      end
+    end
+
+    it "uses a custom data_dir in the uploaded Quadlet when configured" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+            data_dir: /custom/proxy-data
+          YAML
+        runner: runner
+      )
+
+      manager.setup
+
+      uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
+      uploads.each do |upload|
+        upload_input = upload.input || raise "Expected upload input"
+        upload_input.should contain("Volume=/custom/proxy-data:/custom/proxy-data")
+      end
+    end
+
     it "raises SetupFailed when the proxy probe fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(

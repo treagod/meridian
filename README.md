@@ -304,6 +304,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Accessory service management — databases, caches, and other infrastructure as standalone Quadlet units
 - [x] Bootstrap completeness — `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
 - [x] Honest config contract — unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
+- [x] Registry authentication — `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
 
 ---
 

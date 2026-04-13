@@ -971,5 +971,135 @@ describe "Meridian::Deploy::Orchestrator" do
         orchestrator.deploy
       end
     end
+
+    it "raises DeployFailed with a clear message when a registry password env var is not set" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          registry:
+            server: registry.example.com
+            username: deploy
+            password:
+              - MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING
+          YAML
+        runner: runner
+      )
+      ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING")
+
+      expect_raises(Meridian::Deploy::DeployFailed, /MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING/) do
+        orchestrator.deploy
+      end
+
+      runner.invocations.should be_empty
+    end
+
+    it "skips registry credential validation when transfer mode is stream" do
+      runner = FakeSSHRunner.new
+      stream_transfer = build_stream_transfer(runner: runner)
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+
+          registry:
+            server: registry.example.com
+            username: deploy
+            password:
+              - MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING
+          YAML
+        runner: runner,
+        stream_transfer: stream_transfer
+      )
+      ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING")
+
+      orchestrator.deploy
+
+      runner.invocations.none? { |inv| inv.remote_command.try(&.starts_with?("podman login")) }.should be_true
+    end
+  end
+
+  context "registry authentication" do
+    it "logs in to the registry before pulling" do
+        runner = FakeSSHRunner.new
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            registry:
+              server: registry.example.com
+              username: deploy
+              password:
+                - MERIDIAN_TEST_REGISTRY_PASSWORD
+            YAML
+          runner: runner
+        )
+        ENV["MERIDIAN_TEST_REGISTRY_PASSWORD"] = "s3cr3t"
+
+        begin
+          orchestrator.deploy_to_host("192.168.1.10", "web")
+        ensure
+          ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD")
+        end
+
+        login_invocation = runner.invocations.find { |inv|
+          inv.remote_command.try(&.starts_with?("podman login"))
+        }
+        pull_invocation = runner.invocations.find { |inv|
+          inv.remote_command.try(&.starts_with?("podman pull"))
+        }
+
+        login_invocation.should_not be_nil
+        pull_invocation.should_not be_nil
+
+        li = login_invocation.not_nil!
+        li.remote_command.should eq("podman login registry.example.com --username deploy --password-stdin")
+        li.input.should eq("s3cr3t")
+
+        runner.invocations.index(li).not_nil!.should be < runner.invocations.index(pull_invocation.not_nil!).not_nil!
+      end
+
+      it "does not log in when no registry block is configured" do
+        runner = FakeSSHRunner.new
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+            YAML
+          runner: runner
+        )
+
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+
+        runner.invocations.none? { |inv|
+          inv.remote_command.try(&.starts_with?("podman login"))
+        }.should be_true
+    end
   end
 end
