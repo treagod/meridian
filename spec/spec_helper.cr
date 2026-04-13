@@ -425,12 +425,6 @@ FULL_CONFIG = <<-YAML
     proxy:
       image: ghcr.io/basecamp/kamal-proxy:latest
 
-    registry:
-      server: registry.example.com
-      username: deploy
-      password:
-        - REGISTRY_PASSWORD
-
     env:
       clear:
         RAILS_ENV: production

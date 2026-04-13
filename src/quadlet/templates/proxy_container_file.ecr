@@ -4,6 +4,7 @@ ContainerName=kamal-proxy
 Network=<%= @service %>.network
 PublishPort=<%= @http_port %>:80
 PublishPort=<%= @https_port %>:443
+Volume=<%= @data_dir %>:<%= @data_dir %>
 
 [Service]
 Restart=always

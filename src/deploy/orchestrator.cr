@@ -173,6 +173,7 @@ module Meridian
 
       def deploy : Nil
         validate_rollout_settings!
+        validate_registry_credentials!
         web_hosts = hosts_for_role("web")
         secondary_roles = ordered_secondary_roles
         abort_rollout = RolloutAbort.new
@@ -471,6 +472,9 @@ module Meridian
         transfer_mode = @config.transfer.try(&.mode)
 
         if transfer_mode.nil? || transfer_mode.registry?
+          if registry = @config.registry
+            login_to_registry(host, registry)
+          end
           log(host, "Pulling image #{@config.image}")
           run_ssh!(host, ["podman", "pull", @config.image])
         elsif transfer_mode.stream?
@@ -480,6 +484,29 @@ module Meridian
         end
       rescue ex : Transfer::DependencyMissing | Transfer::TransferFailed
         raise DeployFailed.new(ex.message || "Image transfer to #{host} failed")
+      end
+
+      private def login_to_registry(host : String, registry : Config::RegistryConfig) : Nil
+        server = registry.server || raise DeployFailed.new("registry.server is required")
+        username = registry.username || raise DeployFailed.new("registry.username is required")
+        password_var = registry.password.first? || raise DeployFailed.new("registry.password must specify an environment variable name")
+        password = ENV[password_var]
+
+        log(host, "Logging in to #{server}")
+        run_ssh!(host, ["podman", "login", server, "--username", username, "--password-stdin"], input: password)
+      end
+
+      private def validate_registry_credentials! : Nil
+        return unless registry = @config.registry
+
+        transfer_mode = @config.transfer.try(&.mode)
+        return if transfer_mode && !transfer_mode.registry?
+
+        registry.password.each do |var_name|
+          ENV[var_name]? || raise DeployFailed.new(
+            "Environment variable #{var_name} (required by registry.password) is not set"
+          )
+        end
       end
 
       private def run_ssh(host : String, command : Array(String)) : SSH::Result
@@ -496,10 +523,11 @@ module Meridian
         )
       end
 
-      private def run_ssh!(host : String, command : Array(String)) : SSH::Result
+      private def run_ssh!(host : String, command : Array(String), input : String? = nil) : SSH::Result
         @ssh_executor.run!(
           host,
           command,
+          input: input,
           user: ssh_user,
           port: ssh_port,
           identity_file: ssh_identity_file,
