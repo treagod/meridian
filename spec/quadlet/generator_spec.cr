@@ -95,6 +95,14 @@ describe "Meridian::Quadlet::Generator" do
 
       output.should contain("Exec=bin/sidekiq")
     end
+
+    it "emits Secret= directives for each env.secret name" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Secret=SECRET_KEY_BASE")
+      output.should contain("Secret=DATABASE_URL")
+    end
   end
 
   describe "#network_file" do
@@ -182,6 +190,14 @@ describe "Meridian::Quadlet::Generator" do
 
       output.should contain("Environment=POSTGRES_DB=meridian")
       output.should contain("Exec=postgres -c shared_buffers=256MB")
+    end
+
+    it "emits Secret= directives for each accessory env.secret name" do
+      config = load_config(FULL_CONFIG)
+      accessory = config.accessories.not_nil!["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("Secret=POSTGRES_PASSWORD")
     end
 
     it "raises when the accessory image is missing" do
