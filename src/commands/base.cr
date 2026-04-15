@@ -83,6 +83,21 @@ module Meridian
         )
       end
 
+      protected def run_ssh!(host : String, command : Array(String), input : String) : SSH::Result
+        @ssh_executor.run!(
+          host,
+          command,
+          input: input,
+          user: ssh_user,
+          port: ssh_port,
+          identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump,
+          connect_timeout: ssh_connect_timeout,
+          keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval
+        )
+      end
+
       protected def stream_ssh(
         host : String,
         command : Array(String),

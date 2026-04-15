@@ -39,6 +39,7 @@ module Meridian
       "logs",
       "exec",
       "accessory",
+      "secret",
       "quadlet",
       "proxy",
       "server",
@@ -56,6 +57,21 @@ module Meridian
 
     record AccessoryInvocation,
       name : String,
+      file : String
+
+    record SecretSetInvocation,
+      name : String,
+      value : String?,
+      role : String,
+      file : String
+
+    record SecretNameInvocation,
+      name : String,
+      role : String,
+      file : String
+
+    record SecretRoleInvocation,
+      role : String,
       file : String
 
     record FileInvocation,
@@ -131,6 +147,8 @@ module Meridian
         run_exec(args, output, error, ssh_executor)
       when "accessory"
         run_accessory(args, output, error, ssh_executor)
+      when "secret"
+        run_secret(args, input, output, error, ssh_executor)
       when "proxy"
         run_proxy(args, output, error, ssh_executor, proxy_manager_factory)
       when "quadlet"
@@ -466,6 +484,169 @@ module Meridian
       nil
     end
 
+    private def self.run_secret(
+      args : Array(String),
+      input : IO,
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      subcommand = args.first?
+      return print_secret_help(output) if subcommand.try(&.in?(HELP_FLAGS))
+
+      unless subcommand
+        error.puts "Missing secret subcommand"
+        return 1
+      end
+
+      case subcommand
+      when "set"
+        return print_secret_set_help(output) if help_requested?(args[1..])
+
+        invocation = parse_secret_set_invocation(args[1..], error)
+        return 1 unless invocation
+
+        value = invocation.value || input.gets_to_end.chomp
+        config = Config::Loader.load(invocation.file)
+        Commands::Secret.new(config, ssh_executor: ssh_executor, output: output, error: error).set(invocation.name, value, invocation.role)
+        0
+      when "rm"
+        return print_secret_rm_help(output) if help_requested?(args[1..])
+
+        invocation = parse_secret_name_invocation(args[1..], error, "Invalid secret rm arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Secret.new(config, ssh_executor: ssh_executor, output: output, error: error).rm(invocation.name, invocation.role)
+        0
+      when "ls"
+        return print_secret_ls_help(output) if help_requested?(args[1..])
+
+        invocation = parse_secret_role_invocation(args[1..], error, "Invalid secret ls arguments")
+        return 1 unless invocation
+
+        config = Config::Loader.load(invocation.file)
+        Commands::Secret.new(config, ssh_executor: ssh_executor, output: output, error: error).ls(invocation.role)
+        0
+      else
+        error.puts "Unknown secret subcommand: #{subcommand}"
+        1
+      end
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError | SSH::CommandFailed | SSH::ConnectionError
+      error.puts ex.message || "Secret command failed"
+      1
+    end
+
+    private def self.parse_secret_set_invocation(args : Array(String), error : IO) : SecretSetInvocation?
+      name = args.first?
+      value = nil.as(String?)
+      role = "web"
+      file = "deploy.yml"
+
+      if name.try(&.starts_with?('-'))
+        name = nil
+      end
+
+      parser_args =
+        if name
+          args.size > 1 ? args[1..] : [] of String
+        else
+          args
+        end
+
+      parser = OptionParser.new
+      parser.on("--value VALUE", "Secret value (default: read from stdin)") { |v| value = v }
+      parser.on("--role ROLE", "Target role (default: web)") { |v| role = v }
+      parser.on("--file PATH", "Path to deploy config") { |v| file = v }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(parser_args.dup)
+
+      unless parsed_name = name
+        error.puts "Missing secret name"
+        return
+      end
+
+      SecretSetInvocation.new(name: parsed_name, value: value, role: role, file: file)
+    rescue ex : ParseError
+      error.puts ex.message || "Invalid secret set arguments"
+      nil
+    end
+
+    private def self.parse_secret_name_invocation(
+      args : Array(String),
+      error : IO,
+      fallback : String,
+    ) : SecretNameInvocation?
+      name = args.first?
+      role = "web"
+      file = "deploy.yml"
+
+      if name.try(&.starts_with?('-'))
+        name = nil
+      end
+
+      parser_args =
+        if name
+          args.size > 1 ? args[1..] : [] of String
+        else
+          args
+        end
+
+      parser = OptionParser.new
+      parser.on("--role ROLE", "Target role (default: web)") { |v| role = v }
+      parser.on("--file PATH", "Path to deploy config") { |v| file = v }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(parser_args.dup)
+
+      unless parsed_name = name
+        error.puts "Missing secret name"
+        return
+      end
+
+      SecretNameInvocation.new(name: parsed_name, role: role, file: file)
+    rescue ex : ParseError
+      error.puts ex.message || fallback
+      nil
+    end
+
+    private def self.parse_secret_role_invocation(
+      args : Array(String),
+      error : IO,
+      fallback : String,
+    ) : SecretRoleInvocation?
+      role = "web"
+      file = "deploy.yml"
+
+      parser = OptionParser.new
+      parser.on("--role ROLE", "Target role (default: web)") { |v| role = v }
+      parser.on("--file PATH", "Path to deploy config") { |v| file = v }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, after_dash|
+        unknown = before_dash + after_dash
+        raise ParseError.new("Unknown arguments: #{unknown.join(" ")}") unless unknown.empty?
+      end
+
+      parser.parse(args.dup)
+
+      SecretRoleInvocation.new(role: role, file: file)
+    rescue ex : ParseError
+      error.puts ex.message || fallback
+      nil
+    end
+
     private def self.run_quadlet(args : Array(String), output : IO, error : IO) : Int32
       return print_quadlet_help(output) if help_requested?(args)
 
@@ -638,7 +819,7 @@ module Meridian
 
       parser = OptionParser.new
       parser.on("--host HOST", "Server IP or hostname (default: inferred when only one host in deploy.yml)") { |v| host = v }
-      parser.on("--port PORT", "SSH port (overrides deploy.yml default)") { |v| port = v.to_i }
+      parser.on("--port PORT", "SSH port used to connect (overrides deploy.yml default)") { |v| port = v.to_i }
       parser.on("--root-user USER", "Initial privileged SSH user (default: root)") { |v| root_user = v }
       parser.on("--deploy-user USER", "User to create (default: from deploy.yml ssh.user)") { |v| deploy_user = v }
       parser.on("--accept-new-host-key", "Use StrictHostKeyChecking=accept-new (default)") { accept_new_host_key = true }
@@ -802,6 +983,56 @@ module Meridian
       io.puts "Stream journalctl logs for the accessory service."
       io.puts
       io.puts "Options:"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_secret_help(io : IO) : Int32
+      io.puts "Usage: meridian secret SUBCOMMAND NAME [options]"
+      io.puts
+      io.puts "Secret subcommands:"
+      io.puts "    set                        Create or replace a secret on target hosts"
+      io.puts "    rm                         Remove a secret from target hosts"
+      io.puts "    ls                         List secrets on target hosts"
+      io.puts
+      io.puts "Run `meridian secret SUBCOMMAND --help` for subcommand options."
+      0
+    end
+
+    private def self.print_secret_set_help(io : IO) : Int32
+      io.puts "Usage: meridian secret set NAME [options]"
+      io.puts
+      io.puts "Create or replace a Podman secret on every host in the target role."
+      io.puts "When --value is omitted, the secret value is read from stdin."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --value VALUE              Secret value (default: read from stdin)"
+      io.puts "    --role ROLE                Target role (default: web)"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_secret_rm_help(io : IO) : Int32
+      io.puts "Usage: meridian secret rm NAME [options]"
+      io.puts
+      io.puts "Remove a Podman secret from every host in the target role."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --role ROLE                Target role (default: web)"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_secret_ls_help(io : IO) : Int32
+      io.puts "Usage: meridian secret ls [options]"
+      io.puts
+      io.puts "List Podman secrets on every host in the target role."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --role ROLE                Target role (default: web)"
       io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
       io.puts "    -h, --help                 Show this help"
       0

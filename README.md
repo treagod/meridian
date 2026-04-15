@@ -5,7 +5,7 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, and `accessory start|stop|logs`.
+> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, and `secret set|rm|ls`.
 
 ---
 
@@ -129,9 +129,21 @@ Switches kamal-proxy back to the inactive colour on every web host when that con
 meridian rollback
 ```
 
+### `meridian secret`
+
+Creates, removes, and lists Podman secrets on remote hosts. Secrets are referenced by name in `env.secret` and injected into the container at runtime via Quadlet `Secret=` directives. When `--value` is omitted, the value is read from stdin.
+
+```bash
+meridian secret set DATABASE_URL            # reads value from stdin
+meridian secret set DATABASE_URL --value s3cr3t
+meridian secret set DATABASE_URL --role workers
+meridian secret ls                          # per-host table of secrets
+meridian secret rm DATABASE_URL
+```
+
 ### `meridian accessory`
 
-Manages standalone accessory services on their configured hosts. `start` uploads the accessory Quadlet and starts the unit, `stop` only stops that accessory unit, and `logs` tails `journalctl` for that unit. Meridian currently renders accessory `image`, `port`, `volumes`, `env.clear`, and optional `cmd`. Secret environment variable injection for accessories is not implemented yet.
+Manages standalone accessory services on their configured hosts. `start` uploads the accessory Quadlet and starts the unit, `stop` only stops that accessory unit, and `logs` tails `journalctl` for that unit. Meridian renders accessory `image`, `port`, `volumes`, `env.clear`, `env.secret`, and optional `cmd`.
 
 ```bash
 meridian accessory start db
@@ -192,7 +204,7 @@ env:
     RAILS_ENV: production
     DATABASE_HOST: db.internal
   secret:
-    - SECRET_KEY_BASE     # generated into .env by `meridian init`; runtime injection is not implemented yet
+    - SECRET_KEY_BASE     # generated into .env by `meridian init`; set on hosts with `meridian secret set`
     - DATABASE_URL
 
 ssh:
@@ -305,6 +317,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Bootstrap completeness — `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
 - [x] Honest config contract — unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
 - [x] Registry authentication — `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
+- [x] Secret management — `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
 
 ---
 

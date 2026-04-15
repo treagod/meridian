@@ -112,10 +112,10 @@ module Meridian
         @output.puts <<-TEXT
 
         This script will:
-          1. Connect to #{@config.root_user}@#{@config.host} for the initial bootstrap.
+          1. Connect to #{@config.root_user}@#{@config.host} for the initial bootstrap (password prompt).
           2. Update the system and install Podman, rootless helpers, UFW, and #{transfer_package_summary}.
           3. Create '#{@config.deploy_user}', install your SSH public key, and enable lingering.
-          4. Open SSH, HTTP, and HTTPS in UFW and enable the firewall.
+          4. Open SSH (port #{@config.port}), HTTP, and HTTPS in UFW and enable the firewall.
           5. #{@config.passwordless_sudo ? "Grant passwordless sudo to '#{@config.deploy_user}'." : "Keep normal sudo rules for '#{@config.deploy_user}'."}
           6. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
           7. #{@config.enable_auto_updates ? "Enable unattended security updates." : "Disable unattended automatic updates."}
@@ -185,8 +185,7 @@ module Meridian
 
       private def upload_as_root(local : String, remote : String) : Nil
         args = scp_base_options
-        args << "-o" << "PubkeyAuthentication=no"
-        args << "-o" << "PreferredAuthentications=password,keyboard-interactive"
+        args.concat(["-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password,keyboard-interactive"])
         args << local
         args << "#{@config.root_user}@#{@config.host}:#{remote}"
         @runner.run_interactive("scp", args, "Upload #{File.basename(local)} as #{@config.root_user}")
@@ -195,8 +194,7 @@ module Meridian
       private def execute_as_root(remote : String, step : String) : Nil
         args = ssh_base_options
         args << "-tt"
-        args << "-o" << "PreferredAuthentications=password,keyboard-interactive"
-        args << "-o" << "PubkeyAuthentication=no"
+        args.concat(["-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password,keyboard-interactive"])
         args << "#{@config.root_user}@#{@config.host}"
         args << "bash #{remote} && rm -f #{remote}"
         @runner.run_interactive("ssh", args, step)

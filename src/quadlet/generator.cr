@@ -21,12 +21,14 @@ module Meridian
 
       def container_file(server : Config::ServerConfig, color : Color) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
+        secrets = @config.env.try(&.secret) || EMPTY_SECRETS
 
         ContainerTemplate.new(
           service: @config.service,
           image: @config.image,
           color: color,
           environment: environment,
+          secrets: secrets,
           command: server.cmd
         ).to_s
       end
@@ -51,6 +53,7 @@ module Meridian
       def accessory_container_file(name : String, accessory : Config::AccessoryConfig) : String
         image = accessory.image || raise ArgumentError.new("Accessory #{name} is missing required image")
         environment = accessory.env.try(&.clear) || EMPTY_ENV
+        secrets = accessory.env.try(&.secret) || EMPTY_SECRETS
 
         AccessoryContainerTemplate.new(
           name: name,
@@ -58,6 +61,7 @@ module Meridian
           port: accessory.port,
           volumes: accessory.volumes,
           environment: environment,
+          secrets: secrets,
           command: accessory.cmd
         ).to_s
       end
@@ -83,6 +87,7 @@ module Meridian
       end
 
       private EMPTY_ENV         = {} of String => String
+      private EMPTY_SECRETS     = [] of String
       private EMPTY_ACCESSORIES = {} of String => Config::AccessoryConfig
 
       private class ContainerTemplate
@@ -91,6 +96,7 @@ module Meridian
           @image : String,
           @color : Color,
           @environment : Hash(String, String),
+          @secrets : Array(String),
           @command : String?,
         )
         end
@@ -125,6 +131,7 @@ module Meridian
           @port : String?,
           @volumes : Array(String),
           @environment : Hash(String, String),
+          @secrets : Array(String),
           @command : String?,
         )
         end
