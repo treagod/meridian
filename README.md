@@ -121,6 +121,42 @@ Generates the service Quadlet files locally for inspection without touching any 
 meridian quadlet --color green
 ```
 
+Given the reference config above, `meridian quadlet --color green` writes these files to `./quadlet-preview/`:
+
+**`myapp-green.container`**
+```ini
+[Unit]
+Description=myapp (green)
+
+[Container]
+Image=registry.example.com/myorg/myapp
+ContainerName=myapp-green
+Network=myapp.network
+Environment=RAILS_ENV=production
+Environment=DATABASE_HOST=db.internal
+Secret=SECRET_KEY_BASE
+Secret=DATABASE_URL
+Volume=/data/uploads:/app/uploads
+PublishPort=8080:8080
+```
+
+**`db.container`** (with `network:`, `secrets:`, and `depends_on:` uncommented)
+```ini
+[Unit]
+Description=db
+Requires=myapp-green.service
+After=myapp-green.service
+
+[Container]
+Image=docker.io/library/postgres:16
+ContainerName=db
+Network=myapp.network
+PublishPort=5432:5432
+Volume=pgdata:/var/lib/postgresql/data
+Environment=POSTGRES_DB=myapp
+Secret=DB_TLS_CERT
+```
+
 ### `meridian rollback`
 
 Switches kamal-proxy back to the inactive colour on every web host when that container still exists, then rewrites `.meridian-color`.
@@ -199,6 +235,12 @@ registry:
 # transfer:
 #   mode: stream          # "stream" (save/load via SSH) or "incremental" (rsync OCI layout)
 
+volumes:
+  - /data/uploads:/app/uploads   # forwarded verbatim to Volume= in the container Quadlet
+
+ports:
+  - "8080:8080"                  # forwarded to PublishPort= (useful for non-proxied roles)
+
 env:
   clear:
     RAILS_ENV: production
@@ -230,6 +272,10 @@ accessories:
       clear:
         POSTGRES_DB: myapp
     cmd: postgres -c shared_buffers=256MB
+    # network: myapp.network     # attach accessory to the app network (emits Network=)
+    # secrets:                   # direct Podman secrets (emits Secret=, independent of env.secret)
+    #   - DB_TLS_CERT
+    # depends_on: myapp-green.service   # emits Requires= and After= in [Unit]
 ```
 
 ---
@@ -318,6 +364,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Honest config contract — unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
 - [x] Registry authentication — `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
 - [x] Secret management — `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
+- [x] Quadlet completeness — app Quadlets support `volumes:` (`Volume=`) and `ports:` (`PublishPort=`) with a `[Unit]` description; accessory Quadlets support `network:` (`Network=`), direct `secrets:` (`Secret=`), and `depends_on:` (`Requires=`/`After=`)
 
 ---
 

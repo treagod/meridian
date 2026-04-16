@@ -17,6 +17,8 @@ module Meridian
       getter boot : BootConfig = BootConfig.new
       getter transfer : TransferConfig?
       getter accessories : Hash(String, AccessoryConfig)?
+      getter volumes : Array(String) = [] of String
+      getter ports : Array(String) = [] of String
 
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
@@ -177,10 +179,13 @@ module Meridian
       getter volumes : Array(String) = [] of String
       getter env : EnvConfig?
       getter cmd : String?
+      getter network : String?
+      getter secrets : Array(String) = [] of String
+      getter depends_on : String?
     end
 
     module Loader
-      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories"}
+      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS       = {"hosts", "proxy", "cmd"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
@@ -191,7 +196,7 @@ module Meridian
       SSH_KEYS          = {"user", "port", "keys", "proxy_jump", "connect_timeout", "keepalive", "keepalive_interval"}
       BOOT_KEYS         = {"limit", "wait"}
       TRANSFER_KEYS     = {"mode"}
-      ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd"}
+      ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))

@@ -96,12 +96,60 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Exec=bin/sidekiq")
     end
 
-    it "emits Secret= directives for each env.secret name" do
+    it "emits Secret= directives for each env.secret name injected as env vars" do
       config = load_config(FULL_CONFIG)
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
 
-      output.should contain("Secret=SECRET_KEY_BASE")
-      output.should contain("Secret=DATABASE_URL")
+      output.should contain("Secret=SECRET_KEY_BASE,type=env,target=SECRET_KEY_BASE")
+      output.should contain("Secret=DATABASE_URL,type=env,target=DATABASE_URL")
+    end
+
+    it "includes a [Unit] section with a description" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("[Unit]")
+      output.should contain("Description=myapp (green)")
+    end
+
+    it "emits Volume= lines when volumes are configured" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          volumes:
+            - /data/uploads:/app/uploads
+            - logs:/var/log/app
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Volume=/data/uploads:/app/uploads")
+      output.should contain("Volume=logs:/var/log/app")
+    end
+
+    it "emits PublishPort= lines when ports are configured" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          ports:
+            - "8080:8080"
+            - "9090:9090"
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("PublishPort=8080:8080")
+      output.should contain("PublishPort=9090:9090")
     end
   end
 
@@ -192,12 +240,91 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Exec=postgres -c shared_buffers=256MB")
     end
 
-    it "emits Secret= directives for each accessory env.secret name" do
+    it "emits Secret= directives for each accessory env.secret name injected as env vars" do
       config = load_config(FULL_CONFIG)
       accessory = config.accessories.not_nil!["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
-      output.should contain("Secret=POSTGRES_PASSWORD")
+      output.should contain("Secret=POSTGRES_PASSWORD,type=env,target=POSTGRES_PASSWORD")
+    end
+
+    it "includes a [Unit] section with a description" do
+      config = load_config(FULL_CONFIG)
+      accessory = config.accessories.not_nil!["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("[Unit]")
+      output.should contain("Description=db")
+    end
+
+    it "emits Network= when network is configured" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.20
+              network: myapp.network
+        YAML
+      accessory = config.accessories.not_nil!["cache"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
+
+      output.should contain("Network=myapp.network")
+    end
+
+    it "emits Requires= and After= when depends_on is configured" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.20
+              depends_on: myapp-green.service
+        YAML
+      accessory = config.accessories.not_nil!["cache"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
+
+      output.should contain("Requires=myapp-green.service")
+      output.should contain("After=myapp-green.service")
+    end
+
+    it "emits Secret= directives from the direct secrets field" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.20
+              secrets:
+                - REDIS_PASSWORD
+                - REDIS_TLS_CERT
+        YAML
+      accessory = config.accessories.not_nil!["cache"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
+
+      output.should contain("Secret=REDIS_PASSWORD")
+      output.should contain("Secret=REDIS_TLS_CERT")
     end
 
     it "raises when the accessory image is missing" do

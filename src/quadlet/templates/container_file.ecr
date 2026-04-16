@@ -1,3 +1,6 @@
+[Unit]
+Description=<%= @service %> (<%= @color.slug %>)
+
 [Container]
 Image=<%= @image %>
 ContainerName=<%= @service %>-<%= @color.slug %>
@@ -7,6 +10,12 @@ Environment=<%= key %>=<%= value %>
 <% end %>
 <% @secrets.each do |secret| %>
 Secret=<%= secret %>
+<% end %>
+<% @volumes.each do |v| %>
+Volume=<%= v %>
+<% end %>
+<% @ports.each do |p| %>
+PublishPort=<%= p %>
 <% end %>
 <% if command = @command %>
 Exec=<%= command %>

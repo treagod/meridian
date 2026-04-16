@@ -1,6 +1,16 @@
+[Unit]
+Description=<%= @name %>
+<% if depends_on = @depends_on %>
+Requires=<%= depends_on %>
+After=<%= depends_on %>
+<% end %>
+
 [Container]
 Image=<%= @image %>
 ContainerName=<%= @name %>
+<% if network = @network %>
+Network=<%= network %>
+<% end %>
 <% if port = @port %>
 PublishPort=<%= port %>
 <% end %>
