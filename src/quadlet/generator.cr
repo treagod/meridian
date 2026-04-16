@@ -21,7 +21,7 @@ module Meridian
 
       def container_file(server : Config::ServerConfig, color : Color) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
-        secrets = @config.env.try(&.secret) || EMPTY_SECRETS
+        secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
 
         ContainerTemplate.new(
           service: @config.service,
@@ -29,6 +29,8 @@ module Meridian
           color: color,
           environment: environment,
           secrets: secrets,
+          volumes: @config.volumes,
+          ports: @config.ports,
           command: server.cmd
         ).to_s
       end
@@ -53,7 +55,8 @@ module Meridian
       def accessory_container_file(name : String, accessory : Config::AccessoryConfig) : String
         image = accessory.image || raise ArgumentError.new("Accessory #{name} is missing required image")
         environment = accessory.env.try(&.clear) || EMPTY_ENV
-        secrets = accessory.env.try(&.secret) || EMPTY_SECRETS
+        env_secrets = (accessory.env.try(&.secret) || EMPTY_SECRETS).map { |secret_name| "#{secret_name},type=env,target=#{secret_name}" }
+        secrets = env_secrets + accessory.secrets
 
         AccessoryContainerTemplate.new(
           name: name,
@@ -62,6 +65,8 @@ module Meridian
           volumes: accessory.volumes,
           environment: environment,
           secrets: secrets,
+          network: accessory.network,
+          depends_on: accessory.depends_on,
           command: accessory.cmd
         ).to_s
       end
@@ -97,6 +102,8 @@ module Meridian
           @color : Color,
           @environment : Hash(String, String),
           @secrets : Array(String),
+          @volumes : Array(String),
+          @ports : Array(String),
           @command : String?,
         )
         end
@@ -132,6 +139,8 @@ module Meridian
           @volumes : Array(String),
           @environment : Hash(String, String),
           @secrets : Array(String),
+          @network : String?,
+          @depends_on : String?,
           @command : String?,
         )
         end
