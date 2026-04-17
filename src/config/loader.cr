@@ -19,6 +19,7 @@ module Meridian
       getter accessories : Hash(String, AccessoryConfig)?
       getter volumes : Array(String) = [] of String
       getter ports : Array(String) = [] of String
+      getter hooks : HooksConfig?
 
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
@@ -184,8 +185,16 @@ module Meridian
       getter depends_on : String?
     end
 
+    struct HooksConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter pre_deploy : String?
+      getter post_deploy : String?
+    end
+
     module Loader
-      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports"}
+      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS       = {"hosts", "proxy", "cmd"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
@@ -197,6 +206,7 @@ module Meridian
       BOOT_KEYS         = {"limit", "wait"}
       TRANSFER_KEYS     = {"mode"}
       ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
+      HOOKS_KEYS        = {"pre_deploy", "post_deploy"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))
@@ -336,6 +346,14 @@ module Meridian
                   end
                 end
               end
+            end
+          end
+        end
+
+        if hooks = mapping_value(mapping, "hooks")
+          if hooks_mapping = mapping(hooks)
+            if key = unknown_key(hooks_mapping, HOOKS_KEYS, "hooks.")
+              return key
             end
           end
         end

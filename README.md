@@ -6,6 +6,7 @@ Meridian deploys containerised applications to remote Linux servers over SSH —
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
 > **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, and `secret set|rm|ls`.
+> **Planned:** Optional deploy-managed static asset serving on a separate asset subdomain via a shared volume, a oneshot asset builder, and a Caddy sidecar. Not implemented yet.
 
 ---
 

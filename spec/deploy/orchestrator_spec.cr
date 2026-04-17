@@ -7,6 +7,7 @@ def build_orchestrator(
   stream_transfer : Meridian::Transfer::Stream? = nil,
   incremental_transfer : Meridian::Transfer::Incremental? = nil,
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
+  hook_runner : Proc(String, Hash(String, String), Int32) = ->(_script : String, _env : Hash(String, String)) { 0 },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -17,7 +18,8 @@ def build_orchestrator(
     stream_transfer: stream_transfer,
     incremental_transfer: incremental_transfer,
     output: output,
-    batch_sleeper: batch_sleeper
+    batch_sleeper: batch_sleeper,
+    hook_runner: hook_runner
   )
 end
 
@@ -1100,6 +1102,210 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.invocations.none? { |inv|
           inv.remote_command.try(&.starts_with?("podman login"))
         }.should be_true
+    end
+  end
+
+  describe "deploy hooks" do
+    it "calls pre_deploy hook before any SSH work" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+
+      hook_calls = [] of String
+      hook_runner = ->(script : String, _env : Hash(String, String)) {
+        hook_calls << script
+        0
+      }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                app_port: 3000
+
+          hooks:
+            pre_deploy: bin/pre-deploy
+          YAML
+        runner: runner,
+        hook_runner: hook_runner
+      )
+
+      orchestrator.deploy
+
+      hook_calls.should eq(["bin/pre-deploy"])
+      # Hook fired before SSH: runner had invocations only after hook ran
+    end
+
+    it "aborts deploy when pre_deploy hook exits non-zero" do
+      runner = FakeSSHRunner.new
+      hook_runner = ->(_script : String, _env : Hash(String, String)) { 1 }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          hooks:
+            pre_deploy: bin/pre-deploy
+          YAML
+        runner: runner,
+        hook_runner: hook_runner
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Pre-deploy hook failed/) do
+        orchestrator.deploy
+      end
+
+      runner.invocations.should be_empty
+    end
+
+    it "calls post_deploy hook after deploy completes" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+
+      hook_calls = [] of String
+      hook_runner = ->(script : String, _env : Hash(String, String)) {
+        hook_calls << script
+        0
+      }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                app_port: 3000
+
+          hooks:
+            post_deploy: bin/post-deploy
+          YAML
+        runner: runner,
+        hook_runner: hook_runner
+      )
+
+      orchestrator.deploy
+
+      hook_calls.should eq(["bin/post-deploy"])
+    end
+
+    it "prints a warning when post_deploy hook exits non-zero but does not raise" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+
+      output = IO::Memory.new
+      hook_runner = ->(_script : String, _env : Hash(String, String)) { 1 }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                app_port: 3000
+
+          hooks:
+            post_deploy: bin/post-deploy
+          YAML
+        runner: runner,
+        output: output,
+        hook_runner: hook_runner
+      )
+
+      orchestrator.deploy
+
+      output.to_s.should contain("Warning: post-deploy hook failed")
+      output.to_s.should contain("bin/post-deploy")
+    end
+
+    it "passes MERIDIAN_SERVICE, MERIDIAN_HOSTS, MERIDIAN_VERSION to the hook" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+
+      received_env = {} of String => String
+      hook_runner = ->(script : String, env : Hash(String, String)) {
+        received_env = env
+        0
+      }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                app_port: 3000
+
+          hooks:
+            pre_deploy: bin/pre-deploy
+          YAML
+        runner: runner,
+        hook_runner: hook_runner
+      )
+
+      orchestrator.deploy
+
+      received_env["MERIDIAN_SERVICE"].should eq("myapp")
+      received_env["MERIDIAN_HOSTS"].should eq("192.168.1.10")
+      received_env["MERIDIAN_VERSION"].should eq(Meridian::VERSION)
+    end
+
+    it "skips hooks when none are configured" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+
+      hook_calls = 0
+      hook_runner = ->(_script : String, _env : Hash(String, String)) {
+        hook_calls += 1
+        0
+      }
+
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                app_port: 3000
+          YAML
+        runner: runner,
+        hook_runner: hook_runner
+      )
+
+      orchestrator.deploy
+
+      hook_calls.should eq(0)
     end
   end
 end

@@ -38,6 +38,7 @@ module Meridian
       "status",
       "logs",
       "exec",
+      "run",
       "accessory",
       "secret",
       "quadlet",
@@ -46,6 +47,12 @@ module Meridian
     ]
 
     record ExecInvocation,
+      role : String,
+      command : Array(String),
+      host : String?,
+      file : String
+
+    record RunInvocation,
       role : String,
       command : Array(String),
       host : String?,
@@ -145,6 +152,8 @@ module Meridian
         run_setup(args, output, error, ssh_executor, proxy_manager_factory)
       when "exec"
         run_exec(args, output, error, ssh_executor)
+      when "run"
+        run_run(args, output, error, ssh_executor)
       when "accessory"
         run_accessory(args, output, error, ssh_executor)
       when "secret"
@@ -289,6 +298,77 @@ module Meridian
         end
 
       {option_args, remote_command}
+    end
+
+    private def self.run_run(
+      args : Array(String),
+      output : IO,
+      error : IO,
+      ssh_executor : SSH::Executor,
+    ) : Int32
+      return print_run_help(output) if help_requested?(args, stop_at_separator: true)
+
+      invocation = parse_run_invocation(args, error)
+      return 1 unless invocation
+
+      config = Config::Loader.load(invocation.file)
+      Commands::Run.new(config, ssh_executor: ssh_executor, output: output, error: error).run(
+        invocation.role,
+        invocation.command,
+        invocation.host
+      )
+    rescue ex : Config::ValidationError | Config::UnknownRole | YAML::ParseException | File::NotFoundError | ArgumentError | SSH::ConnectionError
+      error.puts ex.message || "Run failed"
+      1
+    end
+
+    private def self.parse_run_invocation(args : Array(String), error : IO) : RunInvocation?
+      option_args, remote_command = split_exec_args(args)
+      role = option_args.first?
+      host = nil
+      file = "deploy.yml"
+
+      if role.try(&.starts_with?('-'))
+        role = nil
+      end
+
+      parser_args =
+        if role
+          option_args.size > 1 ? option_args[1..] : [] of String
+        else
+          option_args
+        end
+
+      parser = OptionParser.new
+      parser.on("--host HOST", "SSH host") { |value| host = value }
+      parser.on("--file PATH", "Path to deploy config") { |value| file = value }
+      parser.invalid_option { |flag| raise ParseError.new("Invalid option: #{flag}") }
+      parser.missing_option { |flag| raise ParseError.new("Missing option value: #{flag}") }
+      parser.unknown_args do |before_dash, _after_dash|
+        raise ParseError.new("Unknown arguments: #{before_dash.join(" ")}") unless before_dash.empty?
+      end
+
+      parser.parse(parser_args.dup)
+
+      unless parsed_role = role
+        error.puts "Missing required role"
+        return
+      end
+
+      if remote_command.empty?
+        error.puts "Missing command after --"
+        return
+      end
+
+      RunInvocation.new(
+        role: parsed_role,
+        command: remote_command,
+        host: host,
+        file: file
+      )
+    rescue ex : ParseError
+      error.puts ex.message || "Invalid run arguments"
+      nil
     end
 
     private def self.invalid_option(flag : String, error : IO) : Int32
@@ -935,6 +1015,19 @@ module Meridian
       io.puts "Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]"
       io.puts
       io.puts "Run a command inside the active container for a configured role."
+      io.puts
+      io.puts "Options:"
+      io.puts "    --host HOST                Specific host for the role (default: first configured host)"
+      io.puts "    --file PATH                Path to deploy config (default: deploy.yml)"
+      io.puts "    -h, --help                 Show this help"
+      0
+    end
+
+    private def self.print_run_help(io : IO) : Int32
+      io.puts "Usage: meridian run ROLE [options] -- COMMAND [ARGS...]"
+      io.puts
+      io.puts "Run a one-off command in an isolated container for a configured role."
+      io.puts "Unlike exec, this starts a new container with --rm and does not affect the live service."
       io.puts
       io.puts "Options:"
       io.puts "    --host HOST                Specific host for the role (default: first configured host)"
