@@ -44,6 +44,7 @@ module Meridian
         incremental_transfer : Transfer::Incremental? = nil,
         @output : IO = STDOUT,
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
+        @hook_runner : Proc(String, Hash(String, String), Int32) = ->(script : String, env : Hash(String, String)) { Process.run(script, env: env, shell: true).exit_code },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
         @stream_transfer = stream_transfer || Transfer::Stream.new(
@@ -174,6 +175,7 @@ module Meridian
       def deploy : Nil
         validate_rollout_settings!
         validate_registry_credentials!
+        run_pre_deploy_hook
         web_hosts = hosts_for_role("web")
         secondary_roles = ordered_secondary_roles
         abort_rollout = RolloutAbort.new
@@ -223,6 +225,7 @@ module Meridian
         end
 
         @output.puts "Deploy completed"
+        run_post_deploy_hook
       end
 
       private def service_name(color : Quadlet::Color) : String
@@ -580,6 +583,29 @@ module Meridian
 
       private def ssh_keepalive_interval : Int32
         @config.ssh.keepalive_interval
+      end
+
+      private def run_pre_deploy_hook : Nil
+        return unless script = @config.hooks.try(&.pre_deploy)
+        @output.puts "Running pre-deploy hook: #{script}"
+        exit_code = @hook_runner.call(script, hook_env)
+        raise DeployFailed.new("Pre-deploy hook failed (exit #{exit_code}): #{script}") unless exit_code == 0
+      end
+
+      private def run_post_deploy_hook : Nil
+        return unless script = @config.hooks.try(&.post_deploy)
+        @output.puts "Running post-deploy hook: #{script}"
+        exit_code = @hook_runner.call(script, hook_env)
+        @output.puts "Warning: post-deploy hook failed (exit #{exit_code}): #{script}" unless exit_code == 0
+      end
+
+      private def hook_env : Hash(String, String)
+        hosts = @config.servers.values.flat_map(&.hosts).uniq!
+        {
+          "MERIDIAN_SERVICE" => @config.service,
+          "MERIDIAN_HOSTS"   => hosts.join(","),
+          "MERIDIAN_VERSION" => Meridian::VERSION,
+        }
       end
     end
   end
