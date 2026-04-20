@@ -25,7 +25,7 @@ module Meridian
 
         ContainerTemplate.new(
           service: @config.service,
-          image: @config.image,
+          image: server.image || @config.image,
           color: color,
           environment: environment,
           secrets: secrets,

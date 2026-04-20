@@ -82,7 +82,7 @@ module Meridian
         service_unit = service_unit(color)
         container_file = @quadlet_generator.container_file(server, color)
 
-        transfer_image_to_host(host)
+        transfer_image_to_host(host, server.image || @config.image)
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
@@ -116,7 +116,7 @@ module Meridian
         new_color = inactive_color(old_color)
         new_service = service_name(new_color)
 
-        transfer_image_to_host(host)
+        transfer_image_to_host(host, server.image || @config.image)
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
@@ -471,19 +471,19 @@ module Meridian
         end
       end
 
-      private def transfer_image_to_host(host : String) : Nil
+      private def transfer_image_to_host(host : String, image : String) : Nil
         transfer_mode = @config.transfer.try(&.mode)
 
         if transfer_mode.nil? || transfer_mode.registry?
           if registry = @config.registry
             login_to_registry(host, registry)
           end
-          log(host, "Pulling image #{@config.image}")
-          run_ssh!(host, ["podman", "pull", @config.image])
+          log(host, "Pulling image #{image}")
+          run_ssh!(host, ["podman", "pull", image])
         elsif transfer_mode.stream?
-          @stream_transfer.transfer(host, @config.image)
+          @stream_transfer.transfer(host, image)
         else
-          @incremental_transfer.transfer(host, @config.image)
+          @incremental_transfer.transfer(host, image)
         end
       rescue ex : Transfer::DependencyMissing | Transfer::TransferFailed
         raise DeployFailed.new(ex.message || "Image transfer to #{host} failed")

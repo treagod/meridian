@@ -44,6 +44,45 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Image=registry.example.com/myorg/myapp")
     end
 
+    it "uses the per-role image when the server role has an image override" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.12
+            image: ghcr.io/myorg/myapp-worker:latest
+        YAML
+
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["workers"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Image=ghcr.io/myorg/myapp-worker:latest")
+    end
+
+    it "falls back to the global image when the server role has no image override" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.12
+        YAML
+
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["workers"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Image=registry.example.com/myorg/myapp")
+    end
+
     it "sets the container name to include the service and colour" do
       config = load_config(FULL_CONFIG)
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
