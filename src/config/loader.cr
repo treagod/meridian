@@ -45,6 +45,7 @@ module Meridian
       getter hosts : Array(String) = [] of String
       getter proxy : ServerProxyConfig?
       getter cmd : String?
+      getter image : String?
     end
 
     struct ServerProxyConfig
@@ -196,7 +197,7 @@ module Meridian
     module Loader
       ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
-      SERVER_KEYS       = {"hosts", "proxy", "cmd"}
+      SERVER_KEYS       = {"hosts", "proxy", "cmd", "image"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
       HEALTHCHECK_KEYS  = {"path", "interval", "timeout", "retries"}
       PROXY_KEYS        = {"image", "http_port", "https_port", "data_dir"}

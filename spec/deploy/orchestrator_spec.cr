@@ -308,6 +308,61 @@ describe "Meridian::Deploy::Orchestrator" do
       invocation.remote_command.should eq("podman pull registry.example.com/myorg/myapp")
     end
 
+    it "pulls the per-role image when the server role has an image override" do
+      per_role_image_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.12
+            image: ghcr.io/myorg/myapp-worker:latest
+
+        boot:
+          limit: 1
+          wait: 0
+        YAML
+
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(content: per_role_image_config, runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      invocation = runner.invocations.first
+      invocation.remote_command.should eq("podman pull ghcr.io/myorg/myapp-worker:latest")
+    end
+
+    it "falls back to the global image when the server role has no image override" do
+      per_role_image_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.12
+
+        boot:
+          limit: 1
+          wait: 0
+        YAML
+
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(content: per_role_image_config, runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      invocation = runner.invocations.first
+      invocation.remote_command.should eq("podman pull registry.example.com/myorg/myapp")
+    end
+
     it "calls systemctl daemon-reload after writing the Quadlet file" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(runner: runner)

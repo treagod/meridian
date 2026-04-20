@@ -64,6 +64,47 @@ describe "Meridian::Config::Loader" do
       config.servers["workers"].cmd.should eq("bin/sidekiq")
     end
 
+    it "parses a per-role image override" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.12
+            image: ghcr.io/myorg/myapp-worker:latest
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      config.servers["workers"].image.should eq("ghcr.io/myorg/myapp-worker:latest")
+    end
+
+    it "leaves server image nil when no per-role image is set" do
+      config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
+      config.servers["workers"].image.should be_nil
+    end
+
+    it "raises a validation error for unknown keys on a server role" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            unknown_key: bad
+      YAML
+
+      expect_raises(Meridian::Config::ValidationError, /unknown_key/) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+    end
+
     it "parses the proxy image" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
       proxy = config.proxy || raise "Expected proxy config"

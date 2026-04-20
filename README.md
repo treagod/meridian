@@ -221,6 +221,7 @@ servers:
     hosts:
       - 192.168.1.12
     cmd: bin/sidekiq    # overrides the image's default CMD
+    # image: ghcr.io/myorg/myapp-worker:latest  # overrides the global image for this role
 
 proxy:
   image: ghcr.io/basecamp/kamal-proxy:latest
@@ -366,6 +367,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Registry authentication — `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
 - [x] Secret management — `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
 - [x] Quadlet completeness — app Quadlets support `volumes:` (`Volume=`) and `ports:` (`PublishPort=`) with a `[Unit]` description; accessory Quadlets support `network:` (`Network=`), direct `secrets:` (`Secret=`), and `depends_on:` (`Requires=`/`After=`)
+- [x] Per-role images — each server role can declare its own `image:` to override the global image; workers, migration runners, and sidecars can use a different image from the main app
 
 ---
 
