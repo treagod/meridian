@@ -8,6 +8,7 @@ def build_orchestrator(
   incremental_transfer : Meridian::Transfer::Incremental? = nil,
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
   hook_runner : Proc(String, Hash(String, String), Int32) = ->(_script : String, _env : Hash(String, String)) { 0 },
+  file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -19,7 +20,8 @@ def build_orchestrator(
     incremental_transfer: incremental_transfer,
     output: output,
     batch_sleeper: batch_sleeper,
-    hook_runner: hook_runner
+    hook_runner: hook_runner,
+    file_reader: file_reader
   )
 end
 
@@ -624,6 +626,119 @@ describe "Meridian::Deploy::Orchestrator" do
       end
 
       runner.invocations.should be_empty
+    end
+
+    it "uploads files matching the role after Quadlet upload" do
+      with_tempdir do |dir|
+        source_path = File.join(dir, "nginx.conf")
+        File.write(source_path, "server { listen 80; }")
+
+        runner = FakeSSHRunner.new
+        runner.enqueue_results_for_host(
+          "192.168.1.10",
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_fail(3, "inactive\n"),
+          ssh_ok,
+        )
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/nginx.conf
+                roles:
+                  - web
+            YAML
+          runner: runner,
+        )
+
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+
+        file_upload = runner.invocations[4]
+        file_upload.remote_command.should eq("cat > /home/deploy/nginx.conf")
+        file_upload.input.should eq("server { listen 80; }")
+      end
+    end
+
+    it "skips files whose roles do not include the current role" do
+      with_tempdir do |dir|
+        source_path = File.join(dir, "workers.conf")
+        File.write(source_path, "workers config")
+
+        runner = FakeSSHRunner.new
+        runner.enqueue_results_for_host(
+          "192.168.1.10",
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_fail(3, "inactive\n"),
+          ssh_ok,
+        )
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/workers.conf
+                roles:
+                  - workers
+            YAML
+          runner: runner,
+        )
+
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+
+        remote_commands_for(runner, "192.168.1.10").should_not contain("cat > /home/deploy/workers.conf")
+      end
+    end
+
+    it "renders template files before upload" do
+      with_tempdir do |dir|
+        source_path = File.join(dir, "Caddyfile.ecr")
+        File.write(source_path, "handle <%= @config.service %>.example.com")
+
+        runner = FakeSSHRunner.new
+        runner.enqueue_results_for_host(
+          "192.168.1.10",
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_fail(3, "inactive\n"),
+          ssh_ok,
+        )
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/Caddyfile
+                template: true
+            YAML
+          runner: runner,
+        )
+
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+
+        file_upload = runner.invocations[4]
+        file_upload.input.should eq("handle myapp.example.com")
+      end
     end
   end
 

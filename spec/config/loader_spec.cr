@@ -335,5 +335,82 @@ describe "Meridian::Config::Loader" do
         Meridian::Config::Loader.load(write_config("service: [unclosed"))
       end
     end
+
+    it "parses a files block with source, destination, template, and roles" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        files:
+          - source: config/Caddyfile.ecr
+            destination: /home/deploy/Caddyfile
+            template: true
+            roles:
+              - web
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+
+      config.files.size.should eq(1)
+      config.files[0].source.should eq("config/Caddyfile.ecr")
+      config.files[0].destination.should eq("/home/deploy/Caddyfile")
+      config.files[0].template?.should be_true
+      config.files[0].roles.should eq(["web"])
+    end
+
+    it "defaults template to false and roles to nil when omitted" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        files:
+          - source: config/nginx.conf
+            destination: /home/deploy/nginx.conf
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+
+      config.files[0].template?.should be_false
+      config.files[0].roles.should be_nil
+    end
+
+    it "defaults files to an empty array when not present" do
+      config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
+
+      config.files.should be_empty
+    end
+
+    it "raises a validation error for an unknown key in a files entry" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        files:
+          - source: config/Caddyfile
+            destination: /home/deploy/Caddyfile
+            unknown_key: oops
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("files[0].unknown_key")
+    end
   end
 end
