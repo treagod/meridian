@@ -45,6 +45,7 @@ module Meridian
         @output : IO = STDOUT,
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
         @hook_runner : Proc(String, Hash(String, String), Int32) = ->(script : String, env : Hash(String, String)) { Process.run(script, env: env, shell: true).exit_code },
+        @file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
         @stream_transfer = stream_transfer || Transfer::Stream.new(
@@ -93,6 +94,8 @@ module Meridian
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(color), container_file)
 
+        upload_file_syncs(host, role)
+
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
@@ -126,6 +129,8 @@ module Meridian
 
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
+
+        upload_file_syncs(host, role)
 
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
@@ -539,6 +544,28 @@ module Meridian
           keepalive: ssh_keepalive,
           keepalive_interval: ssh_keepalive_interval
         )
+      end
+
+      private def upload_file_syncs(host : String, role : String) : Nil
+        @config.files.each do |file_sync|
+          next if (roles = file_sync.roles) && !roles.includes?(role)
+
+          content = @file_reader.call(file_sync.source)
+          content = render_file_sync_template(content) if file_sync.template?
+
+          log(host, "Uploading #{file_sync.source} → #{file_sync.destination}")
+          upload_ssh(host, file_sync.destination, content)
+        end
+      end
+
+      private def render_file_sync_template(source : String) : String
+        source.gsub(/<%= @config\.(\w+) %>/) do
+          case $1
+          when "service" then @config.service
+          when "image"   then @config.image
+          else $~[0]
+          end
+        end
       end
 
       private def upload_ssh(host : String, remote_path : String, content : String) : Nil

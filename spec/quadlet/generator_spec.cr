@@ -429,5 +429,71 @@ describe "Meridian::Quadlet::Generator" do
         File.exists?(File.join(path, "db.container")).should be_true
       end
     end
+
+    it "writes file sync entries to the files/ subdirectory" do
+      with_tempdir do |source_dir|
+        source_path = File.join(source_dir, "nginx.conf")
+        File.write(source_path, "server { listen 80; }")
+
+        with_tempdir do |output_dir|
+          generator = build_quadlet_generator(<<-YAML)
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/nginx.conf
+            YAML
+
+          generator.write_to_directory(output_dir, Meridian::Quadlet::Color::Green)
+
+          preview_path = File.join(output_dir, "files", "nginx.conf")
+          File.exists?(preview_path).should be_true
+          File.read(preview_path).should eq("server { listen 80; }")
+        end
+      end
+    end
+
+    it "renders template files when template is true" do
+      with_tempdir do |source_dir|
+        source_path = File.join(source_dir, "Caddyfile.ecr")
+        File.write(source_path, "handle <%= @config.service %>.example.com")
+
+        with_tempdir do |output_dir|
+          generator = build_quadlet_generator(<<-YAML)
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/Caddyfile
+                template: true
+            YAML
+
+          generator.write_to_directory(output_dir, Meridian::Quadlet::Color::Green)
+
+          preview_path = File.join(output_dir, "files", "Caddyfile")
+          File.read(preview_path).should eq("handle myapp.example.com")
+        end
+      end
+    end
+
+    it "does not create a files/ directory when no files are configured" do
+      with_tempdir do |path|
+        build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        Dir.exists?(File.join(path, "files")).should be_false
+      end
+    end
   end
 end

@@ -20,6 +20,7 @@ module Meridian
       getter volumes : Array(String) = [] of String
       getter ports : Array(String) = [] of String
       getter hooks : HooksConfig?
+      getter files : Array(FileSyncConfig) = [] of FileSyncConfig
 
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
@@ -186,6 +187,16 @@ module Meridian
       getter depends_on : String?
     end
 
+    struct FileSyncConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter source : String
+      getter destination : String
+      getter? template : Bool = false
+      getter roles : Array(String)?
+    end
+
     struct HooksConfig
       include YAML::Serializable
       include YAML::Serializable::Strict
@@ -195,7 +206,7 @@ module Meridian
     end
 
     module Loader
-      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks"}
+      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS       = {"hosts", "proxy", "cmd", "image"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
@@ -208,6 +219,7 @@ module Meridian
       TRANSFER_KEYS     = {"mode"}
       ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
       HOOKS_KEYS        = {"pre_deploy", "post_deploy"}
+      FILE_SYNC_KEYS    = {"source", "destination", "template", "roles"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))
@@ -355,6 +367,18 @@ module Meridian
           if hooks_mapping = mapping(hooks)
             if key = unknown_key(hooks_mapping, HOOKS_KEYS, "hooks.")
               return key
+            end
+          end
+        end
+
+        if files = mapping_value(mapping, "files")
+          if files_sequence = files.raw.as?(Array(YAML::Any))
+            files_sequence.each_with_index do |entry, i|
+              if entry_mapping = mapping(entry)
+                if key = unknown_key(entry_mapping, FILE_SYNC_KEYS, "files[#{i}].")
+                  return key
+                end
+              end
             end
           end
         end

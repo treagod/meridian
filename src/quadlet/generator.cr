@@ -89,6 +89,26 @@ module Meridian
         (@config.accessories || EMPTY_ACCESSORIES).each do |name, accessory|
           File.write(File.join(output_dir, "#{name}.container"), accessory_container_file(name, accessory))
         end
+
+        unless @config.files.empty?
+          files_dir = File.join(output_dir, "files")
+          Dir.mkdir_p(files_dir)
+          @config.files.each do |file_sync|
+            content = File.read(file_sync.source)
+            content = render_file_sync_template(content) if file_sync.template?
+            File.write(File.join(files_dir, File.basename(file_sync.destination)), content)
+          end
+        end
+      end
+
+      private def render_file_sync_template(source : String) : String
+        source.gsub(/<%= @config\.(\w+) %>/) do
+          case $1
+          when "service" then @config.service
+          when "image"   then @config.image
+          else $~[0]
+          end
+        end
       end
 
       private EMPTY_ENV         = {} of String => String
