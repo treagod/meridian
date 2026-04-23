@@ -1,0 +1,15 @@
+[Unit]
+Description=<%= @service %> static asset server
+
+[Container]
+Image=caddy:2-alpine
+ContainerName=<%= @service %>-assets-server
+Volume=<%= @service %>-assets.volume:/srv/assets:ro
+Volume=%h/.config/containers/<%= @service %>-assets-caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+Network=<%= @service %>.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

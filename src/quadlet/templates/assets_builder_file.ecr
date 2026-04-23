@@ -1,0 +1,21 @@
+[Unit]
+Description=<%= @service %> asset builder
+
+[Container]
+Image=<%= @image %>
+ContainerName=<%= @service %>-assets-builder
+Volume=<%= @service %>-assets.volume:/mnt/assets
+<% @environment.each do |key, value| %>
+Environment=<%= key %>=<%= value %>
+<% end %>
+<% @secrets.each do |secret| %>
+Secret=<%= secret %>
+<% end %>
+Exec=sh -c "<%= @command %> && mkdir -p /mnt/assets/<%= @release_id %> && cp -r <%= @output_dir %>/. /mnt/assets/<%= @release_id %>/"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

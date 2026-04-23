@@ -275,10 +275,61 @@ def enqueue_deploy_success_for_host(
   )
 end
 
+ASSETS_CONFIG = <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+          app_port: 3000
+
+    assets:
+      host: static.example.com
+      command: bin/build-assets
+      output_dir: /app/public/assets
+      retain_releases: 2
+  YAML
+
 def multi_host_config(boot_limit : Int32 = 1, boot_wait : Int32 = 10) : String
   FULL_CONFIG
     .sub("limit: 1", "limit: #{boot_limit}")
     .sub("wait: 10", "wait: #{boot_wait}")
+end
+
+def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, container_ip : String = "10.88.0.12")
+  runner.enqueue_results_for_host(
+    "192.168.1.10",
+    ssh_fail(1, "", "No such file\n"),  # cat .meridian-color
+    ssh_fail(3, "inactive\n"),          # is-active blue
+    ssh_fail(3, "inactive\n"),          # is-active green
+    ssh_fail(3, "inactive\n"),          # old_active check
+    ssh_ok,                             # pull image
+    ssh_ok,                             # mkdir -p DIRECTORY
+    ssh_ok,                             # upload network Quadlet
+    ssh_ok,                             # upload container Quadlet
+    ssh_ok,                             # mkdir -p assets caddy dir
+    ssh_ok,                             # upload Caddyfile
+    ssh_ok,                             # upload assets.volume Quadlet
+    ssh_ok,                             # upload assets-builder.container Quadlet
+    ssh_ok,                             # upload assets-server.container Quadlet
+    ssh_ok,                             # daemon-reload
+    ssh_ok,                             # restart assets-builder.service
+    ssh_ok,                             # start assets-server.service
+    ssh_ok,                             # kamal-proxy deploy for assets
+    ssh_ok,                             # prune old asset releases
+    ssh_ok,                             # start new service
+    ssh_ok("#{container_ip}\n"),        # podman inspect (health URL)
+    ssh_ok("200"),                      # health check
+    ssh_ok,                             # kamal-proxy deploy for app
+    ssh_ok,                             # rm old container
+    ssh_ok,                             # daemon-reload
+    ssh_ok("green\n"),                  # upload .meridian-color
+    ssh_ok,                             # podman image prune
+  )
 end
 
 def run_deploy_async(orchestrator : Meridian::Deploy::Orchestrator) : Channel(Exception?)
@@ -1272,6 +1323,79 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.invocations.none? { |inv|
           inv.remote_command.try(&.starts_with?("podman login"))
         }.should be_true
+    end
+  end
+
+  describe "static assets" do
+    it "uploads asset Quadlets and Caddyfile before daemon-reload" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      daemon_reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon-reload"
+      caddy_mkdir_index = commands.index("mkdir -p .config/containers/myapp-assets-caddy") || raise "Expected assets caddy mkdir"
+
+      caddy_mkdir_index.should be < daemon_reload_index
+      commands.should contain("cat > .config/containers/systemd/myapp-assets.volume")
+      commands.should contain("cat > .config/containers/systemd/myapp-assets-builder.container")
+      commands.should contain("cat > .config/containers/systemd/myapp-assets-server.container")
+      commands.should contain("cat > .config/containers/myapp-assets-caddy/Caddyfile")
+    end
+
+    it "runs the asset builder after daemon-reload and before starting the new service" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      daemon_reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon-reload"
+      builder_index = commands.index("systemctl --user restart myapp-assets-builder.service") || raise "Expected builder restart"
+      start_index = commands.index("systemctl --user start myapp-green.service") || raise "Expected service start"
+
+      daemon_reload_index.should be < builder_index
+      builder_index.should be < start_index
+    end
+
+    it "starts the asset server after the builder" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      builder_index = commands.index("systemctl --user restart myapp-assets-builder.service") || raise "Expected builder restart"
+      server_index = commands.index("systemctl --user start myapp-assets-server.service") || raise "Expected server start"
+
+      builder_index.should be < server_index
+    end
+
+    it "registers the asset server with kamal-proxy using the configured host" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com")
+    end
+
+    it "does not run asset steps when assets are not configured" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.should_not contain("systemctl --user restart myapp-assets-builder.service")
+      commands.should_not contain("systemctl --user start myapp-assets-server.service")
     end
   end
 

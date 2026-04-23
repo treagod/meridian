@@ -21,6 +21,7 @@ module Meridian
       getter ports : Array(String) = [] of String
       getter hooks : HooksConfig?
       getter files : Array(FileSyncConfig) = [] of FileSyncConfig
+      getter assets : AssetsConfig?
 
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
@@ -197,6 +198,16 @@ module Meridian
       getter roles : Array(String)?
     end
 
+    struct AssetsConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter host : String
+      getter command : String
+      getter output_dir : String
+      getter retain_releases : Int32 = 2
+    end
+
     struct HooksConfig
       include YAML::Serializable
       include YAML::Serializable::Strict
@@ -206,7 +217,7 @@ module Meridian
     end
 
     module Loader
-      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files"}
+      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS       = {"hosts", "proxy", "cmd", "image"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
@@ -220,6 +231,7 @@ module Meridian
       ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
       HOOKS_KEYS        = {"pre_deploy", "post_deploy"}
       FILE_SYNC_KEYS    = {"source", "destination", "template", "roles"}
+      ASSETS_KEYS       = {"host", "command", "output_dir", "retain_releases"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))
@@ -379,6 +391,14 @@ module Meridian
                   return key
                 end
               end
+            end
+          end
+        end
+
+        if assets = mapping_value(mapping, "assets")
+          if assets_mapping = mapping(assets)
+            if key = unknown_key(assets_mapping, ASSETS_KEYS, "assets.")
+              return key
             end
           end
         end

@@ -4,6 +4,32 @@ def build_quadlet_generator(content : String = FULL_CONFIG)
   Meridian::Quadlet::Generator.new(load_config(content))
 end
 
+def assets_config : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+
+    env:
+      clear:
+        RAILS_ENV: production
+      secret:
+        - SECRET_KEY_BASE
+
+    assets:
+      host: static.example.com
+      command: bin/build-assets
+      output_dir: /app/public/assets
+      retain_releases: 2
+  YAML
+end
+
 def accessory_generator_config : String
   <<-YAML
     service: myapp
@@ -389,6 +415,122 @@ describe "Meridian::Quadlet::Generator" do
     end
   end
 
+  describe "#assets_volume_file" do
+    it "includes the [Volume] section header" do
+      output = build_quadlet_generator(assets_config).assets_volume_file
+
+      output.should contain("[Volume]")
+    end
+  end
+
+  describe "#assets_builder_file" do
+    it "sets the image to the global app image" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Image=registry.example.com/myorg/myapp")
+    end
+
+    it "names the builder container after the service" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("ContainerName=myapp-assets-builder")
+    end
+
+    it "mounts the assets volume at /mnt/assets" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Volume=myapp-assets.volume:/mnt/assets")
+    end
+
+    it "embeds the command and release_id in the Exec line" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Exec=sh -c \"bin/build-assets && mkdir -p /mnt/assets/20240420120000 && cp -r /app/public/assets/. /mnt/assets/20240420120000/\"")
+    end
+
+    it "uses Type=oneshot with RemainAfterExit=yes" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Type=oneshot")
+      output.should contain("RemainAfterExit=yes")
+    end
+
+    it "includes clear environment variables from config" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Environment=RAILS_ENV=production")
+    end
+
+    it "includes secret directives from config" do
+      output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
+
+      output.should contain("Secret=SECRET_KEY_BASE,type=env,target=SECRET_KEY_BASE")
+    end
+
+    it "raises when assets configuration is absent" do
+      config = load_config(MINIMAL_CONFIG)
+
+      expect_raises(ArgumentError, /Missing assets configuration/) do
+        Meridian::Quadlet::Generator.new(config).assets_builder_file("20240420120000")
+      end
+    end
+  end
+
+  describe "#assets_server_file" do
+    it "uses the caddy image" do
+      output = build_quadlet_generator(assets_config).assets_server_file
+
+      output.should contain("Image=caddy:2-alpine")
+    end
+
+    it "names the server container after the service" do
+      output = build_quadlet_generator(assets_config).assets_server_file
+
+      output.should contain("ContainerName=myapp-assets-server")
+    end
+
+    it "mounts the assets volume read-only at /srv/assets" do
+      output = build_quadlet_generator(assets_config).assets_server_file
+
+      output.should contain("Volume=myapp-assets.volume:/srv/assets:ro")
+    end
+
+    it "mounts the Caddyfile from the home-relative config path" do
+      output = build_quadlet_generator(assets_config).assets_server_file
+
+      output.should contain("Volume=%h/.config/containers/myapp-assets-caddy/Caddyfile:/etc/caddy/Caddyfile:ro")
+    end
+
+    it "attaches to the service network" do
+      output = build_quadlet_generator(assets_config).assets_server_file
+
+      output.should contain("Network=myapp.network")
+    end
+
+    it "raises when assets configuration is absent" do
+      config = load_config(MINIMAL_CONFIG)
+
+      expect_raises(ArgumentError, /Missing assets configuration/) do
+        Meridian::Quadlet::Generator.new(config).assets_server_file
+      end
+    end
+  end
+
+  describe "#assets_caddy_config" do
+    it "disables auto_https" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain("auto_https off")
+    end
+
+    it "serves from /srv/assets" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain("root * /srv/assets")
+      output.should contain("file_server")
+    end
+  end
+
   describe "#write_to_directory" do
     it "creates a .container file in the output directory" do
       with_tempdir do |path|
@@ -493,6 +635,43 @@ describe "Meridian::Quadlet::Generator" do
         build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
 
         Dir.exists?(File.join(path, "files")).should be_false
+      end
+    end
+
+    it "creates an assets/ directory with volume, builder, and server files when assets are configured" do
+      with_tempdir do |path|
+        build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        File.exists?(File.join(path, "assets", "myapp-assets.volume")).should be_true
+        File.exists?(File.join(path, "assets", "myapp-assets-builder.container")).should be_true
+        File.exists?(File.join(path, "assets", "myapp-assets-server.container")).should be_true
+      end
+    end
+
+    it "creates the Caddyfile preview under assets/caddy/" do
+      with_tempdir do |path|
+        build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        caddyfile_path = File.join(path, "assets", "caddy", "Caddyfile")
+        File.exists?(caddyfile_path).should be_true
+        File.read(caddyfile_path).should contain("auto_https off")
+      end
+    end
+
+    it "uses a placeholder release ID in the builder preview" do
+      with_tempdir do |path|
+        build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        builder = File.read(File.join(path, "assets", "myapp-assets-builder.container"))
+        builder.should contain("<RELEASE_ID>")
+      end
+    end
+
+    it "does not create an assets/ directory when assets are not configured" do
+      with_tempdir do |path|
+        build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        Dir.exists?(File.join(path, "assets")).should be_false
       end
     end
   end
