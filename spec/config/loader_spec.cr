@@ -390,6 +390,84 @@ describe "Meridian::Config::Loader" do
       config.files.should be_empty
     end
 
+    it "parses an assets block with host, command, output_dir, and retain_releases" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        assets:
+          host: static.example.com
+          command: python manage.py collectstatic --noinput
+          output_dir: /app/staticfiles
+          retain_releases: 3
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      assets = config.assets || raise "Expected assets config"
+
+      assets.host.should eq("static.example.com")
+      assets.command.should eq("python manage.py collectstatic --noinput")
+      assets.output_dir.should eq("/app/staticfiles")
+      assets.retain_releases.should eq(3)
+    end
+
+    it "defaults retain_releases to 2 when omitted" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      assets = config.assets || raise "Expected assets config"
+
+      assets.retain_releases.should eq(2)
+    end
+
+    it "returns nil for assets when not present" do
+      config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
+
+      config.assets.should be_nil
+    end
+
+    it "raises a validation error for an unknown key in the assets block" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        assets:
+          host: static.example.com
+          command: bin/build
+          output_dir: /app/public
+          unknown_key: oops
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("assets.unknown_key")
+    end
+
     it "raises a validation error for an unknown key in a files entry" do
       yaml = <<-YAML
         service: myapp

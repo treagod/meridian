@@ -71,6 +71,36 @@ module Meridian
         ).to_s
       end
 
+      def assets_volume_file : String
+        AssetsVolumeTemplate.new.to_s
+      end
+
+      def assets_builder_file(release_id : String) : String
+        assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
+        environment = @config.env.try(&.clear) || EMPTY_ENV
+        secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
+
+        AssetsBuilderTemplate.new(
+          service: @config.service,
+          image: @config.image,
+          release_id: release_id,
+          command: assets.command,
+          output_dir: assets.output_dir,
+          environment: environment,
+          secrets: secrets
+        ).to_s
+      end
+
+      def assets_server_file : String
+        @config.assets || raise ArgumentError.new("Missing assets configuration")
+
+        AssetsServerTemplate.new(service: @config.service).to_s
+      end
+
+      def assets_caddy_config : String
+        "{\n\tauto_https off\n}\n\n:80 {\n\troot * /srv/assets\n\tfile_server\n}\n"
+      end
+
       def write_to_directory(output_dir : String, color : Color) : Nil
         web_server = @config.servers["web"]? || raise Config::UnknownRole.new("Unknown role: web")
 
@@ -98,6 +128,17 @@ module Meridian
             content = render_file_sync_template(content) if file_sync.template?
             File.write(File.join(files_dir, File.basename(file_sync.destination)), content)
           end
+        end
+
+        if @config.assets
+          assets_dir = File.join(output_dir, "assets")
+          Dir.mkdir_p(assets_dir)
+          File.write(File.join(assets_dir, "#{@config.service}-assets.volume"), assets_volume_file)
+          File.write(File.join(assets_dir, "#{@config.service}-assets-builder.container"), assets_builder_file("<RELEASE_ID>"))
+          File.write(File.join(assets_dir, "#{@config.service}-assets-server.container"), assets_server_file)
+          caddy_dir = File.join(assets_dir, "caddy")
+          Dir.mkdir_p(caddy_dir)
+          File.write(File.join(caddy_dir, "Caddyfile"), assets_caddy_config)
         end
       end
 
@@ -166,6 +207,32 @@ module Meridian
         end
 
         ECR.def_to_s "src/quadlet/templates/accessory_container_file.ecr"
+      end
+
+      private class AssetsVolumeTemplate
+        ECR.def_to_s "src/quadlet/templates/assets_volume_file.ecr"
+      end
+
+      private class AssetsBuilderTemplate
+        def initialize(
+          @service : String,
+          @image : String,
+          @release_id : String,
+          @command : String,
+          @output_dir : String,
+          @environment : Hash(String, String),
+          @secrets : Array(String),
+        )
+        end
+
+        ECR.def_to_s "src/quadlet/templates/assets_builder_file.ecr"
+      end
+
+      private class AssetsServerTemplate
+        def initialize(@service : String)
+        end
+
+        ECR.def_to_s "src/quadlet/templates/assets_server_file.ecr"
       end
     end
   end
