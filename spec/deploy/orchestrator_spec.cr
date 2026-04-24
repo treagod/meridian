@@ -303,32 +303,32 @@ end
 def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, container_ip : String = "10.88.0.12")
   runner.enqueue_results_for_host(
     "192.168.1.10",
-    ssh_fail(1, "", "No such file\n"),  # cat .meridian-color
-    ssh_fail(3, "inactive\n"),          # is-active blue
-    ssh_fail(3, "inactive\n"),          # is-active green
-    ssh_fail(3, "inactive\n"),          # old_active check
-    ssh_ok,                             # pull image
-    ssh_ok,                             # mkdir -p DIRECTORY
-    ssh_ok,                             # upload network Quadlet
-    ssh_ok,                             # upload container Quadlet
-    ssh_ok,                             # mkdir -p assets caddy dir
-    ssh_ok,                             # upload Caddyfile
-    ssh_ok,                             # upload assets.volume Quadlet
-    ssh_ok,                             # upload assets-builder.container Quadlet
-    ssh_ok,                             # upload assets-server.container Quadlet
-    ssh_ok,                             # daemon-reload
-    ssh_ok,                             # restart assets-builder.service
-    ssh_ok,                             # start assets-server.service
-    ssh_ok,                             # kamal-proxy deploy for assets
-    ssh_ok,                             # prune old asset releases
-    ssh_ok,                             # start new service
-    ssh_ok("#{container_ip}\n"),        # podman inspect (health URL)
-    ssh_ok("200"),                      # health check
-    ssh_ok,                             # kamal-proxy deploy for app
-    ssh_ok,                             # rm old container
-    ssh_ok,                             # daemon-reload
-    ssh_ok("green\n"),                  # upload .meridian-color
-    ssh_ok,                             # podman image prune
+    ssh_fail(1, "", "No such file\n"), # cat .meridian-color
+    ssh_fail(3, "inactive\n"),         # is-active blue
+    ssh_fail(3, "inactive\n"),         # is-active green
+    ssh_fail(3, "inactive\n"),         # old_active check
+    ssh_ok,                            # pull image
+    ssh_ok,                            # mkdir -p DIRECTORY
+    ssh_ok,                            # upload network Quadlet
+    ssh_ok,                            # upload container Quadlet
+    ssh_ok,                            # mkdir -p assets caddy dir
+    ssh_ok,                            # upload Caddyfile
+    ssh_ok,                            # upload assets.volume Quadlet
+    ssh_ok,                            # upload assets-builder.container Quadlet
+    ssh_ok,                            # upload assets-server.container Quadlet
+    ssh_ok,                            # daemon-reload
+    ssh_ok,                            # restart assets-builder.service
+    ssh_ok,                            # start assets-server.service
+    ssh_ok,                            # kamal-proxy deploy for assets
+    ssh_ok,                            # prune old asset releases
+    ssh_ok,                            # start new service
+    ssh_ok("#{container_ip}\n"),       # podman inspect (health URL)
+    ssh_ok("200"),                     # health check
+    ssh_ok,                            # kamal-proxy deploy for app
+    ssh_ok,                            # rm old container
+    ssh_ok,                            # daemon-reload
+    ssh_ok("green\n"),                 # upload .meridian-color
+    ssh_ok,                            # podman image prune
   )
 end
 
@@ -712,9 +712,9 @@ describe "Meridian::Deploy::Orchestrator" do
 
         orchestrator.deploy_to_host("192.168.1.10", "web")
 
-        file_upload = runner.invocations[4]
-        file_upload.remote_command.should eq("cat > /home/deploy/nginx.conf")
-        file_upload.input.should eq("server { listen 80; }")
+        file_upload = runner.invocations.find { |i| i.remote_command == "cat > /home/deploy/nginx.conf" }
+        file_upload.should_not be_nil
+        file_upload.not_nil!.input.should eq("server { listen 80; }")
       end
     end
 
@@ -787,9 +787,158 @@ describe "Meridian::Deploy::Orchestrator" do
 
         orchestrator.deploy_to_host("192.168.1.10", "web")
 
-        file_upload = runner.invocations[4]
-        file_upload.input.should eq("handle myapp.example.com")
+        file_upload = runner.invocations.find { |i| i.remote_command == "cat > /home/deploy/Caddyfile" }
+        file_upload.should_not be_nil
+        file_upload.not_nil!.input.should eq("handle myapp.example.com")
       end
+    end
+
+    it "deploys unmanaged roles by syncing files and restarting configured units" do
+      with_tempdir do |dir|
+        unit_path = File.join(dir, "shourney.container")
+        File.write(unit_path, "[Container]\nImage=localhost/shourney:latest\n")
+
+        runner = FakeSSHRunner.new
+        orchestrator = build_orchestrator(
+          content: <<-YAML,
+            service: shourney
+            image: localhost/shourney:latest
+
+            servers:
+              web:
+                hosts:
+                  - shourney-staging
+                managed: false
+                units:
+                  - shourney.service
+
+            files:
+              - source: #{unit_path}
+                destination: .config/containers/systemd/shourney.container
+                roles:
+                  - web
+
+            hooks:
+              remote:
+                before_start:
+                  - command: systemctl --user start --wait shourney-collectassets.service
+                    roles:
+                      - web
+                  - command: systemctl --user start --wait shourney-migrate.service
+                    roles:
+                      - web
+                after_deploy:
+                  - command: systemctl --user --no-pager --full status shourney.service
+          YAML
+          runner: runner
+        )
+
+        orchestrator.deploy_to_host("shourney-staging", "web")
+
+        commands = remote_commands_for(runner, "shourney-staging")
+        commands.should_not contain("cat > .config/containers/systemd/shourney-green.container")
+        commands.should contain("cat > .config/containers/systemd/shourney.container")
+        commands.should contain("sh -lc 'systemctl --user start --wait shourney-collectassets.service'")
+        commands.should contain("sh -lc 'systemctl --user start --wait shourney-migrate.service'")
+        commands.should contain("systemctl --user restart shourney.service")
+
+        reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon reload"
+        collectassets_index = commands.index("sh -lc 'systemctl --user start --wait shourney-collectassets.service'") || raise "Expected collectassets hook"
+        restart_index = commands.index("systemctl --user restart shourney.service") || raise "Expected unit restart"
+
+        reload_index.should be < collectassets_index
+        collectassets_index.should be < restart_index
+      end
+    end
+
+    it "runs remote before_start hooks before starting a managed service" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          hooks:
+            remote:
+              before_start:
+                - command: systemctl --user start --wait myapp-migrate.service
+                  roles:
+                    - web
+        YAML
+        runner: runner
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      hook_index = commands.index("sh -lc 'systemctl --user start --wait myapp-migrate.service'") || raise "Expected remote hook"
+      start_index = commands.index("systemctl --user start myapp-green.service") || raise "Expected service start"
+
+      hook_index.should be < start_index
+    end
+
+    it "skips remote hooks when the current role is not included" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          hooks:
+            remote:
+              before_start:
+                - command: systemctl --user start --wait workers-only.service
+                  roles:
+                    - workers
+        YAML
+        runner: runner
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      remote_commands_for(runner, "192.168.1.10").should_not contain("sh -lc 'systemctl --user start --wait workers-only.service'")
+    end
+
+    it "aborts when a remote hook fails" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+        ssh_fail(1, "", "migration failed\n")
+      )
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          hooks:
+            remote:
+              before_start:
+                - command: systemctl --user start --wait myapp-migrate.service
+        YAML
+        runner: runner
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Remote command on deploy@192.168.1.10 failed/) do
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      end
+
+      remote_commands_for(runner, "192.168.1.10").should_not contain("systemctl --user start myapp-green.service")
     end
   end
 
@@ -1259,9 +1408,9 @@ describe "Meridian::Deploy::Orchestrator" do
 
   context "registry authentication" do
     it "logs in to the registry before pulling" do
-        runner = FakeSSHRunner.new
-        orchestrator = build_orchestrator(
-          content: <<-YAML,
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
             service: myapp
             image: registry.example.com/myorg/myapp
 
@@ -1276,37 +1425,37 @@ describe "Meridian::Deploy::Orchestrator" do
               password:
                 - MERIDIAN_TEST_REGISTRY_PASSWORD
             YAML
-          runner: runner
-        )
-        ENV["MERIDIAN_TEST_REGISTRY_PASSWORD"] = "s3cr3t"
+        runner: runner
+      )
+      ENV["MERIDIAN_TEST_REGISTRY_PASSWORD"] = "s3cr3t"
 
-        begin
-          orchestrator.deploy_to_host("192.168.1.10", "web")
-        ensure
-          ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD")
-        end
-
-        login_invocation = runner.invocations.find { |inv|
-          inv.remote_command.try(&.starts_with?("podman login"))
-        }
-        pull_invocation = runner.invocations.find { |inv|
-          inv.remote_command.try(&.starts_with?("podman pull"))
-        }
-
-        login_invocation.should_not be_nil
-        pull_invocation.should_not be_nil
-
-        li = login_invocation.not_nil!
-        li.remote_command.should eq("podman login registry.example.com --username deploy --password-stdin")
-        li.input.should eq("s3cr3t")
-
-        runner.invocations.index(li).not_nil!.should be < runner.invocations.index(pull_invocation.not_nil!).not_nil!
+      begin
+        orchestrator.deploy_to_host("192.168.1.10", "web")
+      ensure
+        ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD")
       end
 
-      it "does not log in when no registry block is configured" do
-        runner = FakeSSHRunner.new
-        orchestrator = build_orchestrator(
-          content: <<-YAML,
+      login_invocation = runner.invocations.find { |inv|
+        inv.remote_command.try(&.starts_with?("podman login"))
+      }
+      pull_invocation = runner.invocations.find { |inv|
+        inv.remote_command.try(&.starts_with?("podman pull"))
+      }
+
+      login_invocation.should_not be_nil
+      pull_invocation.should_not be_nil
+
+      li = login_invocation.not_nil!
+      li.remote_command.should eq("podman login registry.example.com --username deploy --password-stdin")
+      li.input.should eq("s3cr3t")
+
+      runner.invocations.index(li).not_nil!.should be < runner.invocations.index(pull_invocation.not_nil!).not_nil!
+    end
+
+    it "does not log in when no registry block is configured" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
             service: myapp
             image: registry.example.com/myorg/myapp
 
@@ -1315,14 +1464,14 @@ describe "Meridian::Deploy::Orchestrator" do
                 hosts:
                   - 192.168.1.10
             YAML
-          runner: runner
-        )
+        runner: runner
+      )
 
-        orchestrator.deploy_to_host("192.168.1.10", "web")
+      orchestrator.deploy_to_host("192.168.1.10", "web")
 
-        runner.invocations.none? { |inv|
-          inv.remote_command.try(&.starts_with?("podman login"))
-        }.should be_true
+      runner.invocations.none? { |inv|
+        inv.remote_command.try(&.starts_with?("podman login"))
+      }.should be_true
     end
   end
 

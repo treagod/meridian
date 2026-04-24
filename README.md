@@ -5,8 +5,7 @@
 Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, and `secret set|rm|ls`.
-> **Planned:** Optional deploy-managed static asset serving on a separate asset subdomain via a shared volume, a oneshot asset builder, and a Caddy sidecar. Not implemented yet.
+> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, `secret set|rm|ls`, arbitrary file sync, remote deploy hooks, and deploy-managed static assets via a shared volume, a oneshot builder, and a Caddy sidecar.
 
 ---
 
@@ -216,7 +215,6 @@ servers:
         interval: 2     # seconds between checks
         timeout: 5      # seconds before a check times out
         retries: 10     # attempts before declaring the deploy failed
-
   workers:
     hosts:
       - 192.168.1.12
@@ -278,9 +276,33 @@ accessories:
     # secrets:                   # direct Podman secrets (emits Secret=, independent of env.secret)
     #   - DB_TLS_CERT
     # depends_on: myapp-green.service   # emits Requires= and After= in [Unit]
-```
 
----
+# Optional: upload supporting config files to remote hosts during deploy
+# files:
+#   - source: config/Caddyfile.ecr     # local path; .ecr extension is conventional for templates
+#     destination: /home/deploy/Caddyfile
+#     template: true                   # renders <%= @config.service %> / <%= @config.image %>
+#     roles: [web]                     # omit to upload to all roles
+
+# Optional: remote hook commands, executed on each matching host at deploy phases
+# hooks:
+#   remote:
+#     before_start:
+#       - command: systemctl --user start --wait myapp-collectassets.service
+#         roles: [web]
+#       - command: systemctl --user start --wait myapp-migrate.service
+#         roles: [web]
+#     after_deploy:
+#       - command: systemctl --user --no-pager --full status myapp.service
+
+# Optional: publish fingerprinted static assets on a separate subdomain
+# Requires proxy: to be configured on the web role.
+# assets:
+#   host: static.example.com          # subdomain served by the Caddy asset server
+#   command: bin/build-assets         # runs inside the app image before the new colour starts
+#   output_dir: /app/public/assets    # directory the build command writes into
+#   retain_releases: 2                # how many old asset releases to keep (default: 2)
+```
 
 ## Registry-Free Deployment
 
@@ -368,6 +390,8 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 - [x] Secret management — `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
 - [x] Quadlet completeness — app Quadlets support `volumes:` (`Volume=`) and `ports:` (`PublishPort=`) with a `[Unit]` description; accessory Quadlets support `network:` (`Network=`), direct `secrets:` (`Secret=`), and `depends_on:` (`Requires=`/`After=`)
 - [x] Per-role images — each server role can declare its own `image:` to override the global image; workers, migration runners, and sidecars can use a different image from the main app
+- [x] Arbitrary file sync — `files:` uploads supporting config files (Caddyfile, nginx snippets, env fragments) to remote hosts during deploy, with optional ECR template rendering
+- [x] Deploy-managed static assets — `assets:` publishes fingerprinted static assets via a shared Podman volume, a `Type=oneshot` builder container, and a Caddy sidecar on a dedicated subdomain
 
 ---
 

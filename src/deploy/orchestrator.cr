@@ -79,11 +79,15 @@ module Meridian
         color : Quadlet::Color = DEFAULT_COLOR,
       ) : Nil
         server = server_config(role)
+        return deploy_existing_units_to_host(host, role, server) unless server.managed?
+
         deployed_service_name = service_name(color)
         service_unit = service_unit(color)
         container_file = @quadlet_generator.container_file(server, color)
 
+        run_remote_hooks(host, role, "before_transfer")
         transfer_image_to_host(host, server.image || @config.image)
+        run_remote_hooks(host, role, "after_transfer")
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
@@ -95,9 +99,12 @@ module Meridian
         upload_ssh(host, container_path(color), container_file)
 
         upload_file_syncs(host, role)
+        run_remote_hooks(host, role, "after_upload")
 
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        run_remote_hooks(host, role, "before_start")
 
         active_service = run_ssh(host, ["systemctl", "--user", "is-active", service_unit])
         if active_service.exit_code.zero?
@@ -107,19 +114,25 @@ module Meridian
 
         log(host, "Starting service #{deployed_service_name}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit])
+        run_remote_hooks(host, role, "after_start")
+        run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
       end
 
       def zero_downtime_deploy_to_host(host : String, role : String) : Nil
         server = server_config(role)
+        return deploy_existing_units_to_host(host, role, server) unless server.managed?
+
         proxy = server.proxy || raise DeployFailed.new("Missing proxy configuration for role: #{role}")
         old_color = current_color_for(host)
         old_active = service_active?(host, old_color)
         new_color = inactive_color(old_color)
         new_service = service_name(new_color)
 
+        run_remote_hooks(host, role, "before_transfer")
         transfer_image_to_host(host, server.image || @config.image)
+        run_remote_hooks(host, role, "after_transfer")
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
@@ -136,9 +149,12 @@ module Meridian
           release_id = Time.utc.to_s("%Y%m%d%H%M%S")
           upload_assets_to_host(host, release_id)
         end
+        run_remote_hooks(host, role, "after_upload")
 
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        run_remote_hooks(host, role, "before_start")
 
         if @config.assets
           run_asset_build_on_host(host)
@@ -146,6 +162,7 @@ module Meridian
 
         log(host, "Starting service #{service_unit(new_color)}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
+        run_remote_hooks(host, role, "after_start")
 
         begin
           log(host, "Checking health for #{new_service}")
@@ -156,8 +173,11 @@ module Meridian
             retries: proxy.healthcheck.retries
           )
 
+          run_remote_hooks(host, role, "before_switch")
+
           log(host, "Switching proxy traffic to #{new_service}")
           run_ssh!(host, proxy_deploy_command(proxy, new_color))
+          run_remote_hooks(host, role, "after_switch")
         rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError
           cleanup_failed_candidate(host, new_color)
           raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
@@ -182,6 +202,7 @@ module Meridian
         unless prune_result.exit_code.zero?
           log(host, "Image prune failed with exit code #{prune_result.exit_code}")
         end
+        run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
       end
@@ -503,6 +524,64 @@ module Meridian
         raise DeployFailed.new(ex.message || "Image transfer to #{host} failed")
       end
 
+      private def deploy_existing_units_to_host(
+        host : String,
+        role : String,
+        server : Config::ServerConfig,
+      ) : Nil
+        run_remote_hooks(host, role, "before_transfer")
+        transfer_image_to_host(host, server.image || @config.image)
+        run_remote_hooks(host, role, "after_transfer")
+
+        log(host, "Ensuring Quadlet directory exists")
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+
+        upload_file_syncs(host, role)
+        run_remote_hooks(host, role, "after_upload")
+
+        log(host, "Reloading user systemd")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        run_remote_hooks(host, role, "before_start")
+
+        server.units.each do |unit|
+          log(host, "Restarting existing unit #{unit}")
+          run_ssh!(host, ["systemctl", "--user", "restart", unit])
+        end
+
+        run_remote_hooks(host, role, "after_start")
+        run_remote_hooks(host, role, "after_deploy")
+      rescue ex : SSH::CommandFailed | SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
+      end
+
+      private def run_remote_hooks(host : String, role : String, phase : String) : Nil
+        remote_hooks_for(phase).each do |hook|
+          next if (roles = hook.roles) && !roles.includes?(role)
+
+          log(host, "Running remote hook #{phase}: #{hook.command}")
+          run_ssh!(host, ["sh", "-lc", hook.command])
+        end
+      end
+
+      private def remote_hooks_for(phase : String) : Array(Config::RemoteHookConfig)
+        hooks = @config.hooks.try(&.remote)
+        return [] of Config::RemoteHookConfig unless hooks
+
+        case phase
+        when "before_transfer" then hooks.before_transfer
+        when "after_transfer"  then hooks.after_transfer
+        when "after_upload"    then hooks.after_upload
+        when "before_start"    then hooks.before_start
+        when "after_start"     then hooks.after_start
+        when "before_switch"   then hooks.before_switch
+        when "after_switch"    then hooks.after_switch
+        when "after_deploy"    then hooks.after_deploy
+        else
+          [] of Config::RemoteHookConfig
+        end
+      end
+
       private def login_to_registry(host : String, registry : Config::RegistryConfig) : Nil
         server = registry.server || raise DeployFailed.new("registry.server is required")
         username = registry.username || raise DeployFailed.new("registry.username is required")
@@ -560,20 +639,10 @@ module Meridian
           next if (roles = file_sync.roles) && !roles.includes?(role)
 
           content = @file_reader.call(file_sync.source)
-          content = render_file_sync_template(content) if file_sync.template?
+          content = @quadlet_generator.render_file_sync_template(content) if file_sync.template?
 
           log(host, "Uploading #{file_sync.source} → #{file_sync.destination}")
           upload_ssh(host, file_sync.destination, content)
-        end
-      end
-
-      private def render_file_sync_template(source : String) : String
-        source.gsub(/<%= @config\.(\w+) %>/) do
-          case $1
-          when "service" then @config.service
-          when "image"   then @config.image
-          else $~[0]
-          end
         end
       end
 

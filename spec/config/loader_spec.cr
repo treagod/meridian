@@ -64,6 +64,66 @@ describe "Meridian::Config::Loader" do
       config.servers["workers"].cmd.should eq("bin/sidekiq")
     end
 
+    it "parses an unmanaged server role with existing units" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            managed: false
+            units:
+              - myapp.service
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      server = config.servers["web"]
+
+      server.managed?.should be_false
+      server.units.should eq(["myapp.service"])
+    end
+
+    it "rejects unmanaged server roles without units" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            managed: false
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("servers.web.units")
+    end
+
+    it "rejects managed server roles with explicit units" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            units:
+              - myapp.service
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("managed: false")
+    end
+
     it "parses a per-role image override" do
       yaml = <<-YAML
         service: myapp
@@ -390,6 +450,60 @@ describe "Meridian::Config::Loader" do
       config.files.should be_empty
     end
 
+    it "parses remote deploy hooks with role filters" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        hooks:
+          remote:
+            before_start:
+              - command: systemctl --user start --wait myapp-migrate.service
+                roles:
+                  - web
+            after_deploy:
+              - command: systemctl --user status myapp.service --no-pager
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      remote = config.hooks.try(&.remote) || raise "Expected remote hooks"
+
+      remote.before_start.size.should eq(1)
+      remote.before_start[0].command.should eq("systemctl --user start --wait myapp-migrate.service")
+      remote.before_start[0].roles.should eq(["web"])
+      remote.after_deploy[0].command.should eq("systemctl --user status myapp.service --no-pager")
+      remote.after_deploy[0].roles.should be_nil
+    end
+
+    it "raises a validation error for unknown keys in remote deploy hooks" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        hooks:
+          remote:
+            before_start:
+              - command: systemctl --user start myapp.service
+                unknown_key: bad
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("hooks.remote.before_start[0].unknown_key")
+    end
+
     it "parses an assets block with host, command, output_dir, and retain_releases" do
       yaml = <<-YAML
         service: myapp
@@ -399,6 +513,9 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 3000
 
         assets:
           host: static.example.com
@@ -425,6 +542,9 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 3000
 
         assets:
           host: static.example.com
@@ -489,6 +609,101 @@ describe "Meridian::Config::Loader" do
       end
       message = ex.message || raise "Expected validation error message"
       message.should contain("files[0].unknown_key")
+    end
+
+    it "raises a validation error when service name contains invalid characters" do
+      yaml = <<-YAML
+        service: "my app!"
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("Invalid service name")
+    end
+
+    it "raises a validation error when service name starts with a digit" do
+      yaml = <<-YAML
+        service: 1app
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+      YAML
+
+      expect_raises(Meridian::Config::ValidationError, /Invalid service name/) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+    end
+
+    it "accepts service names with letters, digits, hyphens, and underscores" do
+      yaml = <<-YAML
+        service: my-app_v2
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      config.service.should eq("my-app_v2")
+    end
+
+    it "raises a validation error when assets: is configured without a proxy on the web role" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+      YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("assets: requires proxy:")
+    end
+
+    it "accepts assets: when the web role has a proxy configured" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 3000
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+      YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      config.assets.should_not be_nil
     end
   end
 end
