@@ -92,13 +92,23 @@ module Meridian
       end
 
       def assets_server_file : String
-        @config.assets || raise ArgumentError.new("Missing assets configuration")
+        raise ArgumentError.new("Missing assets configuration") unless @config.assets
 
         AssetsServerTemplate.new(service: @config.service).to_s
       end
 
       def assets_caddy_config : String
-        "{\n\tauto_https off\n}\n\n:80 {\n\troot * /srv/assets\n\tfile_server\n}\n"
+        AssetsCaddyConfigTemplate.new.to_s
+      end
+
+      def render_file_sync_template(source : String) : String
+        source.gsub(/<%= @config\.(\w+) %>/) do
+          case $1
+          when "service" then @config.service
+          when "image"   then @config.image
+          else $~[0]
+          end
+        end
       end
 
       def write_to_directory(output_dir : String, color : Color) : Nil
@@ -139,16 +149,6 @@ module Meridian
           caddy_dir = File.join(assets_dir, "caddy")
           Dir.mkdir_p(caddy_dir)
           File.write(File.join(caddy_dir, "Caddyfile"), assets_caddy_config)
-        end
-      end
-
-      private def render_file_sync_template(source : String) : String
-        source.gsub(/<%= @config\.(\w+) %>/) do
-          case $1
-          when "service" then @config.service
-          when "image"   then @config.image
-          else $~[0]
-          end
         end
       end
 
@@ -233,6 +233,10 @@ module Meridian
         end
 
         ECR.def_to_s "src/quadlet/templates/assets_server_file.ecr"
+      end
+
+      private class AssetsCaddyConfigTemplate
+        ECR.def_to_s "src/quadlet/templates/assets_caddy_config_file.ecr"
       end
     end
   end

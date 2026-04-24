@@ -26,6 +26,40 @@ module Meridian
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
         raise ValidationError.new("Missing required config key: servers") if servers.empty?
+
+        unless /\A[a-zA-Z][a-zA-Z0-9_-]*\z/.matches?(service)
+          raise ValidationError.new("Invalid service name #{service.inspect}: must start with a letter and contain only letters, digits, hyphens, and underscores")
+        end
+
+        if assets
+          unless servers["web"]?.try(&.proxy)
+            raise ValidationError.new("assets: requires proxy: to be configured on the web role")
+          end
+        end
+
+        servers.each do |role, server|
+          validate_server_config!(role, server)
+        end
+      end
+
+      private def validate_server_config!(role : String, server : ServerConfig) : Nil
+        if server.managed?
+          unless server.units.empty?
+            raise ValidationError.new("servers.#{role}.units requires managed: false")
+          end
+        else
+          if server.units.empty?
+            raise ValidationError.new("servers.#{role}.units is required when managed: false")
+          end
+
+          if server.proxy
+            raise ValidationError.new("servers.#{role}.proxy is not supported when managed: false")
+          end
+
+          if server.cmd
+            raise ValidationError.new("servers.#{role}.cmd is not supported when managed: false")
+          end
+        end
       end
     end
 
@@ -48,6 +82,8 @@ module Meridian
       getter proxy : ServerProxyConfig?
       getter cmd : String?
       getter image : String?
+      getter? managed : Bool = true
+      getter units : Array(String) = [] of String
     end
 
     struct ServerProxyConfig
@@ -214,12 +250,35 @@ module Meridian
 
       getter pre_deploy : String?
       getter post_deploy : String?
+      getter remote : RemoteHooksConfig?
+    end
+
+    struct RemoteHookConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter command : String
+      getter roles : Array(String)?
+    end
+
+    struct RemoteHooksConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter before_transfer : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter after_transfer : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter after_upload : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter before_start : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter after_start : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter before_switch : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter after_switch : Array(RemoteHookConfig) = [] of RemoteHookConfig
+      getter after_deploy : Array(RemoteHookConfig) = [] of RemoteHookConfig
     end
 
     module Loader
       ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
-      SERVER_KEYS       = {"hosts", "proxy", "cmd", "image"}
+      SERVER_KEYS       = {"hosts", "proxy", "cmd", "image", "managed", "units"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
       HEALTHCHECK_KEYS  = {"path", "interval", "timeout", "retries"}
       PROXY_KEYS        = {"image", "http_port", "https_port", "data_dir"}
@@ -229,7 +288,9 @@ module Meridian
       BOOT_KEYS         = {"limit", "wait"}
       TRANSFER_KEYS     = {"mode"}
       ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
-      HOOKS_KEYS        = {"pre_deploy", "post_deploy"}
+      HOOKS_KEYS        = {"pre_deploy", "post_deploy", "remote"}
+      REMOTE_HOOKS_KEYS = {"before_transfer", "after_transfer", "after_upload", "before_start", "after_start", "before_switch", "after_switch", "after_deploy"}
+      REMOTE_HOOK_KEYS  = {"command", "roles"}
       FILE_SYNC_KEYS    = {"source", "destination", "template", "roles"}
       ASSETS_KEYS       = {"host", "command", "output_dir", "retain_releases"}
 
@@ -379,6 +440,27 @@ module Meridian
           if hooks_mapping = mapping(hooks)
             if key = unknown_key(hooks_mapping, HOOKS_KEYS, "hooks.")
               return key
+            end
+
+            if remote = mapping_value(hooks_mapping, "remote")
+              if remote_mapping = mapping(remote)
+                if key = unknown_key(remote_mapping, REMOTE_HOOKS_KEYS, "hooks.remote.")
+                  return key
+                end
+
+                remote_mapping.each do |phase_node, phase_value|
+                  phase = scalar(phase_node) || next
+                  next unless phase_sequence = phase_value.raw.as?(Array(YAML::Any))
+
+                  phase_sequence.each_with_index do |entry, i|
+                    if entry_mapping = mapping(entry)
+                      if key = unknown_key(entry_mapping, REMOTE_HOOK_KEYS, "hooks.remote.#{phase}[#{i}].")
+                        return key
+                      end
+                    end
+                  end
+                end
+              end
             end
           end
         end
