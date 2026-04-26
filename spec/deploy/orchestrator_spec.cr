@@ -795,56 +795,56 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "deploys unmanaged roles by syncing files and restarting configured units" do
       with_tempdir do |dir|
-        unit_path = File.join(dir, "shourney.container")
-        File.write(unit_path, "[Container]\nImage=localhost/shourney:latest\n")
+        unit_path = File.join(dir, "legacy-app.container")
+        File.write(unit_path, "[Container]\nImage=localhost/legacy-app:latest\n")
 
         runner = FakeSSHRunner.new
         orchestrator = build_orchestrator(
           content: <<-YAML,
-            service: shourney
-            image: localhost/shourney:latest
+            service: legacy-app
+            image: localhost/legacy-app:latest
 
             servers:
               web:
                 hosts:
-                  - shourney-staging
+                  - staging-host
                 managed: false
                 units:
-                  - shourney.service
+                  - legacy-app.service
 
             files:
               - source: #{unit_path}
-                destination: .config/containers/systemd/shourney.container
+                destination: .config/containers/systemd/legacy-app.container
                 roles:
                   - web
 
             hooks:
               remote:
                 before_start:
-                  - command: systemctl --user start --wait shourney-collectassets.service
+                  - command: systemctl --user start --wait legacy-app-collectassets.service
                     roles:
                       - web
-                  - command: systemctl --user start --wait shourney-migrate.service
+                  - command: systemctl --user start --wait legacy-app-migrate.service
                     roles:
                       - web
                 after_deploy:
-                  - command: systemctl --user --no-pager --full status shourney.service
+                  - command: systemctl --user --no-pager --full status legacy-app.service
           YAML
           runner: runner
         )
 
-        orchestrator.deploy_to_host("shourney-staging", "web")
+        orchestrator.deploy_to_host("staging-host", "web")
 
-        commands = remote_commands_for(runner, "shourney-staging")
-        commands.should_not contain("cat > .config/containers/systemd/shourney-green.container")
-        commands.should contain("cat > .config/containers/systemd/shourney.container")
-        commands.should contain("sh -lc 'systemctl --user start --wait shourney-collectassets.service'")
-        commands.should contain("sh -lc 'systemctl --user start --wait shourney-migrate.service'")
-        commands.should contain("systemctl --user restart shourney.service")
+        commands = remote_commands_for(runner, "staging-host")
+        commands.should_not contain("cat > .config/containers/systemd/legacy-app-green.container")
+        commands.should contain("cat > .config/containers/systemd/legacy-app.container")
+        commands.should contain("sh -lc 'systemctl --user start --wait legacy-app-collectassets.service'")
+        commands.should contain("sh -lc 'systemctl --user start --wait legacy-app-migrate.service'")
+        commands.should contain("systemctl --user restart legacy-app.service")
 
         reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon reload"
-        collectassets_index = commands.index("sh -lc 'systemctl --user start --wait shourney-collectassets.service'") || raise "Expected collectassets hook"
-        restart_index = commands.index("systemctl --user restart shourney.service") || raise "Expected unit restart"
+        collectassets_index = commands.index("sh -lc 'systemctl --user start --wait legacy-app-collectassets.service'") || raise "Expected collectassets hook"
+        restart_index = commands.index("systemctl --user restart legacy-app.service") || raise "Expected unit restart"
 
         reload_index.should be < collectassets_index
         collectassets_index.should be < restart_index
