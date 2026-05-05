@@ -5,7 +5,7 @@
 Meridian deploys containerised applications to remote Linux servers over SSH - no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
 > **Status:** Early development - not yet production-ready. Architecture and configuration format are subject to change.
-> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, `secret set|rm|ls`, arbitrary file sync, remote deploy hooks, and deploy-managed static assets via a shared volume, a oneshot builder, and a Caddy sidecar.
+> **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `check`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, `secret set|rm|ls`, arbitrary file sync, remote deploy hooks, and deploy-managed static assets via a shared volume, a oneshot builder, and a Caddy sidecar.
 
 ---
 
@@ -39,7 +39,10 @@ meridian init
 # 2. Install kamal-proxy on your servers
 meridian setup
 
-# 3. Deploy
+# 3. Verify the hosts are ready
+meridian check
+
+# 4. Deploy
 meridian deploy
 ```
 
@@ -94,6 +97,16 @@ Shows the blue/green systemd state for every configured host across all roles.
 ```bash
 meridian status
 ```
+
+### `meridian check`
+
+Runs read-only preflight probes against every configured host before a deploy. It verifies non-interactive SSH connectivity, Podman 4.4 or newer, systemd lingering, a writable rootless Quadlet directory, transfer tools for the configured `transfer.mode`, Podman secrets named in `env.secret`, and a running `kamal-proxy` container on web hosts when proxying is configured. Hosts are checked in batches controlled by `boot.limit`; any failed probe makes the command exit non-zero.
+
+```bash
+meridian check
+```
+
+If your config lists `env.secret` names, create them first with `meridian secret set`; otherwise `check` will correctly report the missing Podman secrets.
 
 ### `meridian logs`
 
@@ -330,7 +343,7 @@ Meridian exports the local image to `/tmp/meridian-oci/<service>` with `skopeo c
 
 ## SSH Configuration
 
-Meridian currently honors `ssh.user`, `ssh.port`, the first path in `ssh.keys`, `ssh.proxy_jump`, `ssh.connect_timeout`, `ssh.keepalive`, and `ssh.keepalive_interval` for deploys, setup, logs, exec, rollback, accessory commands, and remote health checks. Unknown config keys are rejected, and `build:` is reserved but not yet supported.
+Meridian currently honors `ssh.user`, `ssh.port`, the first path in `ssh.keys`, `ssh.proxy_jump`, `ssh.connect_timeout`, `ssh.keepalive`, and `ssh.keepalive_interval` for deploys, setup, check, logs, exec, rollback, accessory commands, and remote health checks. Unknown config keys are rejected, and `build:` is reserved but not yet supported.
 
 ---
 
@@ -377,6 +390,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 
 - [x] `meridian init` - detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
 - [x] `meridian status` / `meridian logs` / role-based `meridian exec` / `meridian rollback` - operational commands
+- [x] `meridian check` - read-only preflight probes for SSH, Podman, lingering, Quadlet paths, transfer tools, secrets, and kamal-proxy state
 - [x] `meridian quadlet --color green` - generates Quadlet files locally for inspection
 - [x] `meridian deploy` - rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer
 - [x] `meridian setup` / `meridian proxy remove` - installs and removes kamal-proxy as a Quadlet service

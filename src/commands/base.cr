@@ -55,7 +55,7 @@ module Meridian
         hosts
       end
 
-      protected def run_ssh(host : String, command : Array(String)) : SSH::Result
+      protected def run_ssh(host : String, command : Array(String), *, batch_mode : Bool = false) : SSH::Result
         @ssh_executor.run(
           host,
           command,
@@ -65,7 +65,8 @@ module Meridian
           proxy_jump: ssh_proxy_jump,
           connect_timeout: ssh_connect_timeout,
           keepalive: ssh_keepalive,
-          keepalive_interval: ssh_keepalive_interval
+          keepalive_interval: ssh_keepalive_interval,
+          batch_mode: batch_mode
         )
       end
 

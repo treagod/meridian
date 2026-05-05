@@ -133,6 +133,25 @@ describe "Meridian::SSH::Executor" do
       ])
     end
 
+    it "adds BatchMode when requested" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run(
+        "1.2.3.4",
+        ["true"],
+        batch_mode: true
+      )
+
+      invocation = runner.invocations.last
+      invocation.args.should eq([
+        "-o",
+        "BatchMode=yes",
+        "1.2.3.4",
+        "true",
+      ])
+    end
+
     it "orders SSH options before the target host consistently" do
       runner = FakeSSHRunner.new
       executor = Meridian::SSH::Executor.new(runner: runner)

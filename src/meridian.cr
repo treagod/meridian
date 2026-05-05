@@ -42,6 +42,7 @@ module Meridian
       Commands::Setup,
       Commands::Rollback,
       Commands::Status,
+      Commands::Check,
       Commands::Logs,
       Commands::Exec,
       Commands::Run,

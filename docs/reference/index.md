@@ -6,7 +6,7 @@ The technical reference for Meridian. It is still being built out.
 
 - Framework detection - which defaults `init` sets for Marten, Rails, Elixir, Node, and Go
 - `deploy.yml` - the configuration format and all available options
-- CLI commands - `init`, `deploy`, `rollback`, `status`, `logs`, `exec`
+- CLI commands - `init`, `server bootstrap`, `setup`, `proxy remove`, `check`, `deploy`, `rollback`, `status`, `logs`, `exec`, `run`, `quadlet`, `accessory`, `secret`
 - Quadlet templates - what Meridian generates for you
 - Hooks and extension points
 

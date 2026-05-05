@@ -56,6 +56,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Array(String)
         ssh_args(
           host,
@@ -67,7 +68,8 @@ module Meridian
           proxy_jump,
           connect_timeout,
           keepalive,
-          keepalive_interval
+          keepalive_interval,
+          batch_mode
         )
       end
 
@@ -82,6 +84,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Array(String)
         ssh_args(
           host,
@@ -92,7 +95,8 @@ module Meridian
           proxy_jump,
           connect_timeout,
           keepalive,
-          keepalive_interval
+          keepalive_interval,
+          batch_mode
         )
       end
 
@@ -109,6 +113,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Result
         result = @runner.run(
           "ssh",
@@ -122,7 +127,8 @@ module Meridian
             proxy_jump: proxy_jump,
             connect_timeout: connect_timeout,
             keepalive: keepalive,
-            keepalive_interval: keepalive_interval
+            keepalive_interval: keepalive_interval,
+            batch_mode: batch_mode
           ),
           input
         )
@@ -146,6 +152,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Int32
         exit_code = @streaming_runner.run(
           "ssh",
@@ -159,7 +166,8 @@ module Meridian
             proxy_jump: proxy_jump,
             connect_timeout: connect_timeout,
             keepalive: keepalive,
-            keepalive_interval: keepalive_interval
+            keepalive_interval: keepalive_interval,
+            batch_mode: batch_mode
           ),
           input,
           output,
@@ -183,6 +191,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Result
         result = run(
           host,
@@ -195,7 +204,8 @@ module Meridian
           proxy_jump: proxy_jump,
           connect_timeout: connect_timeout,
           keepalive: keepalive,
-          keepalive_interval: keepalive_interval
+          keepalive_interval: keepalive_interval,
+          batch_mode: batch_mode
         )
         return result if result.exit_code.zero?
 
@@ -214,6 +224,7 @@ module Meridian
         connect_timeout : Int32? = nil,
         keepalive : Bool? = nil,
         keepalive_interval : Int32? = nil,
+        batch_mode : Bool? = nil,
       ) : Nil
         result = @runner.run(
           "ssh",
@@ -226,7 +237,8 @@ module Meridian
             proxy_jump: proxy_jump,
             connect_timeout: connect_timeout,
             keepalive: keepalive,
-            keepalive_interval: keepalive_interval
+            keepalive_interval: keepalive_interval,
+            batch_mode: batch_mode
           ),
           input: content
         )
@@ -248,6 +260,7 @@ module Meridian
         connect_timeout : Int32?,
         keepalive : Bool?,
         keepalive_interval : Int32?,
+        batch_mode : Bool?,
       ) : Array(String)
         ssh_args(
           host,
@@ -258,7 +271,8 @@ module Meridian
           proxy_jump,
           connect_timeout,
           keepalive,
-          keepalive_interval
+          keepalive_interval,
+          batch_mode
         )
       end
 
@@ -272,6 +286,7 @@ module Meridian
         connect_timeout : Int32?,
         keepalive : Bool?,
         keepalive_interval : Int32?,
+        batch_mode : Bool?,
       ) : Array(String)
         args = [] of String
 
@@ -303,6 +318,11 @@ module Meridian
           args << "ServerAliveInterval=#{keepalive_interval || 30}"
           args << "-o"
           args << "ServerAliveCountMax=3"
+        end
+
+        if batch_mode
+          args << "-o"
+          args << "BatchMode=yes"
         end
 
         args << target_host(host, user)
