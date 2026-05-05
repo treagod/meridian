@@ -1,0 +1,8 @@
+Version: "1.7.0"
+
+Globs:
+  - src/**/*.cr
+  - spec/**/*.cr
+
+Excluded:
+  - demo

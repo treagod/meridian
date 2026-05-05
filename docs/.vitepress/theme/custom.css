@@ -1,0 +1,457 @@
+/*
+ * VitePress theme override — matches landing-page navy/gold palette
+ * so docs pages feel like a continuation of the landing.
+ *
+ * Landing keeps its own styles via landing.css (loaded only on layout:false page).
+ * These overrides apply to VP's default doc layout (/guide/, /reference/, ...).
+ */
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('/fonts/PlusJakartaSans-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('/fonts/PlusJakartaSans-Italic-Variable.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('/fonts/Fraunces-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('/fonts/Fraunces-Italic-Variable.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Italic-Variable.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  /* Brand — gold */
+  --vp-c-brand-1: #E8B846;
+  --vp-c-brand-2: #F3CE6B;
+  --vp-c-brand-3: #F9E1A1;
+  --vp-c-brand-soft: rgba(232, 184, 70, 0.16);
+
+  /* Text */
+  --vp-c-text-1: #F5EBD6;
+  --vp-c-text-2: #C9BFA5;
+  --vp-c-text-3: #7E7863;
+
+  /* Backgrounds */
+  --vp-c-bg: #0C1128;
+  --vp-c-bg-alt: #080C1E;
+  --vp-c-bg-elv: #0F1534;
+  --vp-c-bg-soft: #141A3F;
+
+  /* Dividers & borders */
+  --vp-c-divider: rgba(232, 184, 70, 0.12);
+  --vp-c-gutter: rgba(232, 184, 70, 0.08);
+  --vp-c-border: rgba(232, 184, 70, 0.18);
+
+  /* Neutral channels VP uses internally */
+  --vp-c-gray-1: #1B2350;
+  --vp-c-gray-2: #141A3F;
+  --vp-c-gray-3: #0F1534;
+  --vp-c-gray-soft: rgba(232, 184, 70, 0.08);
+
+  /* Nav + sidebar */
+  --vp-nav-bg-color: rgba(12, 17, 40, 0.75);
+  --vp-sidebar-bg-color: #080C1E;
+
+  /* Buttons */
+  --vp-button-brand-bg: #E8B846;
+  --vp-button-brand-hover-bg: #F3CE6B;
+  --vp-button-brand-active-bg: #B88A2D;
+  --vp-button-brand-text: #0C1128;
+  --vp-button-brand-hover-text: #0C1128;
+  --vp-button-brand-active-text: #0C1128;
+  --vp-button-brand-border: #E8B846;
+  --vp-button-brand-hover-border: #F3CE6B;
+  --vp-button-brand-active-border: #B88A2D;
+
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-hover-bg: rgba(232, 184, 70, 0.08);
+  --vp-button-alt-text: #F5EBD6;
+  --vp-button-alt-hover-text: #F3CE6B;
+  --vp-button-alt-border: rgba(245, 235, 214, 0.2);
+  --vp-button-alt-hover-border: #E8B846;
+
+  /* Fonts */
+  --vp-font-family-base: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Code blocks */
+  --vp-code-block-bg: #080C1E;
+  --vp-code-block-color: #F5EBD6;
+  --vp-code-line-highlight-color: rgba(232, 184, 70, 0.08);
+  --vp-code-line-number-color: #7E7863;
+  --vp-code-tab-bg: #0F1534;
+  --vp-code-tab-divider: rgba(232, 184, 70, 0.12);
+  --vp-code-tab-text-color: #C9BFA5;
+  --vp-code-tab-hover-text-color: #F3CE6B;
+  --vp-code-tab-active-text-color: #F3CE6B;
+  --vp-code-tab-active-bar-color: #E8B846;
+  --vp-code-copy-code-bg: rgba(232, 184, 70, 0.12);
+  --vp-code-copy-code-hover-bg: rgba(232, 184, 70, 0.2);
+  --vp-code-copy-code-active-text: #F3CE6B;
+
+  /* Inline code */
+  --vp-c-text-code: #F9E1A1;
+
+  /* Custom containers (tip / warning / danger / info) */
+  --vp-custom-block-tip-bg: rgba(232, 184, 70, 0.08);
+  --vp-custom-block-tip-border: rgba(232, 184, 70, 0.3);
+  --vp-custom-block-tip-text: #F5EBD6;
+  --vp-custom-block-tip-code-bg: #080C1E;
+
+  --vp-custom-block-info-bg: rgba(27, 35, 80, 0.5);
+  --vp-custom-block-info-border: rgba(232, 184, 70, 0.2);
+  --vp-custom-block-info-text: #F5EBD6;
+
+  --vp-custom-block-warning-bg: rgba(232, 184, 70, 0.06);
+  --vp-custom-block-warning-border: rgba(232, 184, 70, 0.4);
+  --vp-custom-block-warning-text: #F3CE6B;
+
+  --vp-custom-block-danger-bg: rgba(224, 107, 93, 0.08);
+  --vp-custom-block-danger-border: rgba(224, 107, 93, 0.4);
+  --vp-custom-block-danger-text: #E06B5D;
+
+  /* Shiki code-block token colors (dark theme tweak for gold palette) */
+  --vp-code-color: #F5EBD6;
+
+}
+
+/* Enable smooth scroll for anchor links on doc pages too */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ------------------------------------------------------------------ */
+/* Typography                                                          */
+/* ------------------------------------------------------------------ */
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4 {
+  font-family: 'Fraunces', Georgia, serif;
+  letter-spacing: -0.015em;
+  color: #F5EBD6;
+}
+
+.vp-doc h1 {
+  font-weight: 600;
+  font-size: clamp(32px, 4vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.vp-doc h2 {
+  font-weight: 600;
+  font-size: 28px;
+  border-top: 1px solid rgba(232, 184, 70, 0.12);
+  padding-top: 32px;
+  margin-top: 48px;
+}
+
+.vp-doc h3 {
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.vp-doc a {
+  color: #F3CE6B;
+  text-decoration-color: rgba(232, 184, 70, 0.3);
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+
+.vp-doc a:hover {
+  color: #F9E1A1;
+  text-decoration-color: #E8B846;
+}
+
+/* Inline code — gold-tinted */
+.vp-doc :not(pre) > code {
+  color: #F9E1A1;
+  background: rgba(232, 184, 70, 0.08);
+  border: 1px solid rgba(232, 184, 70, 0.15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.88em;
+}
+
+/* Code block frame */
+.vp-doc div[class*='language-'] {
+  border: 1px solid rgba(232, 184, 70, 0.14);
+  border-radius: 6px;
+  background: #080C1E;
+}
+
+.vp-doc div[class*='language-'] pre {
+  background: transparent;
+}
+
+/* Code block language label */
+.vp-doc div[class*='language-']::before {
+  color: #7E7863;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Blockquotes */
+.vp-doc blockquote {
+  border-left: 2px solid #E8B846;
+  background: rgba(232, 184, 70, 0.04);
+  padding: 16px 20px;
+  border-radius: 0 4px 4px 0;
+  color: #C9BFA5;
+}
+
+.vp-doc blockquote > p {
+  color: #C9BFA5;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+/* Tables */
+.vp-doc table {
+  border: 1px solid rgba(232, 184, 70, 0.15);
+  border-radius: 6px;
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.vp-doc th {
+  background: #141A3F;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #C9BFA5;
+  font-weight: 500;
+}
+
+.vp-doc tr {
+  background: transparent;
+  border-top: 1px solid rgba(232, 184, 70, 0.08);
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: rgba(232, 184, 70, 0.02);
+}
+
+/* Lists */
+.vp-doc ul > li::marker {
+  color: #E8B846;
+}
+
+.vp-doc ol > li::marker {
+  color: #E8B846;
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------ */
+/* Nav bar                                                             */
+/* ------------------------------------------------------------------ */
+
+.VPNavBar {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Keep the compass logo square — VP sets height but not width */
+.VPImage.logo {
+  width: var(--vp-nav-logo-height, 24px);
+  height: var(--vp-nav-logo-height, 24px);
+  object-fit: contain;
+  margin-bottom: 0;
+}
+
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.has-sidebar) .content {
+  border-bottom: 1px solid rgba(232, 184, 70, 0.08);
+}
+
+.VPNavBarTitle .title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #F5EBD6;
+}
+
+.VPSocialLink > svg.github-invertocat {
+  display: block;
+  fill: none;
+}
+
+.VPSocialLink > svg.github-invertocat path,
+.VPSocialLink:hover > svg.github-invertocat path {
+  fill: #fff;
+}
+
+.VPNavBarMenuLink {
+  font-weight: 500;
+  color: #C9BFA5 !important;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active {
+  color: #F3CE6B !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sidebar                                                             */
+/* ------------------------------------------------------------------ */
+
+.VPSidebar {
+  border-right: 1px solid rgba(232, 184, 70, 0.08);
+}
+
+.VPSidebarItem .text {
+  color: #C9BFA5;
+}
+
+.VPSidebarItem.is-active > .item .link .text {
+  color: #F3CE6B;
+}
+
+.VPSidebarItem .link:hover .text {
+  color: #F3CE6B;
+}
+
+.VPSidebarItem.level-0 > .item > .indicator {
+  background-color: #E8B846;
+}
+
+/* Section heading in sidebar */
+.VPSidebarItem.level-0 > .item > .text {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  color: #F5EBD6;
+}
+
+/* ------------------------------------------------------------------ */
+/* Aside / outline                                                     */
+/* ------------------------------------------------------------------ */
+
+.VPDocAsideOutline .outline-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #E8B846;
+}
+
+.VPDocAsideOutline .outline-link {
+  color: #C9BFA5;
+  transition: color 0.15s;
+}
+
+.VPDocAsideOutline .outline-link:hover,
+.VPDocAsideOutline .outline-link.active {
+  color: #F3CE6B;
+}
+
+.VPDocAsideOutline .outline-marker {
+  background-color: #E8B846 !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Footer + prev/next                                                  */
+/* ------------------------------------------------------------------ */
+
+.VPDocFooter {
+  border-top: 1px solid rgba(232, 184, 70, 0.12);
+  padding-top: 24px;
+  margin-top: 56px;
+}
+
+.pager-link {
+  border: 1px solid rgba(232, 184, 70, 0.15) !important;
+  border-radius: 6px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.pager-link:hover {
+  border-color: #E8B846 !important;
+  background: rgba(232, 184, 70, 0.04);
+}
+
+.pager-link .desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #7E7863;
+}
+
+.pager-link .title {
+  font-family: 'Fraunces', serif;
+  color: #F3CE6B;
+  font-weight: 600;
+}
+
+.VPFooter {
+  border-top: 1px solid rgba(232, 184, 70, 0.08);
+  background: #080C1E;
+  color: #7E7863;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ */
+/* Search (local provider)                                             */
+/* ------------------------------------------------------------------ */
+
+.DocSearch-Button {
+  background: rgba(232, 184, 70, 0.06) !important;
+  border: 1px solid rgba(232, 184, 70, 0.18) !important;
+  color: #C9BFA5 !important;
+}
+
+.DocSearch-Button:hover {
+  border-color: #E8B846 !important;
+  background: rgba(232, 184, 70, 0.1) !important;
+}
