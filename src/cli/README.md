@@ -10,7 +10,7 @@ Three steps:
 
 1. Create one file under `src/cli/commands/<name>.cr`.
 2. Add the class to the `REGISTRY` array in `src/meridian.cr`.
-3. Done — `--help` for the command is auto-generated from `usage`, `description`, and the flags registered in `configure`.
+3. Done - `--help` for the command is auto-generated from `usage`, `description`, and the flags registered in `configure`.
 
 ### Worked example: `meridian prune`
 
@@ -47,7 +47,7 @@ module Meridian
           parser.on("--keep N", "Number of recent images to retain (default: 3)") { |v| @keep = v.to_i }
         end
 
-        # Optional — only override when the command can raise something the default doesn't cover.
+        # Optional - only override when the command can raise something the default doesn't cover.
         def rescuable : Array(Exception.class)
           super + [SSH::ConnectionError.as(Exception.class)]
         end
@@ -72,7 +72,7 @@ module Meridian
 end
 ```
 
-**`src/meridian.cr`** — add the class to `REGISTRY`:
+**`src/meridian.cr`** - add the class to `REGISTRY`:
 
 ```crystal
 REGISTRY = Registry.new([
@@ -160,4 +160,4 @@ Register both in `REGISTRY`. See `src/cli/commands/server.cr`, `accessory.cr`, `
 - Exception rescue for everything in `rescuable` → prints `ex.message || failure_message` and exits 1
 - Help output rendered from `usage`, `description`, and the flags registered in `configure`
 
-The defaults for `rescuable` cover `Config::ValidationError`, `Config::UnknownRole`, `YAML::ParseException`, `File::NotFoundError`. Append command-specific exceptions with `super + [MyError.as(Exception.class)]`. Override entirely (no `super`) only when the default set doesn't apply — see `src/cli/commands/init.cr`.
+The defaults for `rescuable` cover `Config::ValidationError`, `Config::UnknownRole`, `YAML::ParseException`, `File::NotFoundError`. Append command-specific exceptions with `super + [MyError.as(Exception.class)]`. Override entirely (no `super`) only when the default set doesn't apply - see `src/cli/commands/init.cr`.

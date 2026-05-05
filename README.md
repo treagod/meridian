@@ -2,9 +2,9 @@
 
 **A Kamal-inspired deployment CLI for Podman, written in Crystal.**
 
-Meridian deploys containerised applications to remote Linux servers over SSH — no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
+Meridian deploys containerised applications to remote Linux servers over SSH - no Kubernetes, no cloud platform, no Docker daemon. It uses [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to run containers as native systemd services, and performs zero-downtime blue/green deploys via [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can be pulled from a registry or transferred directly to servers over SSH with no registry at all.
 
-> **Status:** Early development — not yet production-ready. Architecture and configuration format are subject to change.
+> **Status:** Early development - not yet production-ready. Architecture and configuration format are subject to change.
 > **Implemented:** `server bootstrap`, `init`, `setup` / `proxy remove`, `deploy`, `status`, `logs`, role-based `exec`, `rollback`, `quadlet`, multi-server rolling blue/green deploy, registry-free stream and incremental transfer, `accessory start|stop|logs`, `secret set|rm|ls`, arbitrary file sync, remote deploy hooks, and deploy-managed static assets via a shared volume, a oneshot builder, and a Caddy sidecar.
 
 ---
@@ -13,15 +13,15 @@ Meridian deploys containerised applications to remote Linux servers over SSH —
 
 ### Binaries
 
-Pre-built static binaries for Linux x86_64 and ARM64 are attached to each [GitHub Release](https://github.com/yourname/meridian/releases).
+Pre-built binaries for Linux x86_64 and ARM64 are attached to each [GitHub Release](https://github.com/treagod/meridian/releases).
 
 ### From source
 
 ```bash
-git clone https://github.com/yourname/meridian.git
+git clone https://github.com/treagod/meridian.git
 cd meridian
 shards install
-crystal build src/meridian.cr --release -o meridian
+crystal build src/meridian_cli.cr --release -o meridian
 sudo mv meridian /usr/local/bin/
 ```
 
@@ -63,7 +63,7 @@ meridian server bootstrap --host 1.2.3.4 --passwordless-sudo no --enable-auto-up
 
 ### `meridian init`
 
-Detects what it can from the project directory (service name, Git remote, Dockerfile, framework), prompts for the rest, and generates `deploy.yml` and `.env`. Dockerfile detection is currently informational only; Meridian does not support a `build:` section yet.
+Detects what it can from the project directory (service name, Git remote, Dockerfile, framework), prompts for the rest, and generates `deploy.yml` and `.env`. Framework detection currently covers Marten, Rails, Elixir, Go, and Node projects, with framework-specific env defaults and healthcheck hints where available. Dockerfile detection is currently informational only; Meridian does not support a `build:` section yet.
 
 ```bash
 meridian init           # refuses to overwrite an existing deploy.yml
@@ -306,7 +306,7 @@ accessories:
 
 ## Registry-Free Deployment
 
-Setting `transfer.mode` in `deploy.yml` switches Meridian to registry-free operation — no registry account or credentials needed.
+Setting `transfer.mode` in `deploy.yml` switches Meridian to registry-free operation - no registry account or credentials needed.
 
 ### Stream mode (`mode: stream`)
 
@@ -360,38 +360,38 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 ## Requirements
 
 **On the machine running Meridian:**
-- Crystal 1.13 or later (for building from source)
+- Crystal 1.17 or later (for building from source)
 - SSH access to all target servers with key-based authentication
-- `zstd` — only for stream transfer mode
-- `rsync` and `skopeo` — only for incremental transfer mode
+- `zstd` - only for stream transfer mode
+- `rsync` and `skopeo` - only for incremental transfer mode
 
 **On each target server:**
 - Podman 4.4 or later (Quadlet support)
 - systemd
-- `zstd` — only for stream transfer mode; `meridian server bootstrap` installs it automatically
-- `rsync` and `skopeo` — only for incremental transfer mode; `meridian server bootstrap` installs them automatically
+- `zstd` - only for stream transfer mode; `meridian server bootstrap` installs it automatically
+- `rsync` and `skopeo` - only for incremental transfer mode; `meridian server bootstrap` installs them automatically
 
 ---
 
 ## Roadmap
 
-- [x] `meridian init` — detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
-- [x] `meridian status` / `meridian logs` / role-based `meridian exec` / `meridian rollback` — operational commands
-- [x] `meridian quadlet --color green` — generates Quadlet files locally for inspection
-- [x] `meridian deploy` — rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer
-- [x] `meridian setup` / `meridian proxy remove` — installs and removes kamal-proxy as a Quadlet service
-- [x] Multi-server rolling deploy — respects `boot.limit`, deploys in parallel batches
-- [x] Registry-free stream transfer — `podman save | zstd | ssh | podman load`, no registry needed
-- [x] Registry-free incremental transfer — OCI layout + rsync, transfers only changed layers
-- [x] Accessory service management — databases, caches, and other infrastructure as standalone Quadlet units
-- [x] Bootstrap completeness — `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
-- [x] Honest config contract — unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
-- [x] Registry authentication — `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
-- [x] Secret management — `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
-- [x] Quadlet completeness — app Quadlets support `volumes:` (`Volume=`) and `ports:` (`PublishPort=`) with a `[Unit]` description; accessory Quadlets support `network:` (`Network=`), direct `secrets:` (`Secret=`), and `depends_on:` (`Requires=`/`After=`)
-- [x] Per-role images — each server role can declare its own `image:` to override the global image; workers, migration runners, and sidecars can use a different image from the main app
-- [x] Arbitrary file sync — `files:` uploads supporting config files (Caddyfile, nginx snippets, env fragments) to remote hosts during deploy, with optional ECR template rendering
-- [x] Deploy-managed static assets — `assets:` publishes fingerprinted static assets via a shared Podman volume, a `Type=oneshot` builder container, and a Caddy sidecar on a dedicated subdomain
+- [x] `meridian init` - detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
+- [x] `meridian status` / `meridian logs` / role-based `meridian exec` / `meridian rollback` - operational commands
+- [x] `meridian quadlet --color green` - generates Quadlet files locally for inspection
+- [x] `meridian deploy` - rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer
+- [x] `meridian setup` / `meridian proxy remove` - installs and removes kamal-proxy as a Quadlet service
+- [x] Multi-server rolling deploy - respects `boot.limit`, deploys in parallel batches
+- [x] Registry-free stream transfer - `podman save | zstd | ssh | podman load`, no registry needed
+- [x] Registry-free incremental transfer - OCI layout + rsync, transfers only changed layers
+- [x] Accessory service management - databases, caches, and other infrastructure as standalone Quadlet units
+- [x] Bootstrap completeness - `server bootstrap` now opens UFW, creates rootless Podman directories, and installs transfer-mode dependencies
+- [x] Honest config contract - unknown keys fail fast, SSH config fields are wired through, and unsupported `build:` config is rejected clearly
+- [x] Registry authentication - `podman login` runs before `podman pull` when `registry:` is configured; missing env vars abort with a clear error before any SSH work begins; `proxy.data_dir` is now wired into the kamal-proxy Quadlet as a bind-mount volume
+- [x] Secret management - `meridian secret set/rm/ls` manages Podman secrets on remote hosts; `Secret=` directives are emitted in app and accessory Quadlets for each `env.secret` name
+- [x] Quadlet completeness - app Quadlets support `volumes:` (`Volume=`) and `ports:` (`PublishPort=`) with a `[Unit]` description; accessory Quadlets support `network:` (`Network=`), direct `secrets:` (`Secret=`), and `depends_on:` (`Requires=`/`After=`)
+- [x] Per-role images - each server role can declare its own `image:` to override the global image; workers, migration runners, and sidecars can use a different image from the main app
+- [x] Arbitrary file sync - `files:` uploads supporting config files (Caddyfile, nginx snippets, env fragments) to remote hosts during deploy, with optional ECR template rendering
+- [x] Deploy-managed static assets - `assets:` publishes fingerprinted static assets via a shared Podman volume, a `Type=oneshot` builder container, and a Caddy sidecar on a dedicated subdomain
 
 ---
 
@@ -402,7 +402,7 @@ Meridian is in active early development. Contributions, bug reports, and design 
 Please open an issue before starting significant work so we can discuss the approach.
 
 ```bash
-git clone https://github.com/yourname/meridian.git
+git clone https://github.com/treagod/meridian.git
 cd meridian
 shards install
 crystal spec

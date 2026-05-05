@@ -3,3 +3,9 @@
 /.shards/
 *.dwarf
 .DS_Store
+
+# VitePress / Node
+node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
+docs/.vitepress/.temp
