@@ -1,6 +1,6 @@
 # Quickstart
 
-Three commands from repo to running app. No Kubernetes, no CI pipeline, no registry.
+From repo to running app with a read-only preflight check. No Kubernetes, no CI pipeline, no registry.
 
 ## 1. Install
 
@@ -57,9 +57,16 @@ env:
     - DATABASE_URL
 ```
 
-## 3. Deploy
+Set any remote secrets listed in `env.secret` before checking or deploying:
 
 ```bash
+printf '%s' "$DATABASE_URL" | meridian secret set DATABASE_URL
+```
+
+## 3. Check And Deploy
+
+```bash
+meridian check
 meridian deploy
 ```
 

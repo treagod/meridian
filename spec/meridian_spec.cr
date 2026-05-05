@@ -15,6 +15,7 @@ describe "Meridian::CLI" do
       result.output.should contain("setup")
       result.output.should contain("rollback")
       result.output.should contain("status")
+      result.output.should contain("check")
       result.output.should contain("logs")
       result.output.should contain("exec")
       result.output.should contain("accessory")
@@ -202,6 +203,48 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian status [options]")
+      result.output.should contain("--file PATH")
+    end
+
+    it "runs the check subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, <<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          YAML
+
+        runner.enqueue_results(
+          ssh_ok,
+          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok,
+          ssh_ok
+        )
+
+        result = run_cli(["check", "--file", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        result.output.should contain("Check passed")
+        remote_commands_for(runner, "192.168.1.10").should contain("podman --version")
+      end
+    end
+
+    it "prints help for the check subcommand" do
+      result = run_cli(["check", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian check [options]")
       result.output.should contain("--file PATH")
     end
 
