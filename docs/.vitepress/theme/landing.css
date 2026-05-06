@@ -20,28 +20,27 @@
   --red: #E06B5D;
   --green: #7BC67B;
 
-  --serif: 'Fraunces', 'Georgia', serif;
-  --sans: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --serif: Georgia, 'Times New Roman', serif;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --max-width: 1180px;
   --radius: 6px;
 }
 
-html.landing-page-active {
-  scroll-behavior: smooth;
-}
-
-body.landing-page-active {
+.landing-root {
   font-family: var(--sans);
   background: var(--navy-900);
   color: var(--cream);
   line-height: 1.6;
   overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
   padding: 0;
+  min-height: 100vh;
 }
 
 .landing-root,
@@ -60,6 +59,7 @@ body.landing-page-active {
 }
 
 .landing-root .container {
+  width: 100%;
   max-width: var(--max-width);
   margin: 0 auto;
   padding: 0 24px;
@@ -93,6 +93,7 @@ body.landing-page-active {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   font-family: var(--serif);
   font-weight: 600;
   font-size: 20px;
@@ -126,14 +127,54 @@ body.landing-page-active {
   font-size: 13px;
   font-weight: 600;
   transition: all 0.2s;
+  margin-left: auto;
+  flex-shrink: 0;
 }
+.landing-root nav .cta-short { display: none; }
 .landing-root nav .cta:hover {
   background: var(--gold-500);
   color: var(--navy-900);
 }
 
 @media (max-width: 768px) {
+  .landing-root .container {
+    max-width: 100%;
+    padding: 0 16px;
+  }
+  .landing-root nav.top {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .landing-root nav.top .container {
+    width: 100%;
+    max-width: 100%;
+    gap: 12px;
+    margin: 0;
+  }
   .landing-root nav .links { display: none; }
+  .landing-root nav .cta {
+    min-width: 52px;
+    text-align: center;
+  }
+  .landing-root nav .cta-full { display: none; }
+  .landing-root nav .cta-short { display: inline; }
+}
+
+@media (max-width: 420px) {
+  .landing-root nav.top .container { height: 58px; }
+  .landing-root .brand {
+    gap: 8px;
+    font-size: 18px;
+  }
+  .landing-root .brand-mark {
+    width: 28px;
+    height: 28px;
+  }
+  .landing-root nav .cta {
+    padding: 7px 11px;
+    font-size: 12px;
+  }
 }
 
 /* --- hero --- */
@@ -179,7 +220,14 @@ body.landing-page-active {
   align-items: center;
 }
 @media (max-width: 900px) {
-  .landing-root .hero .container { grid-template-columns: 1fr; gap: 48px; }
+  .landing-root .hero .container {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 48px;
+  }
+  .landing-root .hero .container > * {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 .landing-root .eyebrow {
@@ -216,6 +264,21 @@ body.landing-page-active {
   position: relative;
 }
 
+@media (max-width: 600px) {
+  .landing-root h1.display {
+    font-size: 36px;
+    line-height: 1.05;
+  }
+}
+
+@media (max-width: 420px) {
+  .landing-root h1.display {
+    font-size: 32px;
+    line-height: 1.06;
+    max-width: 100%;
+  }
+}
+
 .landing-root .lede {
   font-size: 19px;
   line-height: 1.55;
@@ -241,6 +304,8 @@ body.landing-page-active {
   margin-bottom: 28px;
   position: relative;
   max-width: 540px;
+  width: 100%;
+  min-width: 0;
 }
 .landing-root .install-corner {
   position: absolute;
@@ -256,6 +321,7 @@ body.landing-page-active {
 .landing-root .install .prompt { color: var(--gold-500); user-select: none; flex-shrink: 0; }
 .landing-root .install code {
   flex: 1;
+  min-width: 0;
   color: var(--cream);
   font-family: inherit;
   overflow-x: auto;
@@ -326,9 +392,38 @@ body.landing-page-active {
   color: var(--gold-500);
 }
 
+@media (max-width: 600px) {
+  .landing-root .cta-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .landing-root .btn {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .landing-root .lede {
+    font-size: 17px;
+    line-height: 1.55;
+  }
+  .landing-root .install {
+    padding: 15px 14px;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .landing-root .install button {
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+}
+
 /* --- terminal mock (brass-framed) --- */
 .landing-root .terminal {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   background: var(--navy-950);
   border: 1px solid var(--gold-600);
   border-radius: 8px;
@@ -352,6 +447,12 @@ body.landing-page-active {
   color: var(--slate);
   text-transform: uppercase;
 }
+.landing-root .terminal-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .landing-root .terminal-dots { display: flex; gap: 6px; }
 .landing-root .terminal-dots span {
   width: 10px; height: 10px; border-radius: 50%;
@@ -364,11 +465,12 @@ body.landing-page-active {
   font-size: 13px;
   line-height: 1.75;
   color: var(--cream);
+  overflow-x: auto;
   background:
     radial-gradient(circle at 80% 10%, rgba(232, 184, 70, 0.04) 0%, transparent 50%),
     var(--navy-950);
 }
-.landing-root .terminal-body .line { display: block; }
+.landing-root .terminal-body .line { display: block; white-space: nowrap; }
 .landing-root .terminal-body .prompt { color: var(--gold-500); }
 .landing-root .terminal-body .cmd { color: var(--cream); }
 .landing-root .terminal-body .flag { color: var(--gold-300); }
@@ -543,9 +645,10 @@ body.landing-page-active {
   padding-left: 24px;
   border-left: 1px solid rgba(232, 184, 70, 0.2);
 }
-.landing-root .why-aside h4 {
+.landing-root .why-aside h3 {
   font-family: var(--mono);
   font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--gold-500);
@@ -641,9 +744,10 @@ body.landing-page-active {
 .landing-root table.compare tbody td {
   color: var(--cream);
 }
-.landing-root table.compare tbody td:first-child {
+.landing-root table.compare tbody th {
   font-family: var(--mono);
   font-size: 12px;
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--cream-muted);
@@ -838,6 +942,14 @@ body.landing-page-active {
 .landing-root .fade-in:nth-child(3) { animation-delay: 0.25s; }
 .landing-root .fade-in:nth-child(4) { animation-delay: 0.35s; }
 .landing-root .fade-in:nth-child(5) { animation-delay: 0.45s; }
+
+@media (max-width: 768px), (prefers-reduced-motion: reduce) {
+  .landing-root .fade-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
 
 @keyframes landing-fadeUp {
   from { opacity: 0; transform: translateY(12px); }

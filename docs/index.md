@@ -6,7 +6,7 @@ description: A native CLI that ships your containers to any Linux box - Podman Q
 
 <script setup>
 import './.vitepress/theme/landing.css'
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { ref } from 'vue'
 
 const installCmd = 'curl -fsSL meridian-deploy.dev/install.sh | sh'
 const copyLabel = ref('COPY')
@@ -21,16 +21,6 @@ function copyInstall() {
     setTimeout(() => { copyLabel.value = 'COPY' }, 1400)
   })
 }
-
-onMounted(() => {
-  document.documentElement.classList.add('landing-page-active')
-  document.body.classList.add('landing-page-active')
-})
-
-onBeforeUnmount(() => {
-  document.documentElement.classList.remove('landing-page-active')
-  document.body.classList.remove('landing-page-active')
-})
 </script>
 
 <div class="landing-root">
@@ -38,7 +28,7 @@ onBeforeUnmount(() => {
 <nav class="top">
   <div class="container">
     <a href="#" class="brand">
-      <img class="brand-mark" src="/meridian.png" alt="" aria-hidden="true" />
+      <img class="brand-mark" src="/meridian-64.webp" width="32" height="32" alt="" aria-hidden="true" fetchpriority="high" />
       Meridian
     </a>
     <div class="links">
@@ -48,7 +38,7 @@ onBeforeUnmount(() => {
       <a href="#faq">FAQ</a>
       <a href="https://github.com/treagod/meridian" target="_blank" rel="noreferrer">GitHub</a>
     </div>
-    <a href="/guide/" class="cta">Read the Docs →</a>
+    <a href="/guide/" class="cta" aria-label="Read the docs"><span class="cta-full">Read the Docs →</span><span class="cta-short" aria-hidden="true">Docs</span></a>
   </div>
 </nav>
 
@@ -155,13 +145,13 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <div class="why-aside">
-        <h4>· Why Podman</h4>
+        <h3>· Why Podman</h3>
         <p>Rootless-first is the right default in 2026. Quadlets let systemd supervise containers natively - the same system that already supervises your SSH daemon and cron jobs.</p>
-        <h4>· Why registries are optional</h4>
+        <h3>· Why registries are optional</h3>
         <p>Use one if you have one. When you'd rather skip it, Meridian ships the image straight over SSH - piped with zstd, or rsync'd as an OCI layout so later deploys send only what changed.</p>
-        <h4>· Why framework-aware</h4>
+        <h3>· Why framework-aware</h3>
         <p><code class="inline-code">meridian init</code> recognizes Marten, Rails, Elixir, Go, and Node - sets the right <code class="inline-code">*_ENV</code> default, reuses your health route where it can find one, and writes a <code class="inline-code">deploy.yml</code> you can edit on the first try.</p>
-        <h4>· Why Crystal</h4>
+        <h3>· Why Crystal</h3>
         <p>One compiled executable. No Ruby, no Python, no Node runtime on the server. Official Linux release builds can ship as a single file; local Crystal builds may still link shared libraries.</p>
       </div>
     </div>
@@ -237,51 +227,51 @@ onBeforeUnmount(() => {
       <table class="compare">
         <thead>
           <tr>
-            <th></th>
-            <th class="own">Meridian</th>
-            <th>Kamal 2</th>
-            <th>Dokku</th>
+            <th scope="col">Capability</th>
+            <th scope="col" class="own">Meridian</th>
+            <th scope="col">Kamal 2</th>
+            <th scope="col">Dokku</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Runtime</td>
+            <th scope="row">Runtime</th>
             <td class="own">Podman + systemd</td>
             <td>Docker daemon</td>
             <td>Docker daemon</td>
           </tr>
           <tr>
-            <td>Supervision</td>
+            <th scope="row">Supervision</th>
             <td class="own">Quadlets (systemd)</td>
             <td>Docker restart</td>
             <td>Docker restart</td>
           </tr>
           <tr>
-            <td>Image transfer</td>
+            <th scope="row">Image transfer</th>
             <td class="own">Direct over SSH</td>
             <td>Registry required</td>
             <td>Local build on host</td>
           </tr>
           <tr>
-            <td>Zero-downtime</td>
+            <th scope="row">Zero-downtime</th>
             <td class="own">kamal-proxy</td>
             <td>kamal-proxy</td>
             <td>nginx / Traefik</td>
           </tr>
           <tr>
-            <td>Rootless by default</td>
+            <th scope="row">Rootless by default</th>
             <td class="own">Yes</td>
             <td>No</td>
             <td>No</td>
           </tr>
           <tr>
-            <td>Install</td>
+            <th scope="row">Install</th>
             <td class="own">Native executable</td>
             <td>Ruby gem</td>
             <td>Bash bootstrap + apt</td>
           </tr>
           <tr>
-            <td>Config</td>
+            <th scope="row">Config</th>
             <td class="own">YAML</td>
             <td>YAML</td>
             <td>Imperative CLI</td>
@@ -381,7 +371,7 @@ onBeforeUnmount(() => {
 <footer>
   <div class="container">
     <div style="display:flex; align-items:center; gap:10px;">
-      <img class="brand-mark brand-mark-sm" src="/meridian.png" alt="" aria-hidden="true" />
+      <img class="brand-mark brand-mark-sm" src="/meridian-64.webp" width="22" height="22" alt="" aria-hidden="true" loading="lazy" decoding="async" />
       <span style="font-family:var(--serif); color:var(--cream); font-weight:600;">Meridian</span>
     </div>
     <div class="links-row">
