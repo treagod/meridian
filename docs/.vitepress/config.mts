@@ -28,7 +28,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: '/meridian.png',
+    logo: '/meridian-64.webp',
     siteTitle: 'Meridian',
 
     nav: [
