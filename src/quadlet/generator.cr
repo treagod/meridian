@@ -106,7 +106,7 @@ module Meridian
           case $1
           when "service" then @config.service
           when "image"   then @config.image
-          else $~[0]
+          else                $~[0]
           end
         end
       end
