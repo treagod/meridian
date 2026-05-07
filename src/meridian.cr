@@ -20,7 +20,7 @@ require "./cli/registry"
 require "./cli/commands/**"
 
 module Meridian
-  VERSION = "0.1.0"
+  VERSION = {{ `shards version`.strip.stringify }}
 
   module CLI
     HELP_FLAGS = ["-h", "--help"]

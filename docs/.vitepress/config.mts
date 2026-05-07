@@ -24,7 +24,16 @@ export default defineConfig({
     ['link', { rel: 'icon', href: '/favicon.ico', sizes: 'any' }],
     ['link', { rel: 'icon', type: 'image/png', href: '/favicon-32x32.png', sizes: '32x32' }],
     ['link', { rel: 'icon', type: 'image/png', href: '/favicon-16x16.png', sizes: '16x16' }],
-    ['link', { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', sizes: '180x180' }]
+    ['link', { rel: 'apple-touch-icon', href: '/apple-touch-icon.png', sizes: '180x180' }],
+    [
+      'script',
+      {
+        defer: '',
+        src: 'https://cloud.greenlight-analytics.eu/gl.js',
+        'data-site': 'ee5e1cd3-dd1d-4af1-a03b-10a39d688ddb',
+        'data-do-not-track': 'false'
+      }
+    ]
   ],
 
   themeConfig: {
