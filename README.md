@@ -98,6 +98,15 @@ Shows the blue/green systemd state for every configured host across all roles.
 meridian status
 ```
 
+### `meridian plan`
+
+Prints what Meridian resolved from `deploy.yml` - service, image, transfer mode, roles and hosts, proxy settings, required secret names, files, hooks, assets, and accessory summary - without contacting any host. Use it to catch configuration mistakes before deploy. Secret values are never printed, only their names.
+
+```bash
+meridian plan
+meridian plan --file path/to/deploy.yml
+```
+
 ### `meridian check`
 
 Runs read-only preflight probes against every configured host before a deploy. It verifies non-interactive SSH connectivity, Podman 4.4 or newer, systemd lingering, a writable rootless Quadlet directory, transfer tools for the configured `transfer.mode`, Podman secrets named in `env.secret`, and a running `kamal-proxy` container on web hosts when proxying is configured. Hosts are checked in batches controlled by `boot.limit`; any failed probe makes the command exit non-zero.
@@ -390,6 +399,7 @@ Meridian is a single-server and small-cluster tool. It is not a Kubernetes repla
 
 - [x] `meridian init` - detects project settings, prompts for the rest, generates `deploy.yml` and `.env`
 - [x] `meridian status` / `meridian logs` / role-based `meridian exec` / `meridian rollback` - operational commands
+- [x] `meridian plan` - read-only printout of the resolved deploy intent (roles, hosts, image, transfer mode, proxy, required secrets, hooks, files, assets, accessories)
 - [x] `meridian check` - read-only preflight probes for SSH, Podman, lingering, Quadlet paths, transfer tools, secrets, and kamal-proxy state
 - [x] `meridian quadlet --color green` - generates Quadlet files locally for inspection
 - [x] `meridian deploy` - rolling multi-host deploy via kamal-proxy with registry pulls or per-host stream transfer

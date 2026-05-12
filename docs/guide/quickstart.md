@@ -63,7 +63,15 @@ Set any remote secrets listed in `env.secret` before checking or deploying:
 printf '%s' "$DATABASE_URL" | meridian secret set DATABASE_URL
 ```
 
-## 3. Check And Deploy
+## 3. Plan, Check, And Deploy
+
+Inspect the resolved deploy intent locally first - no SSH, no registry calls:
+
+```bash
+meridian plan
+```
+
+Then probe the remote hosts, then deploy:
 
 ```bash
 meridian check

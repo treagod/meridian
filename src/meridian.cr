@@ -3,6 +3,7 @@ require "./errors"
 require "./commands/base"
 require "./commands/**"
 require "./config/loader"
+require "./deploy/plan"
 require "./deploy/orchestrator"
 require "./health/checker"
 require "./init/**"
@@ -43,6 +44,7 @@ module Meridian
       Commands::Rollback,
       Commands::Status,
       Commands::Check,
+      Commands::Plan,
       Commands::Logs,
       Commands::Exec,
       Commands::Run,
