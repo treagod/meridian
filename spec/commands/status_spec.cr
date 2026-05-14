@@ -47,6 +47,22 @@ describe "Meridian::Commands::Status" do
       output.to_s.should contain("192.168.1.12")
     end
 
+    it "scopes output to the supplied targets" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_status_command(runner: runner, output: output)
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "workers", host: "192.168.1.12")]
+
+      command.run(targets)
+
+      hosts = runner.invocations.map(&.host)
+      hosts.uniq!
+      hosts.should eq(["192.168.1.12"])
+      output.to_s.should contain("workers")
+      output.to_s.should_not contain("192.168.1.10")
+      output.to_s.should_not contain("192.168.1.11")
+    end
+
     it "summarizes active and inactive units" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new

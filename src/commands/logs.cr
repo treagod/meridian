@@ -43,17 +43,16 @@ module Meridian
         end
       end
 
-      def run(host : String? = nil) : Int32
-        if target_host = host
-          validate_host!(target_host)
-          return stream_ssh(target_host, journalctl_command)
-        end
+      def run(hosts : Array(String)) : Int32
+        raise ArgumentError.new("No hosts to stream") if hosts.empty?
+        return stream_ssh(hosts.first, journalctl_command) if hosts.size == 1
 
-        hosts = all_hosts.sort
-        results = Channel(StreamResult).new(hosts.size)
+        unique_hosts = hosts.uniq
+        unique_hosts.sort!
+        results = Channel(StreamResult).new(unique_hosts.size)
         mutex = Mutex.new
 
-        hosts.each do |stream_host|
+        unique_hosts.each do |stream_host|
           spawn do
             begin
               exit_code = stream_ssh(
@@ -71,7 +70,7 @@ module Meridian
 
         first_failure = 0
 
-        hosts.size.times do
+        unique_hosts.size.times do
           result = results.receive
           if error = result.error
             raise error
@@ -96,12 +95,6 @@ module Meridian
           "-f",
           "--no-pager",
         ]
-      end
-
-      private def validate_host!(host : String) : Nil
-        return if all_hosts.includes?(host)
-
-        raise ArgumentError.new("Unknown host: #{host}")
       end
     end
   end

@@ -1222,6 +1222,48 @@ describe "Meridian::Deploy::Orchestrator" do
       worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
+    it "limits deployment to the selected role and skips others" do
+      runner = FakeSSHRunner.new
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner)
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "workers", host: "192.168.1.12")]
+
+      orchestrator.deploy(targets)
+
+      hosts = runner.invocations.map(&.host)
+      hosts.uniq!
+      hosts.should eq(["192.168.1.12"])
+    end
+
+    it "limits deployment to the selected host within a role" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+      orchestrator = build_orchestrator(runner: runner)
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "web", host: "192.168.1.11")]
+
+      orchestrator.deploy(targets)
+
+      hosts = runner.invocations.map(&.host)
+      hosts.uniq!
+      hosts.should eq(["192.168.1.11"])
+    end
+
+    it "skips the web stage when web is excluded from the target set" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      enqueue_deploy_success_for_host(runner, "192.168.1.12")
+      orchestrator = build_orchestrator(runner: runner, output: output)
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "workers", host: "192.168.1.12")]
+
+      orchestrator.deploy(targets)
+
+      output.to_s.should contain("Skipping web role")
+      output.to_s.should_not contain("Deploying myapp to")
+      hosts = runner.invocations.map(&.host)
+      hosts.uniq!
+      hosts.should eq(["192.168.1.12"])
+    end
+
     it "respects boot.limit by deploying at most that many hosts at once" do
       runner = FakeSSHRunner.new
       first_web_release = runner.pause_next_invocation("192.168.1.10")

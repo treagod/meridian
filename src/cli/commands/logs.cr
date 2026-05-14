@@ -2,8 +2,8 @@ module Meridian
   module CLI
     module Commands
       class Logs < Command
-        @host : String? = nil
         @file = "deploy.yml"
+        @selector = TargetSelector.new
 
         def name : String
           "logs"
@@ -22,7 +22,7 @@ module Meridian
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--host HOST", "Configured host to stream logs from") { |value| @host = value }
+          @selector.register(parser)
           parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |value| @file = value }
         end
 
@@ -36,7 +36,9 @@ module Meridian
 
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
           config = Config::Loader.load(@file)
-          ::Meridian::Commands::Logs.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(@host)
+          hosts = @selector.resolve(config).map(&.host)
+          hosts.uniq!
+          ::Meridian::Commands::Logs.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(hosts)
         end
       end
     end

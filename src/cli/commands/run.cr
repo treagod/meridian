@@ -2,8 +2,8 @@ module Meridian
   module CLI
     module Commands
       class Run < Command
-        @host : String? = nil
         @file = "deploy.yml"
+        @selector = TargetSelector.new
 
         def name : String
           "run"
@@ -38,7 +38,7 @@ module Meridian
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--host HOST", "Specific host for the role (default: first configured host)") { |value| @host = value }
+          @selector.register(parser, role: false, primary: false)
           parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |value| @file = value }
         end
 
@@ -61,12 +61,19 @@ module Meridian
             return 1
           end
 
+          role = positionals.first
           config = Config::Loader.load(@file)
+          host = resolve_target_host(config, role)
           ::Meridian::Commands::Run.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(
-            positionals.first,
+            role,
             remote_command,
-            @host
+            host
           )
+        end
+
+        private def resolve_target_host(config : Config::DeployConfig, role : String) : String
+          @selector.role = role
+          @selector.resolve(config).first.host
         end
       end
     end

@@ -20,11 +20,11 @@ module Meridian
         passed : Bool,
         detail : String
 
-      def run : Bool
+      def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Bool
         validate_batch_settings!
 
         rows = [] of ProbeResult
-        hosts = host_contexts
+        hosts = host_contexts(targets)
         raise ArgumentError.new("No hosts configured") if hosts.empty?
 
         remaining_hosts = hosts.dup
@@ -55,12 +55,14 @@ module Meridian
         end
       end
 
-      private def host_contexts : Array(HostContext)
+      private def host_contexts(targets : Array(CLI::TargetSelector::Target)?) : Array(HostContext)
         roles_by_host = Hash(String, Array(String)).new { |hash, host| hash[host] = [] of String }
 
-        @config.servers.each do |role, server|
-          server.hosts.each do |host|
-            roles_by_host[host] << role
+        if targets
+          targets.each { |target| roles_by_host[target.host] << target.role }
+        else
+          @config.servers.each do |role, server|
+            server.hosts.each { |host| roles_by_host[host] << role }
           end
         end
 

@@ -210,6 +210,7 @@ end
 
 class FakeDeployOrchestrator < Meridian::Deploy::Orchestrator
   getter deploy_calls = 0
+  getter deploy_targets : Array(Meridian::CLI::TargetSelector::Target)? = nil
   property deploy_error : Meridian::Deploy::DeployFailed?
 
   def initialize(
@@ -225,8 +226,9 @@ class FakeDeployOrchestrator < Meridian::Deploy::Orchestrator
     )
   end
 
-  def deploy : Nil
+  def deploy(targets : Array(Meridian::CLI::TargetSelector::Target)? = nil) : Nil
     @deploy_calls += 1
+    @deploy_targets = targets
     if error = @deploy_error
       raise error
     end

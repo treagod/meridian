@@ -7,8 +7,10 @@ module Meridian
         blue : String,
         green : String
 
-      def run : Nil
-        rows = all_role_hosts.sort_by { |role, host| {role, host} }.map do |role, host|
+      def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
+        pairs = role_host_pairs(targets)
+
+        rows = pairs.sort_by { |role, host| {role, host} }.map do |role, host|
           Row.new(
             role: role,
             host: host,
@@ -39,6 +41,12 @@ module Meridian
         end
       rescue ex : Config::UnknownRole | ArgumentError
         raise ex
+      end
+
+      private def role_host_pairs(targets : Array(CLI::TargetSelector::Target)?) : Array({String, String})
+        return all_role_hosts unless targets
+
+        targets.map { |target| {target.role, target.host} }
       end
 
       private def service_state(host : String, color : Quadlet::Color) : String

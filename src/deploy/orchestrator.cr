@@ -36,6 +36,8 @@ module Meridian
         end
       end
 
+      @allowed_hosts : Hash(String, Array(String))? = nil
+
       def initialize(
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
@@ -207,11 +209,12 @@ module Meridian
         raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
       end
 
-      def deploy : Nil
+      def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
+        @allowed_hosts = build_allowed_hosts(targets)
         validate_rollout_settings!
         validate_registry_credentials!
         run_pre_deploy_hook
-        web_hosts = hosts_for_role("web")
+        web_hosts = hosts_for_role?("web")
         secondary_roles = ordered_secondary_roles
         abort_rollout = RolloutAbort.new
         secondary_results = Channel(RoleDeployResult).new
@@ -236,11 +239,17 @@ module Meridian
           end
         end
 
-        @output.puts "Deploying #{@config.service} to #{web_hosts.size} web host#{web_hosts.size == 1 ? "" : "s"}"
-
-        web_result = deploy_role("web", abort_rollout) do |_host|
-          start_secondary_roles.call
-        end
+        web_result =
+          if web_hosts.empty?
+            @output.puts "Skipping web role (no targets selected)" if @allowed_hosts
+            start_secondary_roles.call
+            RoleDeployResult.new(role: "web", error: nil)
+          else
+            @output.puts "Deploying #{@config.service} to #{web_hosts.size} web host#{web_hosts.size == 1 ? "" : "s"}"
+            deploy_role("web", abort_rollout) do |_host|
+              start_secondary_roles.call
+            end
+          end
 
         if secondary_started
           secondary_count.times do
@@ -261,6 +270,16 @@ module Meridian
 
         @output.puts "Deploy completed"
         run_post_deploy_hook
+      ensure
+        @allowed_hosts = nil
+      end
+
+      private def build_allowed_hosts(targets : Array(CLI::TargetSelector::Target)?) : Hash(String, Array(String))?
+        return if targets.nil?
+
+        targets.each_with_object(Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }) do |target, acc|
+          acc[target.role] << target.host unless acc[target.role].includes?(target.host)
+        end
       end
 
       private def service_name(color : Quadlet::Color) : String
@@ -479,14 +498,24 @@ module Meridian
       end
 
       private def ordered_secondary_roles : Array(String)
-        @config.servers.keys.reject { |role| role == "web" }
+        @config.servers.keys.reject { |role| role == "web" || hosts_for_role?(role).empty? }
       end
 
       private def hosts_for_role(role : String) : Array(String)
-        hosts = server_config(role).hosts
+        hosts = hosts_for_role?(role)
         raise DeployFailed.new("No hosts configured for role: #{role}") if hosts.empty?
 
         hosts
+      end
+
+      private def hosts_for_role?(role : String) : Array(String)
+        configured = server_config(role).hosts
+        if allowed = @allowed_hosts
+          allowed_for_role = allowed[role]? || [] of String
+          configured.select { |host| allowed_for_role.includes?(host) }
+        else
+          configured
+        end
       end
 
       private def sleep_between_batches : Nil

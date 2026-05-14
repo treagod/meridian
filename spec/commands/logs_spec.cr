@@ -17,7 +17,7 @@ describe "Meridian::Commands::Logs" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      exit_code = command.run("192.168.1.10")
+      exit_code = command.run(["192.168.1.10"])
 
       exit_code.should eq(0)
       streaming_runner.invocations.map(&.host).should eq(["192.168.1.10"])
@@ -27,7 +27,7 @@ describe "Meridian::Commands::Logs" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      command.run("192.168.1.10")
+      command.run(["192.168.1.10"])
 
       invocation = streaming_runner.invocations.last
       remote_command = invocation.remote_command.not_nil!
@@ -40,7 +40,7 @@ describe "Meridian::Commands::Logs" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      command.run("192.168.1.10")
+      command.run(["192.168.1.10"])
 
       invocation = streaming_runner.invocations.last
       remote_command = invocation.remote_command.not_nil!
@@ -48,7 +48,7 @@ describe "Meridian::Commands::Logs" do
       remote_command.should contain("-u myapp-green.service")
     end
 
-    it "prefixes multiplexed output by host when streaming all hosts" do
+    it "prefixes multiplexed output by host when streaming multiple hosts" do
       streaming_runner = FakeSSHStreamingRunner.new
       output = IO::Memory.new
       command = build_logs_command(streaming_runner: streaming_runner, output: output)
@@ -56,12 +56,20 @@ describe "Meridian::Commands::Logs" do
       streaming_runner.enqueue_results_for_host("192.168.1.11", FakeSSHStreamResult.new(exit_code: 0, stdout: "green\n"))
       streaming_runner.enqueue_results_for_host("192.168.1.12", FakeSSHStreamResult.new(exit_code: 0, stdout: "worker\n"))
 
-      exit_code = command.run
+      exit_code = command.run(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
 
       exit_code.should eq(0)
       output.to_s.should contain("[192.168.1.10] blue")
       output.to_s.should contain("[192.168.1.11] green")
       output.to_s.should contain("[192.168.1.12] worker")
+    end
+
+    it "raises when given an empty host list" do
+      command = build_logs_command
+
+      expect_raises(ArgumentError, /No hosts to stream/) do
+        command.run([] of String)
+      end
     end
   end
 end
