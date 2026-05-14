@@ -211,6 +211,28 @@ describe "Meridian::Commands::Check" do
       remote_commands.should contain("sh -lc 'command -v skopeo >/dev/null'")
     end
 
+    it "limits probes to the supplied targets" do
+      runner = FakeSSHRunner.new
+      command = build_check_command(runner: runner)
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "workers", host: "192.168.1.11")]
+
+      runner.enqueue_results_for_host(
+        "192.168.1.11",
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run(targets).should be_true
+
+      hosts = runner.invocations.map(&.host)
+      hosts.uniq!
+      hosts.should eq(["192.168.1.11"])
+    end
+
     it "checks kamal-proxy when the web role has proxy configuration" do
       runner = FakeSSHRunner.new
       command = build_check_command(

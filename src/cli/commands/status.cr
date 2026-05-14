@@ -3,6 +3,7 @@ module Meridian
     module Commands
       class Status < Command
         @file = "deploy.yml"
+        @selector = TargetSelector.new
 
         def name : String
           "status"
@@ -17,10 +18,11 @@ module Meridian
         end
 
         def description : String
-          "Show blue/green service state for all configured hosts."
+          "Show blue/green service state for the configured hosts."
         end
 
         def configure(parser : OptionParser) : Nil
+          @selector.register(parser)
           parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
         end
 
@@ -34,7 +36,8 @@ module Meridian
 
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
           config = Config::Loader.load(@file)
-          ::Meridian::Commands::Status.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run
+          targets = @selector.resolve(config)
+          ::Meridian::Commands::Status.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(targets)
           0
         end
       end

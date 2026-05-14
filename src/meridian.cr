@@ -18,6 +18,7 @@ require "./cli/context"
 require "./cli/command"
 require "./cli/group_command"
 require "./cli/registry"
+require "./cli/target_selector"
 require "./cli/commands/**"
 
 module Meridian
