@@ -13,7 +13,7 @@ module Meridian
 
       def bootstrap(invocation : CLI::ServerBootstrapInvocation) : Nil
         host = invocation.host || resolve_single_host
-        private_key = config.ssh.keys.first? ||
+        private_key = config.ssh.identity_file ||
                       raise Meridian::Server::BootstrapError.new(
                         "No SSH keys configured in deploy.yml — add at least one path under ssh.keys"
                       )

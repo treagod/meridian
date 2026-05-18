@@ -168,12 +168,7 @@ module Meridian
 
         begin
           log(host, "Checking health for #{new_service}")
-          health_checker_for(host).poll(
-            healthcheck_url(host, proxy, new_service),
-            interval: proxy.healthcheck.interval.seconds,
-            timeout: proxy.healthcheck.timeout.seconds,
-            retries: proxy.healthcheck.retries
-          )
+          poll_container_health(host, proxy, new_service)
 
           run_remote_hooks(host, role, "before_switch")
 
@@ -364,25 +359,39 @@ module Meridian
         )
       end
 
-      private def healthcheck_url(
+      private def poll_container_health(
         host : String,
         proxy : Config::ServerProxyConfig,
         container_name : String,
-      ) : String
-        ip_result = run_ssh!(
-          host,
-          [
-            "podman",
-            "inspect",
-            "--format",
-            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            container_name,
-          ]
-        )
-        container_ip = ip_result.stdout.strip
-        raise DeployFailed.new("Could not determine container IP for #{container_name} on #{host}") if container_ip.empty?
+      ) : Nil
+        url = "http://127.0.0.1:#{proxy.app_port}#{proxy.healthcheck.path}"
+        timeout = proxy.healthcheck.timeout
+        retries = proxy.healthcheck.retries
+        interval = proxy.healthcheck.interval
+        host_header = proxy.host || "localhost"
 
-        "http://#{container_ip}:#{proxy.app_port}#{proxy.healthcheck.path}"
+        retries.times do |attempt|
+          attempt_number = attempt + 1
+          @output.puts "[#{host}] Health check attempt #{attempt_number}/#{retries}: #{container_name} -> #{url} (Host: #{host_header})"
+
+          result = run_ssh(
+            host,
+            [
+              "podman", "exec", container_name,
+              "sh", "-c",
+              "wget -q -O - --timeout=#{timeout} --header='Host: #{host_header}' #{url} >/dev/null 2>&1 || curl -fsS --max-time #{timeout} -H 'Host: #{host_header}' #{url} >/dev/null",
+            ]
+          )
+
+          if result.exit_code.zero?
+            @output.puts "[#{host}] Health check passed: #{container_name} -> #{url}"
+            return
+          end
+
+          sleep interval.seconds if attempt < retries - 1
+        end
+
+        raise Health::CheckFailed.new("Health check failed for #{container_name} -> #{url} after #{retries} attempts")
       end
 
       private def proxy_deploy_command(
@@ -700,7 +709,7 @@ module Meridian
       end
 
       private def ssh_identity_file : String?
-        @config.ssh.keys.first?
+        @config.ssh.identity_file
       end
 
       private def ssh_proxy_jump : String?
@@ -746,12 +755,14 @@ module Meridian
         run_ssh!(host, ["systemctl", "--user", "start", "#{@config.service}-assets-server.service"])
 
         log(host, "Registering asset server with proxy")
-        run_ssh!(host, [
+        register_cmd = [
           "podman", "exec", "kamal-proxy", "kamal-proxy", "deploy",
           "#{@config.service}-assets",
           "--target", "#{@config.service}-assets-server:80",
           "--host", assets.host,
-        ])
+        ]
+        register_cmd << "--tls" if @config.servers["web"]?.try(&.proxy).try(&.ssl?)
+        run_ssh!(host, register_cmd)
 
         log(host, "Pruning old asset releases (keeping #{assets.retain_releases})")
         prune_cmd = "v=$(podman volume inspect #{@config.service}-assets --format '{{.Mountpoint}}') && " \

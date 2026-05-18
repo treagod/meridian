@@ -68,7 +68,7 @@ module Meridian
         started_at = @monotonic_clock.call
         result = @pipeline_runner.call(request)
         elapsed = @monotonic_clock.call - started_at
-        print_line(host, "Transferred #{result.bytes_transferred} bytes in #{format_duration(elapsed)}")
+        print_line(host, "Transferred #{format_bytes(result.bytes_transferred)} in #{format_duration(elapsed)}")
       rescue ex : DependencyMissing
         raise ex
       rescue ex : SSH::ConnectionError

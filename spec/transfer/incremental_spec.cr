@@ -274,7 +274,7 @@ describe "Meridian::Transfer::Incremental" do
       requests.map(&.command.first).should eq(["skopeo", "rsync"])
     end
 
-    it "prints transferred bytes and elapsed time from rsync stats" do
+    it "prints transferred size and elapsed time from rsync stats" do
       runner = FakeSSHRunner.new
       runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
       output = IO::Memory.new
@@ -302,7 +302,7 @@ describe "Meridian::Transfer::Incremental" do
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       output.to_s.should contain("[192.168.1.10] Syncing image registry.example.com/myorg/myapp incrementally")
-      output.to_s.should contain("[192.168.1.10] Transferred 1024 bytes in 1.5s")
+      output.to_s.should contain("[192.168.1.10] Transferred 1.0 KB in 1.5s")
     end
 
     it "falls back to total transferred file size when total bytes sent is unavailable" do
@@ -327,7 +327,7 @@ describe "Meridian::Transfer::Incremental" do
 
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
-      output.to_s.should contain("[192.168.1.10] Transferred 2048 bytes")
+      output.to_s.should contain("[192.168.1.10] Transferred 2.0 KB")
     end
 
     it "prints unknown bytes when rsync stats do not include a byte total" do

@@ -169,6 +169,55 @@ describe Meridian::Commands::Server do
       end
     end
 
+    it "expands home-relative ssh key paths before bootstrapping" do
+      with_tempdir do |home|
+        old_home = ENV["HOME"]?
+        ENV["HOME"] = home
+        begin
+          ssh_dir = File.join(home, ".ssh")
+          Dir.mkdir_p(ssh_dir)
+          priv = File.join(ssh_dir, "id_ed25519")
+          pub = "#{priv}.pub"
+          File.write(priv, "FAKE")
+          File.write(pub, "ssh-ed25519 AAAAFAKE comment")
+
+          config_yaml = <<-YAML
+            service: myapp
+            image: registry.example.com/myorg/myapp
+            servers:
+              web:
+                hosts:
+                  - 1.2.3.4
+            proxy:
+              image: ghcr.io/basecamp/kamal-proxy:latest
+            registry:
+              server: registry.example.com
+              username: deploy
+              password:
+                - REGISTRY_PASSWORD
+            ssh:
+              user: deploy
+              port: 22
+              keys:
+                - ~/.ssh/id_ed25519
+            YAML
+
+          runner = FakeBootstrapRunner.new
+          command = build_server_command(content: config_yaml, runner: runner)
+          command.bootstrap(make_invocation(host: "1.2.3.4"))
+
+          deploy_op = runner.invocations.find { |i| i.args.includes?("BatchMode=yes") }
+          deploy_op.not_nil!.args.should contain(priv)
+        ensure
+          if old_home
+            ENV["HOME"] = old_home
+          else
+            ENV.delete("HOME")
+          end
+        end
+      end
+    end
+
     it "raises BootstrapError when ssh.keys is empty" do
       config_yaml = <<-YAML
         service: myapp

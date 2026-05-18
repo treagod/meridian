@@ -42,10 +42,10 @@ servers:
     proxy:
       host: my-app.example.com
       ssl: true
-      app_port: 3000
+      app_port: 8000
 
 proxy:
-  image: ghcr.io/basecamp/kamal-proxy:latest
+  image: docker.io/basecamp/kamal-proxy:latest
 
 transfer:
   mode: stream   # or 'incremental', or omit to pull from a registry

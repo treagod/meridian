@@ -1,6 +1,7 @@
 [Container]
 Image=<%= @image %>
 ContainerName=kamal-proxy
+AddCapability=NET_BIND_SERVICE
 Network=<%= @service %>.network
 PublishPort=<%= @http_port %>:80
 PublishPort=<%= @https_port %>:443

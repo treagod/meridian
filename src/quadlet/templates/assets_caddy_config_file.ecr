@@ -3,6 +3,8 @@
 }
 
 :80 {
-	root * /srv/assets
+	respond /up 200
+
+	root * /srv/assets/current
 	file_server
 }

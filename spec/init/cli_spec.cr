@@ -19,7 +19,7 @@ describe "Meridian::CLI init" do
         config.image.should eq("ghcr.io/acme/myapp")
         config.servers["web"].hosts.should eq(["95.216.1.10"])
         config.servers["web"].proxy.try(&.host).should eq("myapp.example.com")
-        config.proxy.try(&.image).should eq("ghcr.io/basecamp/kamal-proxy:latest")
+        config.proxy.try(&.image).should eq("docker.io/basecamp/kamal-proxy:latest")
         config.registry.try(&.server).should eq("ghcr.io")
         config.registry.try(&.username).should eq("acme")
         config.build.should be_nil

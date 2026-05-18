@@ -259,7 +259,7 @@ module Meridian
       end
 
       private def ssh_identity_file : String?
-        @config.ssh.keys.first?
+        @config.ssh.identity_file
       end
 
       private def ssh_proxy_jump : String?

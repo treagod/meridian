@@ -4,6 +4,7 @@ module Meridian
       name : String,
       clear_env : Hash(String, String),
       healthcheck_path : String?,
+      app_port : Int32? = nil,
       note : String? = nil
 
     class FrameworkDetector
@@ -71,11 +72,9 @@ module Meridian
         return unless server_content.includes?("Marten.start")
 
         note = nil.as(String?)
-        healthcheck_path = nil.as(String?)
+        healthcheck_path = "/health"
 
-        if HEALTH_ROUTE_PATTERN.matches?(routes_content)
-          healthcheck_path = "/health"
-        else
+        unless HEALTH_ROUTE_PATTERN.matches?(routes_content)
           note = "Detected Marten app but no explicit /health route was found; using the default /health."
         end
 
@@ -83,6 +82,7 @@ module Meridian
           name: "Marten",
           clear_env: {"MARTEN_ENV" => "production"},
           healthcheck_path: healthcheck_path,
+          app_port: 8000,
           note: note
         )
       end
