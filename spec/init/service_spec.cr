@@ -1,5 +1,11 @@
 require "../spec_helper"
 
+DEFAULT_INIT_MARTEN_ROUTES = <<-CRYSTAL
+  Marten.routes.draw do
+    path "/", HomeHandler, name: "home"
+  end
+  CRYSTAL
+
 private def run_init_service(
   root : String,
   input_string : String,
@@ -19,6 +25,14 @@ private def run_init_service(
   output.to_s
 end
 
+private def write_init_marten_project(root : String, routes_content : String = DEFAULT_INIT_MARTEN_ROUTES)
+  write_project_file(root, "manage.cr", "require \"./src/cli\"\n\nMarten.setup\nMarten::CLI.run\n")
+  write_project_file(root, "src/project.cr", "require \"marten\"\n")
+  write_project_file(root, "src/server.cr", "require \"./project\"\n\nMarten.start\n")
+  write_project_file(root, "config/routes.cr", routes_content)
+  write_project_file(root, "config/settings/base.cr", "Marten.configure do |config|\nend\n")
+end
+
 describe "Meridian::Init::Service" do
   it "uses the GitHub origin remote to derive the image without prompting for it" do
     with_tempdir do |path|
@@ -30,6 +44,7 @@ describe "Meridian::Init::Service" do
 
       config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
       config.image.should eq("ghcr.io/acme/myapp")
+      config.proxy.try(&.image).should eq("docker.io/basecamp/kamal-proxy:latest")
       config.registry.try(&.server).should eq("ghcr.io")
       config.registry.try(&.username).should eq("acme")
       output.should contain("Git remote: git@github.com:acme/myapp.git")
@@ -74,6 +89,26 @@ describe "Meridian::Init::Service" do
       env_file = File.read(File.join(path, ".env"))
       env_file.should contain("# Fill in secret values used by deploy.yml")
       env_file.should_not contain("REGISTRY_PASSWORD=")
+    end
+  end
+
+  it "renders Marten proxy app_port and healthcheck defaults" do
+    with_tempdir do |path|
+      write_init_marten_project(path)
+
+      run_init_service(
+        path,
+        "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
+      )
+
+      deploy_yml = File.read(File.join(path, "deploy.yml"))
+      deploy_yml.should contain("app_port: 8000")
+      deploy_yml.should contain("path: /health")
+
+      config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
+      proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      proxy.app_port.should eq(8000)
+      proxy.healthcheck.path.should eq("/health")
     end
   end
 

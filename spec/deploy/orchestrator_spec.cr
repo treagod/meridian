@@ -55,6 +55,23 @@ def ssh_fail(exit_code : Int32 = 1, stdout : String = "", stderr : String = "") 
   Meridian::SSH::Result.new(exit_code: exit_code, stdout: stdout, stderr: stderr)
 end
 
+def health_command?(
+  command : String?,
+  container_name : String = "myapp-blue",
+  host_header : String = "myapp.example.com",
+) : Bool
+  command.try do |remote_command|
+    remote_command.starts_with?("podman exec #{container_name} sh -c") &&
+      remote_command.includes?("wget -q -O - --timeout=5") &&
+      remote_command.includes?("--header=") &&
+      remote_command.includes?("Host: #{host_header}") &&
+      remote_command.includes?("http://127.0.0.1:3000/health") &&
+      remote_command.includes?("curl -fsS --max-time 5") &&
+      remote_command.includes?("-H") &&
+      remote_command.includes?(">/dev/null")
+  end || false
+end
+
 def enqueue_zero_downtime_success(
   runner : FakeSSHRunner,
   *,
@@ -62,15 +79,15 @@ def enqueue_zero_downtime_success(
   blue_active : Bool = false,
   green_active : Bool = false,
   old_active : Bool? = nil,
-  container_ip : String = "10.88.0.12",
   health_status : String = "200",
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
+  resolved_old_active = false
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active
+    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
   else
     results << ssh_fail(1, "", "No such file\n")
@@ -86,6 +103,7 @@ def enqueue_zero_downtime_success(
         old_active || false
       end
     results << (current_color_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    resolved_old_active = current_color_active
   end
 
   results.concat([
@@ -95,9 +113,13 @@ def enqueue_zero_downtime_success(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok("#{container_ip}\n"),
     ssh_ok(health_status),
     ssh_ok,
+  ])
+
+  results << ssh_ok if resolved_old_active
+
+  results.concat([
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -117,15 +139,15 @@ def enqueue_zero_downtime_success_for_host(
   blue_active : Bool = false,
   green_active : Bool = false,
   old_active : Bool? = nil,
-  container_ip : String = "10.88.0.12",
   health_status : String = "200",
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
+  resolved_old_active = false
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active
+    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
   else
     results << ssh_fail(1, "", "No such file\n")
@@ -141,6 +163,7 @@ def enqueue_zero_downtime_success_for_host(
         old_active || false
       end
     results << (current_color_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    resolved_old_active = current_color_active
   end
 
   results.concat([
@@ -150,9 +173,13 @@ def enqueue_zero_downtime_success_for_host(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok("#{container_ip}\n"),
     ssh_ok(health_status),
     ssh_ok,
+  ])
+
+  results << ssh_ok if resolved_old_active
+
+  results.concat([
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -168,8 +195,8 @@ def enqueue_zero_downtime_health_failure(
   marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
-  container_ip : String = "10.88.0.12",
-  health_result : Meridian::SSH::Result = ssh_ok("500"),
+  health_attempts : Int32 = 10,
+  health_result : Meridian::SSH::Result = ssh_fail(1, "", "health failed\n"),
 )
   results = [] of Meridian::SSH::Result
 
@@ -192,10 +219,9 @@ def enqueue_zero_downtime_health_failure(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok("#{container_ip}\n"),
   ])
 
-  10.times do
+  health_attempts.times do
     results << health_result
   end
 
@@ -217,8 +243,8 @@ def enqueue_zero_downtime_health_failure_for_host(
   marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
-  container_ip : String = "10.88.0.12",
-  health_result : Meridian::SSH::Result = ssh_ok("500"),
+  health_attempts : Int32 = 10,
+  health_result : Meridian::SSH::Result = ssh_fail(1, "", "health failed\n"),
 )
   results = [] of Meridian::SSH::Result
 
@@ -241,10 +267,9 @@ def enqueue_zero_downtime_health_failure_for_host(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok("#{container_ip}\n"),
   ])
 
-  10.times do
+  health_attempts.times do
     results << health_result
   end
 
@@ -300,7 +325,13 @@ def multi_host_config(boot_limit : Int32 = 1, boot_wait : Int32 = 10) : String
     .sub("wait: 10", "wait: #{boot_wait}")
 end
 
-def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, container_ip : String = "10.88.0.12")
+def fast_health_config(content : String = FULL_CONFIG) : String
+  content
+    .sub("interval: 2", "interval: 0")
+    .sub("retries: 10", "retries: 1")
+end
+
+def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
   runner.enqueue_results_for_host(
     "192.168.1.10",
     ssh_fail(1, "", "No such file\n"), # cat .meridian-color
@@ -322,7 +353,6 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, container_ip : 
     ssh_ok,                            # kamal-proxy deploy for assets
     ssh_ok,                            # prune old asset releases
     ssh_ok,                            # start new service
-    ssh_ok("#{container_ip}\n"),       # podman inspect (health URL)
     ssh_ok("200"),                     # health check
     ssh_ok,                            # kamal-proxy deploy for app
     ssh_ok,                            # rm old container
@@ -496,7 +526,7 @@ describe "Meridian::Deploy::Orchestrator" do
       end
     end
 
-    it "uses configured SSH user, port, and first key for deploy commands" do
+    it "uses configured SSH user, port, and identity file for deploy commands" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(
         content: <<-YAML,
@@ -533,6 +563,31 @@ describe "Meridian::Deploy::Orchestrator" do
         "deployer@192.168.1.10",
         "podman pull registry.example.com/myorg/myapp",
       ])
+    end
+
+    it "expands SSH keys before deploy commands use them as identity files" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          ssh:
+            keys:
+              - ~/.ssh/id_ed25519
+          YAML
+        runner: runner
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "web")
+
+      runner.invocations.first.args.should contain("-i")
+      runner.invocations.first.args.should contain(Path["~/.ssh/id_ed25519"].expand(home: true).to_s)
     end
 
     it "uses stream transfer instead of podman pull when transfer mode is stream" do
@@ -988,13 +1043,13 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "runs the health check before switching proxy traffic" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_success(runner, green_active: true, container_ip: "10.88.0.12")
+      enqueue_zero_downtime_success(runner, green_active: true)
       orchestrator = build_orchestrator(runner: runner)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      health_index = commands.index("curl --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 5.0 --max-time 5.0 http://10.88.0.12:3000/health") || raise "Expected health check invocation"
+      health_index = commands.index { |command| health_command?(command) } || raise "Expected health check invocation"
       deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls") || raise "Expected proxy deploy invocation"
 
       health_index.should be < deploy_index
@@ -1002,10 +1057,10 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "does not stop the old container if the health check fails" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_health_failure(runner, green_active: true)
-      orchestrator = build_orchestrator(runner: runner)
+      enqueue_zero_downtime_health_failure(runner, green_active: true, health_attempts: 1)
+      orchestrator = build_orchestrator(content: fast_health_config, runner: runner)
 
-      expect_raises(Meridian::Deploy::DeployFailed, /status 500/) do
+      expect_raises(Meridian::Deploy::DeployFailed, /Health check failed for myapp-blue/) do
         orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
       end
 
@@ -1122,7 +1177,6 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
-        ssh_ok("10.88.0.12\n"),
         ssh_ok("200"),
         ssh_ok,
         ssh_ok,
@@ -1312,11 +1366,11 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "aborts the entire deploy if all web hosts fail" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_result: ssh_ok("500"))
-      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_result: ssh_ok("500"))
-      orchestrator = build_orchestrator(content: multi_host_config(boot_limit: 2), runner: runner)
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_attempts: 1)
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_attempts: 1)
+      orchestrator = build_orchestrator(content: fast_health_config(multi_host_config(boot_limit: 2)), runner: runner)
 
-      expect_raises(Meridian::Deploy::DeployFailed, /status 500/) do
+      expect_raises(Meridian::Deploy::DeployFailed, /Health check failed/) do
         orchestrator.deploy
       end
 
@@ -1326,8 +1380,8 @@ describe "Meridian::Deploy::Orchestrator" do
     it "prefixes log output with the host address" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new
-      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10", container_ip: "10.88.0.12")
-      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11", container_ip: "10.88.0.13")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+      enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
       enqueue_deploy_success_for_host(runner, "192.168.1.12")
       orchestrator = build_orchestrator(runner: runner, output: output)
 
@@ -1335,8 +1389,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       log_output = output.to_s
       log_output.should contain("[192.168.1.10] Pulling image registry.example.com/myorg/myapp")
-      log_output.should contain("[192.168.1.10] Health check attempt 1/10: http://10.88.0.12:3000/health")
-      log_output.should contain("[192.168.1.10] Health check passed: http://10.88.0.12:3000/health")
+      log_output.should contain("[192.168.1.10] Health check attempt 1/10: myapp-green -> http://127.0.0.1:3000/health (Host: myapp.example.com)")
+      log_output.should contain("[192.168.1.10] Health check passed: myapp-green -> http://127.0.0.1:3000/health")
     end
 
     it "sleeps between successful batches but not after the final batch" do
@@ -1357,11 +1411,11 @@ describe "Meridian::Deploy::Orchestrator" do
       runner = FakeSSHRunner.new
       sleeps = [] of Time::Span
       sleeper = ->(duration : Time::Span) { sleeps << duration }
-      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_result: ssh_ok("500"))
-      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_result: ssh_ok("500"))
-      orchestrator = build_orchestrator(content: multi_host_config(boot_limit: 2), runner: runner, batch_sleeper: sleeper)
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_attempts: 1)
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_attempts: 1)
+      orchestrator = build_orchestrator(content: fast_health_config(multi_host_config(boot_limit: 2)), runner: runner, batch_sleeper: sleeper)
 
-      expect_raises(Meridian::Deploy::DeployFailed, /status 500/) do
+      expect_raises(Meridian::Deploy::DeployFailed, /Health check failed/) do
         orchestrator.deploy
       end
 
@@ -1575,6 +1629,18 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner, "192.168.1.10")
       commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com")
+    end
+
+    it "registers the asset server with TLS when the web proxy uses SSL" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      config = ASSETS_CONFIG.sub("app_port: 3000", "app_port: 3000\n        ssl: true")
+      orchestrator = build_orchestrator(content: config, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com --tls")
     end
 
     it "does not run asset steps when assets are not configured" do

@@ -16,15 +16,22 @@ module Meridian
       def setup : Nil
         proxy = proxy_config(SetupFailed)
         hosts = web_hosts(SetupFailed)
-        quadlet = @quadlet_generator.proxy_container_file
+        network_quadlet = @quadlet_generator.network_file
+        proxy_quadlet = @quadlet_generator.proxy_container_file
         proxy_url = "http://127.0.0.1:#{proxy.http_port}/"
 
         hosts.each do |host|
           log(host, "Ensuring Quadlet directory exists")
           run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 
+          log(host, "Uploading service network Quadlet")
+          upload_ssh(host, network_path, network_quadlet)
+
           log(host, "Uploading proxy Quadlet")
-          upload_ssh(host, quadlet_path, quadlet)
+          upload_ssh(host, quadlet_path, proxy_quadlet)
+
+          log(host, "Ensuring proxy data directory exists")
+          run_ssh!(host, ["sudo", "install", "-d", "-m", "0755", "-o", ssh_user, "-g", ssh_user, proxy.data_dir])
 
           log(host, "Reloading user systemd")
           run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
@@ -58,6 +65,10 @@ module Meridian
 
       private def quadlet_path : String
         File.join(Quadlet::DIRECTORY, PROXY_CONTAINER)
+      end
+
+      private def network_path : String
+        File.join(Quadlet::DIRECTORY, "#{@config.service}.network")
       end
 
       private def web_hosts(error_klass : T.class) : Array(String) forall T
@@ -129,7 +140,7 @@ module Meridian
       end
 
       private def ssh_identity_file : String?
-        @config.ssh.keys.first?
+        @config.ssh.identity_file
       end
 
       private def ssh_proxy_jump : String?

@@ -192,7 +192,7 @@ describe "Meridian::Transfer::Stream" do
       pipeline_called.should be_false
     end
 
-    it "prints transferred bytes and elapsed time" do
+    it "prints transferred size and elapsed time" do
       runner = FakeSSHRunner.new
       runner.enqueue_results_for_host("192.168.1.10", transfer_ssh_ok)
       output = IO::Memory.new
@@ -205,14 +205,31 @@ describe "Meridian::Transfer::Stream" do
         output: output,
         monotonic_clock: -> { ticks.shift? || Time::Instant.new(1, 500_000_000) },
         pipeline_runner: ->(_candidate : Meridian::Transfer::Stream::PipelineRequest) do
-          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 512_i64)
+          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 76_585_848_i64)
         end
       )
 
       stream.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       output.to_s.should contain("[192.168.1.10] Streaming image registry.example.com/myorg/myapp")
-      output.to_s.should contain("[192.168.1.10] Transferred 512 bytes in 1.5s")
+      output.to_s.should contain("[192.168.1.10] Transferred 73.0 MB in 1.5s")
+    end
+
+    it "prints sub-kilobyte transfer sizes as bytes" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host("192.168.1.10", transfer_ssh_ok)
+      output = IO::Memory.new
+      stream = build_test_stream(
+        runner: runner,
+        output: output,
+        pipeline_runner: ->(_candidate : Meridian::Transfer::Stream::PipelineRequest) do
+          Meridian::Transfer::Stream::PipelineResult.new(bytes_transferred: 512_i64)
+        end
+      )
+
+      stream.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
+
+      output.to_s.should contain("[192.168.1.10] Transferred 512 B")
     end
   end
 end

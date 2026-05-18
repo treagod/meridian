@@ -34,7 +34,8 @@ describe "Meridian::Init::FrameworkDetector" do
 
       framework.name.should eq("Marten")
       framework.clear_env.should eq({"MARTEN_ENV" => "production"})
-      framework.healthcheck_path.should be_nil
+      framework.healthcheck_path.should eq("/health")
+      framework.app_port.should eq(8000)
       note = framework.note || raise "Expected framework note"
       note.should contain("/health")
     end
@@ -52,6 +53,7 @@ describe "Meridian::Init::FrameworkDetector" do
 
       framework.name.should eq("Marten")
       framework.healthcheck_path.should eq("/health")
+      framework.app_port.should eq(8000)
       framework.note.should be_nil
     end
   end
@@ -65,6 +67,7 @@ describe "Meridian::Init::FrameworkDetector" do
       framework.name.should eq("Rails")
       framework.clear_env.should eq({"RAILS_ENV" => "production"})
       framework.healthcheck_path.should be_nil
+      framework.app_port.should be_nil
       note = framework.note || raise "Expected framework note"
       note.should contain("/health")
     end

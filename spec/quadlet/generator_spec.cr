@@ -275,6 +275,12 @@ describe "Meridian::Quadlet::Generator" do
 
       output.should contain("ContainerName=kamal-proxy")
     end
+
+    it "grants the proxy permission to bind low ports" do
+      output = build_quadlet_generator.proxy_container_file
+
+      output.should contain("AddCapability=NET_BIND_SERVICE")
+    end
   end
 
   describe "#accessory_container_file" do
@@ -442,10 +448,10 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Volume=myapp-assets.volume:/mnt/assets")
     end
 
-    it "embeds the command and release_id in the Exec line" do
+    it "embeds the command, release_id, and current symlink in the Exec line" do
       output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
 
-      output.should contain("Exec=sh -c \"bin/build-assets && mkdir -p /mnt/assets/20240420120000 && cp -r /app/public/assets/. /mnt/assets/20240420120000/\"")
+      output.should contain("Exec=sh -c \"bin/build-assets && mkdir -p /mnt/assets/20240420120000 && cp -r /app/public/assets/. /mnt/assets/20240420120000/ && ln -snf 20240420120000 /mnt/assets/current\"")
     end
 
     it "uses Type=oneshot with RemainAfterExit=yes" do
@@ -480,7 +486,7 @@ describe "Meridian::Quadlet::Generator" do
     it "uses the caddy image" do
       output = build_quadlet_generator(assets_config).assets_server_file
 
-      output.should contain("Image=caddy:2-alpine")
+      output.should contain("Image=docker.io/library/caddy:2-alpine")
     end
 
     it "names the server container after the service" do
@@ -523,11 +529,18 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("auto_https off")
     end
 
-    it "serves from /srv/assets" do
+    it "serves the current asset release" do
       output = build_quadlet_generator(assets_config).assets_caddy_config
 
-      output.should contain("root * /srv/assets")
+      output.lines.should contain("\troot * /srv/assets/current")
+      output.lines.should_not contain("\troot * /srv/assets")
       output.should contain("file_server")
+    end
+
+    it "exposes an asset server health endpoint" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain("respond /up 200")
     end
   end
 

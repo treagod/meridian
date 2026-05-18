@@ -155,6 +155,10 @@ module Meridian
         @keepalive_interval : Int32 = 30,
       )
       end
+
+      def identity_file : String?
+        keys.first?.try { |key| Path[key].expand(home: true).to_s }
+      end
     end
 
     struct BootConfig

@@ -25,7 +25,7 @@ servers:
     proxy:
       host: my-app.example.com
       ssl: true
-      app_port: 3000
+      app_port: 8000
 
 env:
   clear:

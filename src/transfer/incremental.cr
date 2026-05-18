@@ -82,7 +82,7 @@ module Meridian
 
         elapsed = @monotonic_clock.call - started_at
         transferred = parse_rsync_bytes(rsync_result.stdout) || parse_rsync_bytes(rsync_result.stderr)
-        transferred_label = transferred ? "#{transferred} bytes" : "unknown bytes"
+        transferred_label = transferred ? format_bytes(transferred) : "unknown bytes"
         print_line(host, "Transferred #{transferred_label} in #{format_duration(elapsed)}")
       rescue ex : DependencyMissing
         raise ex

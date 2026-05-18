@@ -31,6 +31,20 @@ describe "Meridian::Proxy::Manager" do
       end
     end
 
+    it "uploads the service network Quadlet to each web host" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/myapp.network"))
+      uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+      uploads.each do |upload|
+        upload_input = upload.input || raise "Expected upload input"
+        upload_input.should contain("NetworkName=myapp")
+      end
+    end
+
     it "runs daemon-reload on each web host after uploading" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(runner: runner)
@@ -67,6 +81,7 @@ describe "Meridian::Proxy::Manager" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "upload failed\n"),
       )
       manager = build_proxy_manager(runner: runner)
@@ -79,6 +94,8 @@ describe "Meridian::Proxy::Manager" do
     it "raises SetupFailed when starting the proxy fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
@@ -102,6 +119,17 @@ describe "Meridian::Proxy::Manager" do
         upload_input = upload.input || raise "Expected upload input"
         upload_input.should contain("Volume=/var/lib/kamal-proxy:/var/lib/kamal-proxy")
       end
+    end
+
+    it "creates the default proxy data_dir before starting the proxy" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      commands = runner.invocations.select { |invocation| invocation.host == "192.168.1.10" }.compact_map(&.remote_command)
+      commands.should contain("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy")
+      commands.index("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy").not_nil!.should be < commands.index("systemctl --user start kamal-proxy.service").not_nil!
     end
 
     it "uses a custom data_dir in the uploaded Quadlet when configured" do
@@ -130,11 +158,14 @@ describe "Meridian::Proxy::Manager" do
         upload_input = upload.input || raise "Expected upload input"
         upload_input.should contain("Volume=/custom/proxy-data:/custom/proxy-data")
       end
+      runner.invocations.compact_map(&.remote_command).should contain("sudo install -d -m 0755 -o deploy -g deploy /custom/proxy-data")
     end
 
     it "raises SetupFailed when the proxy probe fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
@@ -194,6 +225,46 @@ describe "Meridian::Proxy::Manager" do
         "deployer@192.168.1.10",
         "mkdir -p .config/containers/systemd",
       ])
+    end
+
+    it "expands home-relative SSH key paths for proxy setup" do
+      with_tempdir do |dir|
+        old_home = ENV["HOME"]?
+        ENV["HOME"] = dir
+        begin
+          runner = FakeSSHRunner.new
+          manager = build_proxy_manager(
+            content: <<-YAML,
+              service: myapp
+              image: registry.example.com/myorg/myapp
+
+              servers:
+                web:
+                  hosts:
+                    - 192.168.1.10
+
+              proxy:
+                image: ghcr.io/basecamp/kamal-proxy:latest
+
+              ssh:
+                user: deploy
+                keys:
+                  - ~/.ssh/id_ed25519
+              YAML
+            runner: runner
+          )
+
+          manager.setup
+
+          runner.invocations.first.args.should contain(File.join(dir, ".ssh/id_ed25519"))
+        ensure
+          if old_home
+            ENV["HOME"] = old_home
+          else
+            ENV.delete("HOME")
+          end
+        end
+      end
     end
   end
 

@@ -20,31 +20,39 @@ end
 
 describe "Meridian::Commands::Secret" do
   describe "#set" do
-    it "runs podman secret create on each host in the role" do
+    it "removes then creates the secret on each host in the role" do
       runner = FakeSSHRunner.new
       command = build_secret_command(runner: runner)
 
       command.set("DATABASE_URL", "postgres://localhost/myapp")
 
-      secret_commands_for(runner, "192.168.1.10").should contain(
-        "podman secret create --replace DATABASE_URL -"
-      )
-      secret_commands_for(runner, "192.168.1.11").should contain(
-        "podman secret create --replace DATABASE_URL -"
-      )
+      secret_commands_for(runner, "192.168.1.10").should eq([
+        "podman secret rm -i DATABASE_URL",
+        "podman secret create DATABASE_URL -",
+      ])
+      secret_commands_for(runner, "192.168.1.11").should eq([
+        "podman secret rm -i DATABASE_URL",
+        "podman secret create DATABASE_URL -",
+      ])
     end
 
-    it "passes the secret value as stdin input" do
+    it "passes the secret value only to the create command as stdin input" do
       runner = FakeSSHRunner.new
       command = build_secret_command(runner: runner)
 
       command.set("DATABASE_URL", "my-secret-value")
 
       upload = runner.invocations.find do |inv|
-        inv.remote_command == "podman secret create --replace DATABASE_URL -"
+        inv.remote_command == "podman secret create DATABASE_URL -"
       end
       upload.should_not be_nil
       upload.not_nil!.input.should eq("my-secret-value")
+
+      removal = runner.invocations.find do |inv|
+        inv.remote_command == "podman secret rm -i DATABASE_URL"
+      end
+      removal.should_not be_nil
+      removal.not_nil!.input.should be_nil
     end
 
     it "targets only the specified role" do
@@ -53,9 +61,10 @@ describe "Meridian::Commands::Secret" do
 
       command.set("SIDEKIQ_CONCURRENCY", "10", "workers")
 
-      secret_commands_for(runner, "192.168.1.12").should contain(
-        "podman secret create --replace SIDEKIQ_CONCURRENCY -"
-      )
+      secret_commands_for(runner, "192.168.1.12").should eq([
+        "podman secret rm -i SIDEKIQ_CONCURRENCY",
+        "podman secret create SIDEKIQ_CONCURRENCY -",
+      ])
       secret_commands_for(runner, "192.168.1.10").should be_empty
       secret_commands_for(runner, "192.168.1.11").should be_empty
     end

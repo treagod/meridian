@@ -14,7 +14,8 @@ module Meridian
         hosts = hosts_for_role(role)
         hosts.each do |host|
           log(host, "Setting secret #{name}")
-          run_ssh!(host, ["podman", "secret", "create", "--replace", name, "-"], value)
+          run_ssh!(host, ["podman", "secret", "rm", "-i", name])
+          run_ssh!(host, ["podman", "secret", "create", name, "-"], value)
         end
       end
 

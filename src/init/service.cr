@@ -2,7 +2,7 @@ require "yaml"
 
 module Meridian
   module Init
-    DEFAULT_PROXY_IMAGE = "ghcr.io/basecamp/kamal-proxy:latest"
+    DEFAULT_PROXY_IMAGE = "docker.io/basecamp/kamal-proxy:latest"
 
     enum TransferChoice
       Registry
@@ -31,7 +31,8 @@ module Meridian
       registry_server : String?,
       registry_username : String?,
       clear_env : Hash(String, String),
-      healthcheck_path : String?
+      healthcheck_path : String?,
+      app_port : Int32?
 
     class Service
       def initialize(
@@ -161,7 +162,8 @@ module Meridian
           registry_server: registry_server,
           registry_username: registry_username,
           clear_env: framework.try(&.clear_env) || EMPTY_ENV,
-          healthcheck_path: framework.try(&.healthcheck_path)
+          healthcheck_path: framework.try(&.healthcheck_path),
+          app_port: framework.try(&.app_port)
         )
       end
 
@@ -249,6 +251,9 @@ module Meridian
                 yaml.scalar "proxy"
                 yaml.mapping do
                   write_scalar_field(yaml, "host", answers.public_hostname)
+                  if app_port = answers.app_port
+                    write_int_field(yaml, "app_port", app_port)
+                  end
                   if healthcheck_path = answers.healthcheck_path
                     yaml.scalar "healthcheck"
                     yaml.mapping do
@@ -368,6 +373,11 @@ module Meridian
       end
 
       private def write_scalar_field(yaml : YAML::Builder, key : String, value : String) : Nil
+        yaml.scalar key
+        yaml.scalar value
+      end
+
+      private def write_int_field(yaml : YAML::Builder, key : String, value : Int32) : Nil
         yaml.scalar key
         yaml.scalar value
       end
