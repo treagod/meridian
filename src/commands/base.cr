@@ -1,7 +1,7 @@
 module Meridian
   module Commands
     abstract class Base
-      ACTIVE_COLOR_FILE = File.join(Quadlet::DIRECTORY, ".meridian-color")
+      LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
 
       protected getter config : Config::DeployConfig
       protected getter output : IO
@@ -139,15 +139,23 @@ module Meridian
       end
 
       protected def stored_active_color(host : String) : Quadlet::Color?
-        result = run_ssh(host, ["cat", ACTIVE_COLOR_FILE])
-        return unless result.exit_code.zero?
-
-        color_name = result.stdout.strip
-        return if color_name.empty?
-
-        Quadlet::Color.parse?(color_name) || raise ArgumentError.new("Invalid active color stored on #{host}: #{color_name}")
+        stored_color_at(host, active_color_file) || stored_color_at(host, LEGACY_ACTIVE_COLOR_FILE)
       rescue ex : SSH::ConnectionError
         raise ArgumentError.new(ex.message || "Failed to read active color for #{host}")
+      end
+
+      protected def active_color_file : String
+        Runtime::Paths.active_color_file(@config.service)
+      end
+
+      protected def manifest_file : String
+        Runtime::Paths.manifest_file(@config.service)
+      end
+
+      protected def record_active_color(host : String, color : Quadlet::Color) : Nil
+        content = "#{color.slug}\n"
+        upload_ssh(host, active_color_file, content)
+        upload_ssh(host, LEGACY_ACTIVE_COLOR_FILE, content)
       end
 
       protected def running_color_for(host : String) : Quadlet::Color
@@ -205,6 +213,16 @@ module Meridian
         result.exit_code.zero? && result.stdout.strip == "true"
       rescue ex : SSH::ConnectionError
         raise ArgumentError.new(ex.message || "Failed to inspect container state for #{host}")
+      end
+
+      private def stored_color_at(host : String, path : String) : Quadlet::Color?
+        result = run_ssh(host, ["cat", path])
+        return unless result.exit_code.zero?
+
+        color_name = result.stdout.strip
+        return if color_name.empty?
+
+        Quadlet::Color.parse?(color_name) || raise ArgumentError.new("Invalid active color stored on #{host}: #{color_name}")
       end
 
       protected def proxy_deploy_command(

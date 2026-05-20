@@ -8,6 +8,7 @@ The technical reference for Meridian. It is still being built out.
 - `deploy.yml` - the configuration format and all available options
 - CLI commands - `init`, `server bootstrap`, `setup`, `proxy remove`, `check`, `deploy`, `rollback`, `status`, `logs`, `exec`, `run`, `quadlet`, `accessory`, `secret`
 - Quadlet templates - what Meridian generates for you
+- Same-host hosting - service-scoped runtime state, shared proxy network, and manifest collision checks
 - Hooks and extension points
 
 ## Configuration At A Glance

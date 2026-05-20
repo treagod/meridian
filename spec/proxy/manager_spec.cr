@@ -45,6 +45,20 @@ describe "Meridian::Proxy::Manager" do
       end
     end
 
+    it "uploads the shared proxy network Quadlet to each web host" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/meridian-proxy.network"))
+      uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+      uploads.each do |upload|
+        upload_input = upload.input || raise "Expected upload input"
+        upload_input.should contain("NetworkName=meridian-proxy")
+      end
+    end
+
     it "runs daemon-reload on each web host after uploading" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(runner: runner)
@@ -63,6 +77,36 @@ describe "Meridian::Proxy::Manager" do
 
       starts = runner.invocations.select(&.remote_command.==("systemctl --user start kamal-proxy.service"))
       starts.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+    end
+
+    it "materializes the shared proxy network before starting kamal-proxy" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      network_command = commands.find do |command|
+        command.includes?("systemctl --user start meridian-proxy-network.service") &&
+          command.includes?("podman network exists meridian-proxy") &&
+          command.includes?("podman network create meridian-proxy")
+      end
+
+      network_command.should_not be_nil
+      commands.index(network_command.not_nil!).not_nil!.should be < commands.index("systemctl --user start kamal-proxy.service").not_nil!
+    end
+
+    it "connects a running legacy proxy container to the shared proxy network" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.any? do |command|
+        command.includes?("podman container exists kamal-proxy") &&
+          command.includes?("podman network connect meridian-proxy kamal-proxy")
+      end.should be_true
     end
 
     it "does not touch worker hosts during proxy setup" do
@@ -94,6 +138,9 @@ describe "Meridian::Proxy::Manager" do
     it "raises SetupFailed when starting the proxy fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
@@ -164,6 +211,9 @@ describe "Meridian::Proxy::Manager" do
     it "raises SetupFailed when the proxy probe fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
@@ -292,9 +342,98 @@ describe "Meridian::Proxy::Manager" do
       reloads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
+    it "leaves the shared proxy running when another service manifest exists" do
+      runner = FakeSSHRunner.new
+      other_manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+        service: otherapp
+        image: registry.example.com/myorg/otherapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: other.example.com
+        YAML
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "#{other_manifest.to_json}\n", stderr: "")
+      )
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+          YAML
+        runner: runner
+      )
+
+      manager.remove
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.should contain("rm -f .local/state/meridian/services/myapp/manifest.json")
+      commands.should_not contain("systemctl --user stop kamal-proxy.service")
+      commands.should_not contain("rm -f .config/containers/systemd/kamal-proxy.container")
+    end
+
+    it "stops the shared proxy with force even when another service manifest exists" do
+      runner = FakeSSHRunner.new
+      other_manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+        service: otherapp
+        image: registry.example.com/myorg/otherapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: other.example.com
+        YAML
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "#{other_manifest.to_json}\n", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: "")
+      )
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          proxy:
+            image: ghcr.io/basecamp/kamal-proxy:latest
+          YAML
+        runner: runner
+      )
+
+      manager.remove(force: true)
+
+      remote_commands_for(runner, "192.168.1.10").should contain("systemctl --user stop kamal-proxy.service")
+    end
+
     it "raises RemoveFailed when stopping the proxy fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "stop failed\n"),
       )
       manager = build_proxy_manager(runner: runner)

@@ -22,11 +22,14 @@ module Meridian
       def container_file(server : Config::ServerConfig, color : Color) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
         secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
+        networks = [@config.service]
+        networks << Runtime::Paths::SHARED_PROXY_NETWORK if server.proxy
 
         ContainerTemplate.new(
           service: @config.service,
           image: server.image || @config.image,
           color: color,
+          networks: networks,
           environment: environment,
           secrets: secrets,
           volumes: @config.volumes,
@@ -36,7 +39,11 @@ module Meridian
       end
 
       def network_file : String
-        NetworkTemplate.new(service: @config.service).to_s
+        NetworkTemplate.new(name: @config.service).to_s
+      end
+
+      def proxy_network_file : String
+        NetworkTemplate.new(name: Runtime::Paths::SHARED_PROXY_NETWORK).to_s
       end
 
       def proxy_container_file : String
@@ -94,7 +101,10 @@ module Meridian
       def assets_server_file : String
         raise ArgumentError.new("Missing assets configuration") unless @config.assets
 
-        AssetsServerTemplate.new(service: @config.service).to_s
+        AssetsServerTemplate.new(
+          service: @config.service,
+          network: Runtime::Paths::SHARED_PROXY_NETWORK
+        ).to_s
       end
 
       def assets_caddy_config : String
@@ -121,6 +131,10 @@ module Meridian
           container_file(web_server, color)
         )
         File.write(File.join(output_dir, "#{@config.service}.network"), network_file)
+
+        if proxied_service?
+          File.write(File.join(output_dir, Runtime::Paths::SHARED_PROXY_NETWORK_FILE), proxy_network_file)
+        end
 
         if @config.proxy
           File.write(File.join(output_dir, "kamal-proxy.container"), proxy_container_file)
@@ -156,11 +170,16 @@ module Meridian
       private EMPTY_SECRETS     = [] of String
       private EMPTY_ACCESSORIES = {} of String => Config::AccessoryConfig
 
+      private def proxied_service? : Bool
+        @config.servers.values.any?(&.proxy)
+      end
+
       private class ContainerTemplate
         def initialize(
           @service : String,
           @image : String,
           @color : Color,
+          @networks : Array(String),
           @environment : Hash(String, String),
           @secrets : Array(String),
           @volumes : Array(String),
@@ -173,7 +192,7 @@ module Meridian
       end
 
       private class NetworkTemplate
-        def initialize(@service : String)
+        def initialize(@name : String)
         end
 
         ECR.def_to_s "src/quadlet/templates/network_file.ecr"
@@ -229,7 +248,7 @@ module Meridian
       end
 
       private class AssetsServerTemplate
-        def initialize(@service : String)
+        def initialize(@service : String, @network : String)
         end
 
         ECR.def_to_s "src/quadlet/templates/assets_server_file.ecr"

@@ -1,8 +1,8 @@
 module Meridian
   module Deploy
     class Orchestrator
-      DEFAULT_COLOR     = Quadlet::Color::Green
-      ACTIVE_COLOR_FILE = File.join(Quadlet::DIRECTORY, ".meridian-color")
+      DEFAULT_COLOR            = Quadlet::Color::Green
+      LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
 
       private record HostDeployResult,
         role : String,
@@ -12,6 +12,10 @@ module Meridian
       private record RoleDeployResult,
         role : String,
         error : DeployFailed?
+
+      private record StoredActiveColor,
+        color : Quadlet::Color,
+        path : String
 
       private class RolloutAbort
         @error : DeployFailed? = nil
@@ -93,9 +97,10 @@ module Meridian
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        ensure_service_state_dir(host)
 
         log(host, "Uploading network Quadlet")
-        upload_ssh(host, network_path, @quadlet_generator.network_file)
+        upload_network_quadlets(host, include_proxy_network: !server.proxy.nil?)
 
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(color), container_file)
@@ -117,6 +122,8 @@ module Meridian
         log(host, "Starting service #{deployed_service_name}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit])
         run_remote_hooks(host, role, "after_start")
+        record_active_color(host, color)
+        record_service_manifest(host)
         run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
@@ -127,8 +134,10 @@ module Meridian
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
 
         proxy = server.proxy || raise DeployFailed.new("Missing proxy configuration for role: #{role}")
-        old_color = current_color_for(host)
+        stored_color = stored_active_color_entry(host)
+        old_color = stored_color.try(&.color) || detect_current_color(host)
         old_active = service_active?(host, old_color)
+        migrate_legacy_active_color(host, old_color) if stored_color.try(&.path) == LEGACY_ACTIVE_COLOR_FILE
         new_color = inactive_color(old_color)
         new_service = service_name(new_color)
 
@@ -138,9 +147,10 @@ module Meridian
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        ensure_service_state_dir(host)
 
         log(host, "Uploading network Quadlet")
-        upload_ssh(host, network_path, @quadlet_generator.network_file)
+        upload_network_quadlets(host, include_proxy_network: true)
 
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
@@ -192,7 +202,8 @@ module Meridian
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
         log(host, "Recording active color #{new_color.slug}")
-        upload_ssh(host, ACTIVE_COLOR_FILE, "#{new_color.slug}\n")
+        record_active_color(host, new_color)
+        record_service_manifest(host)
 
         log(host, "Pruning unused images")
         prune_result = run_ssh(host, ["podman", "image", "prune", "-f"])
@@ -293,6 +304,10 @@ module Meridian
         File.join(Quadlet::DIRECTORY, "#{@config.service}.network")
       end
 
+      private def proxy_network_path : String
+        File.join(Quadlet::DIRECTORY, Runtime::Paths::SHARED_PROXY_NETWORK_FILE)
+      end
+
       private def server_config(role : String) : Config::ServerConfig
         @config.servers[role]? || raise Config::UnknownRole.new("Unknown role: #{role}")
       end
@@ -307,9 +322,13 @@ module Meridian
       end
 
       private def current_color_for(host : String) : Quadlet::Color
-        stored_color = stored_active_color(host)
-        return stored_color if stored_color
+        stored_color = stored_active_color_entry(host)
+        return stored_color.color if stored_color
 
+        detect_current_color(host)
+      end
+
+      private def detect_current_color(host : String) : Quadlet::Color
         blue_active = service_active?(host, Quadlet::Color::Blue)
         green_active = service_active?(host, Quadlet::Color::Green)
 
@@ -324,15 +343,31 @@ module Meridian
       end
 
       private def stored_active_color(host : String) : Quadlet::Color?
-        result = run_ssh(host, ["cat", ACTIVE_COLOR_FILE])
+        stored_active_color_entry(host).try(&.color)
+      rescue ex : SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Failed to read active color for #{host}")
+      end
+
+      private def stored_active_color_entry(host : String) : StoredActiveColor?
+        if color = stored_color_at(host, active_color_file)
+          return StoredActiveColor.new(color: color, path: active_color_file)
+        end
+
+        if color = stored_color_at(host, LEGACY_ACTIVE_COLOR_FILE)
+          return StoredActiveColor.new(color: color, path: LEGACY_ACTIVE_COLOR_FILE)
+        end
+      rescue ex : SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Failed to read active color for #{host}")
+      end
+
+      private def stored_color_at(host : String, path : String) : Quadlet::Color?
+        result = run_ssh(host, ["cat", path])
         return unless result.exit_code.zero?
 
         color_name = result.stdout.strip
         return if color_name.empty?
 
         Quadlet::Color.parse?(color_name) || raise DeployFailed.new("Invalid active color stored on #{host}: #{color_name}")
-      rescue ex : SSH::ConnectionError
-        raise DeployFailed.new(ex.message || "Failed to read active color for #{host}")
       end
 
       private def service_active?(host : String, color : Quadlet::Color) : Bool
@@ -364,11 +399,12 @@ module Meridian
         proxy : Config::ServerProxyConfig,
         container_name : String,
       ) : Nil
-        url = "http://127.0.0.1:#{proxy.app_port}#{proxy.healthcheck.path}"
+        proxy_network = Runtime::Paths::SHARED_PROXY_NETWORK
+        url = "http://#{container_name}:#{proxy.app_port}#{proxy.healthcheck.path}"
         timeout = proxy.healthcheck.timeout
         retries = proxy.healthcheck.retries
         interval = proxy.healthcheck.interval
-        host_header = proxy.host || "localhost"
+        host_header = proxy.host || container_name
 
         retries.times do |attempt|
           attempt_number = attempt + 1
@@ -377,9 +413,12 @@ module Meridian
           result = run_ssh(
             host,
             [
-              "podman", "exec", container_name,
-              "sh", "-c",
-              "wget -q -O - --timeout=#{timeout} --header='Host: #{host_header}' #{url} >/dev/null 2>&1 || curl -fsS --max-time #{timeout} -H 'Host: #{host_header}' #{url} >/dev/null",
+              "podman", "run", "--rm", "--network=#{proxy_network}",
+              "docker.io/library/alpine:latest",
+              "wget", "-q", "-O-",
+              "--timeout=#{timeout}",
+              "--header=Host: #{host_header}",
+              url,
             ]
           )
 
@@ -573,6 +612,7 @@ module Meridian
 
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        ensure_service_state_dir(host)
 
         upload_file_syncs(host, role)
         run_remote_hooks(host, role, "after_upload")
@@ -588,6 +628,7 @@ module Meridian
         end
 
         run_remote_hooks(host, role, "after_start")
+        record_service_manifest(host)
         run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
@@ -697,6 +738,39 @@ module Meridian
           keepalive: ssh_keepalive,
           keepalive_interval: ssh_keepalive_interval
         )
+      end
+
+      private def upload_network_quadlets(host : String, *, include_proxy_network : Bool) : Nil
+        upload_ssh(host, network_path, @quadlet_generator.network_file)
+        upload_ssh(host, proxy_network_path, @quadlet_generator.proxy_network_file) if include_proxy_network
+      end
+
+      private def ensure_service_state_dir(host : String) : Nil
+        run_ssh!(host, ["mkdir", "-p", Runtime::Paths.service_directory(@config.service)])
+      end
+
+      private def active_color_file : String
+        Runtime::Paths.active_color_file(@config.service)
+      end
+
+      private def manifest_file : String
+        Runtime::Paths.manifest_file(@config.service)
+      end
+
+      private def record_active_color(host : String, color : Quadlet::Color) : Nil
+        content = "#{color.slug}\n"
+        upload_ssh(host, active_color_file, content)
+        upload_ssh(host, LEGACY_ACTIVE_COLOR_FILE, content)
+      end
+
+      private def migrate_legacy_active_color(host : String, color : Quadlet::Color) : Nil
+        ensure_service_state_dir(host)
+        upload_ssh(host, active_color_file, "#{color.slug}\n")
+      end
+
+      private def record_service_manifest(host : String) : Nil
+        manifest = Runtime::ServiceManifest.from_config(@config)
+        upload_ssh(host, manifest_file, "#{manifest.to_json}\n")
       end
 
       private def ssh_user : String?

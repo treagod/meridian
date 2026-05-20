@@ -78,6 +78,70 @@ function copyInstall() {
   </div>
 </section>
 
+<section class="config" id="config">
+  <div class="container config-grid">
+    <div class="terminal terminal-yaml fade-in" aria-label="Example deploy.yml">
+      <div class="terminal-head">
+        <div class="terminal-dots"><span></span><span></span><span></span></div>
+        <span>deploy.yml</span>
+      </div>
+      <pre class="terminal-body yaml-body"><code><span class="k">service</span>: <span class="s">my-app</span>
+<span class="k">image</span>: <span class="s">ghcr.io/acme/my-app</span>
+<!---->
+<span class="k">servers</span>:
+  <span class="k">web</span>:
+    <span class="k">hosts</span>:
+      - <span class="s">prod-01.example.com</span>
+    <span class="k">proxy</span>:
+      <span class="k">host</span>: <span class="s">my-app.example.com</span>
+      <span class="k">ssl</span>: <span class="v">true</span>
+      <span class="k">app_port</span>: <span class="v">8000</span>
+      <span class="k">healthcheck</span>:
+        <span class="k">path</span>: <span class="s">/up</span>
+  <span class="k">workers</span>:
+    <span class="k">hosts</span>:
+      - <span class="s">prod-02.example.com</span>
+    <span class="k">cmd</span>: <span class="s">bin/jobs</span>
+<!---->
+<span class="k">transfer</span>:
+  <span class="k">mode</span>: <span class="s">stream</span>
+<!---->
+<span class="k">env</span>:
+  <span class="k">clear</span>:
+    <span class="k">RAILS_ENV</span>: <span class="s">production</span>
+  <span class="k">secret</span>:
+    - <span class="s">DATABASE_URL</span>
+    - <span class="s">SECRET_KEY_BASE</span>
+<!---->
+<span class="k">accessories</span>:
+  <span class="k">db</span>:
+    <span class="k">image</span>: <span class="s">docker.io/library/postgres:16</span>
+    <span class="k">host</span>: <span class="s">prod-03.example.com</span>
+    <span class="k">port</span>: <span class="s">"5432:5432"</span>
+    <span class="k">volumes</span>:
+      - <span class="s">pgdata:/var/lib/postgresql/data</span>
+    <span class="k">env</span>:
+      <span class="k">secret</span>:
+        - <span class="s">POSTGRES_PASSWORD</span></code></pre>
+    </div>
+    <div class="config-side fade-in">
+      <span class="section-eyebrow">The config</span>
+      <h2 class="section-title">One file. <em>Six abstractions.</em></h2>
+      <p class="section-sub">
+        A real <code class="inline-code">deploy.yml</code> from a fleet with a web role, a worker role, and a Postgres accessory. Every key here is accepted by Meridian's strict YAML loader - nothing aspirational, nothing trimmed for the marketing page.
+      </p>
+      <ul class="config-callouts">
+        <li><strong>service · image</strong> — names every unit, container, network, and proxy route.</li>
+        <li><strong>servers.web + proxy</strong> — the role that gets blue/green via kamal-proxy and gates secondary roles.</li>
+        <li><strong>servers.workers</strong> — secondary role, no proxy, starts after the web barrier passes.</li>
+        <li><strong>transfer.mode</strong> — <code class="inline-code">stream</code>, <code class="inline-code">incremental</code>, or omit to pull from a registry.</li>
+        <li><strong>env.clear · env.secret</strong> — plaintext into the Quadlet; secrets resolve to Podman <code class="inline-code">Secret=</code> directives.</li>
+        <li><strong>accessories</strong> — databases and caches as Quadlet units on their own host, outside the rolling deploy.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
 <section id="install">
   <div class="container">
     <div class="section-header">
@@ -377,10 +441,9 @@ function copyInstall() {
     <div class="links-row">
       <a href="https://github.com/treagod/meridian" target="_blank" rel="noreferrer">GitHub</a>
       <a href="/guide/">Docs</a>
-      <a href="#">Discord</a>
       <a href="#">Changelog</a>
     </div>
-    <div class="latitude">48.6° N · 9.2° E</div>
+    <div class="latitude">49.1° N · 9.2° E</div>
   </div>
 </footer>
 

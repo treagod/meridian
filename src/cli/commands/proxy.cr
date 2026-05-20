@@ -27,6 +27,7 @@ module Meridian
 
       class ProxyRemove < Command
         @file = "deploy.yml"
+        @force = false
 
         def name : String
           "proxy remove"
@@ -46,6 +47,7 @@ module Meridian
 
         def configure(parser : OptionParser) : Nil
           parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--force", "Stop and remove the shared proxy even if other services are registered") { @force = true }
         end
 
         def rescuable : Array(Exception.class)
@@ -59,7 +61,7 @@ module Meridian
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
           config = Config::Loader.load(@file)
           manager = ctx.proxy_manager_factory.call(config, ctx.ssh_executor, ctx.output)
-          manager.remove
+          manager.remove(force: @force)
           0
         end
       end

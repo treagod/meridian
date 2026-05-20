@@ -61,14 +61,9 @@ def health_command?(
   host_header : String = "myapp.example.com",
 ) : Bool
   command.try do |remote_command|
-    remote_command.starts_with?("podman exec #{container_name} sh -c") &&
-      remote_command.includes?("wget -q -O - --timeout=5") &&
-      remote_command.includes?("--header=") &&
-      remote_command.includes?("Host: #{host_header}") &&
-      remote_command.includes?("http://127.0.0.1:3000/health") &&
-      remote_command.includes?("curl -fsS --max-time 5") &&
-      remote_command.includes?("-H") &&
-      remote_command.includes?(">/dev/null")
+    remote_command.starts_with?("podman run --rm --network=meridian-proxy docker.io/library/alpine:latest wget -q -O- --timeout=5") &&
+      remote_command.includes?("'--header=Host: #{host_header}'") &&
+      remote_command.includes?("http://#{container_name}:3000/health")
   end || false
 end
 
@@ -76,6 +71,7 @@ def enqueue_zero_downtime_success(
   runner : FakeSSHRunner,
   *,
   marker : String? = nil,
+  legacy_marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
   old_active : Bool? = nil,
@@ -89,7 +85,15 @@ def enqueue_zero_downtime_success(
     results << ssh_ok("#{stored_marker}\n")
     resolved_old_active = old_active.nil? ? true : old_active.not_nil!
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+  elsif stored_marker = legacy_marker
+    results << ssh_fail(1, "", "No such file\n")
+    results << ssh_ok("#{stored_marker}\n")
+    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    results << ssh_ok
+    results << ssh_ok
   else
+    results << ssh_fail(1, "", "No such file\n")
     results << ssh_fail(1, "", "No such file\n")
     results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
@@ -113,6 +117,8 @@ def enqueue_zero_downtime_success(
     ssh_ok,
     ssh_ok,
     ssh_ok,
+    ssh_ok,
+    ssh_ok,
     ssh_ok(health_status),
     ssh_ok,
   ])
@@ -120,6 +126,8 @@ def enqueue_zero_downtime_success(
   results << ssh_ok if resolved_old_active
 
   results.concat([
+    ssh_ok,
+    ssh_ok,
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -136,6 +144,7 @@ def enqueue_zero_downtime_success_for_host(
   host : String,
   *,
   marker : String? = nil,
+  legacy_marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
   old_active : Bool? = nil,
@@ -149,7 +158,15 @@ def enqueue_zero_downtime_success_for_host(
     results << ssh_ok("#{stored_marker}\n")
     resolved_old_active = old_active.nil? ? true : old_active.not_nil!
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+  elsif stored_marker = legacy_marker
+    results << ssh_fail(1, "", "No such file\n")
+    results << ssh_ok("#{stored_marker}\n")
+    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
+    results << ssh_ok
+    results << ssh_ok
   else
+    results << ssh_fail(1, "", "No such file\n")
     results << ssh_fail(1, "", "No such file\n")
     results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
@@ -173,6 +190,8 @@ def enqueue_zero_downtime_success_for_host(
     ssh_ok,
     ssh_ok,
     ssh_ok,
+    ssh_ok,
+    ssh_ok,
     ssh_ok(health_status),
     ssh_ok,
   ])
@@ -180,6 +199,8 @@ def enqueue_zero_downtime_success_for_host(
   results << ssh_ok if resolved_old_active
 
   results.concat([
+    ssh_ok,
+    ssh_ok,
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -193,6 +214,7 @@ def enqueue_zero_downtime_health_failure(
   runner : FakeSSHRunner,
   *,
   marker : String? = nil,
+  legacy_marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
   health_attempts : Int32 = 10,
@@ -203,7 +225,14 @@ def enqueue_zero_downtime_health_failure(
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
     results << ssh_ok("active\n")
+  elsif stored_marker = legacy_marker
+    results << ssh_fail(1, "", "No such file\n")
+    results << ssh_ok("#{stored_marker}\n")
+    results << ssh_ok("active\n")
+    results << ssh_ok
+    results << ssh_ok
   else
+    results << ssh_fail(1, "", "No such file\n")
     results << ssh_fail(1, "", "No such file\n")
     results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
@@ -213,6 +242,8 @@ def enqueue_zero_downtime_health_failure(
   end
 
   results.concat([
+    ssh_ok,
+    ssh_ok,
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -241,6 +272,7 @@ def enqueue_zero_downtime_health_failure_for_host(
   host : String,
   *,
   marker : String? = nil,
+  legacy_marker : String? = nil,
   blue_active : Bool = false,
   green_active : Bool = false,
   health_attempts : Int32 = 10,
@@ -251,7 +283,14 @@ def enqueue_zero_downtime_health_failure_for_host(
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
     results << ssh_ok("active\n")
+  elsif stored_marker = legacy_marker
+    results << ssh_fail(1, "", "No such file\n")
+    results << ssh_ok("#{stored_marker}\n")
+    results << ssh_ok("active\n")
+    results << ssh_ok
+    results << ssh_ok
   else
+    results << ssh_fail(1, "", "No such file\n")
     results << ssh_fail(1, "", "No such file\n")
     results << (blue_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << (green_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
@@ -261,6 +300,8 @@ def enqueue_zero_downtime_health_failure_for_host(
   end
 
   results.concat([
+    ssh_ok,
+    ssh_ok,
     ssh_ok,
     ssh_ok,
     ssh_ok,
@@ -288,16 +329,24 @@ def enqueue_deploy_success_for_host(
   *,
   active_service : Bool = false,
 )
-  runner.enqueue_results_for_host(
-    host,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
+  results = [
+    ssh_ok, # transfer image
+    ssh_ok, # mkdir quadlet dir
+    ssh_ok, # mkdir service state dir
+    ssh_ok, # upload network
+    ssh_ok, # upload container
+    ssh_ok, # daemon-reload
     active_service ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"),
-    ssh_ok,
-  )
+  ]
+  results << ssh_ok if active_service # stop active service
+  results.concat([
+    ssh_ok, # start service
+    ssh_ok, # upload service active-color
+    ssh_ok, # upload legacy active-color
+    ssh_ok, # upload service manifest
+  ])
+
+  runner.enqueue_results_for_host(host, results)
 end
 
 ASSETS_CONFIG = <<-YAML
@@ -334,13 +383,16 @@ end
 def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
   runner.enqueue_results_for_host(
     "192.168.1.10",
-    ssh_fail(1, "", "No such file\n"), # cat .meridian-color
+    ssh_fail(1, "", "No such file\n"), # cat service active-color
+    ssh_fail(1, "", "No such file\n"), # cat legacy .meridian-color
     ssh_fail(3, "inactive\n"),         # is-active blue
     ssh_fail(3, "inactive\n"),         # is-active green
     ssh_fail(3, "inactive\n"),         # old_active check
     ssh_ok,                            # pull image
     ssh_ok,                            # mkdir -p DIRECTORY
+    ssh_ok,                            # mkdir -p service state dir
     ssh_ok,                            # upload network Quadlet
+    ssh_ok,                            # upload shared proxy network Quadlet
     ssh_ok,                            # upload container Quadlet
     ssh_ok,                            # mkdir -p assets caddy dir
     ssh_ok,                            # upload Caddyfile
@@ -357,7 +409,9 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
     ssh_ok,                            # kamal-proxy deploy for app
     ssh_ok,                            # rm old container
     ssh_ok,                            # daemon-reload
-    ssh_ok("green\n"),                 # upload .meridian-color
+    ssh_ok("green\n"),                 # upload service active-color
+    ssh_ok("green\n"),                 # upload legacy .meridian-color
+    ssh_ok,                            # upload service manifest
     ssh_ok,                            # podman image prune
   )
 end
@@ -452,7 +506,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[4].remote_command.should eq("systemctl --user daemon-reload")
+      remote_commands_for(runner).should contain("systemctl --user daemon-reload")
     end
 
     it "starts the new service" do
@@ -461,7 +515,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[7].remote_command.should eq("systemctl --user start myapp-green.service")
+      remote_commands_for(runner).should contain("systemctl --user start myapp-green.service")
     end
 
     it "stops the old service before starting the new one" do
@@ -470,8 +524,10 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations[6].remote_command.should eq("systemctl --user stop myapp-green.service")
-      runner.invocations[7].remote_command.should eq("systemctl --user start myapp-green.service")
+      commands = remote_commands_for(runner)
+      stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected service stop"
+      start_index = commands.index("systemctl --user start myapp-green.service") || raise "Expected service start"
+      stop_index.should be < start_index
     end
 
     it "writes the Quadlet file to the correct systemd path" do
@@ -480,8 +536,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      network_upload = runner.invocations[2]
-      container_upload = runner.invocations[3]
+      network_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/myapp.network" } || raise "Expected network upload"
+      container_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/myapp-green.container" } || raise "Expected container upload"
       network_input = network_upload.input || raise "Expected network upload input"
       container_input = container_upload.input || raise "Expected container upload input"
 
@@ -510,6 +566,10 @@ describe "Meridian::Deploy::Orchestrator" do
     it "raises DeployFailed when systemctl start fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
@@ -607,6 +667,7 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
+        ssh_ok,
         ssh_fail(3, "inactive\n"),
         ssh_ok,
       )
@@ -693,6 +754,7 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
+        ssh_ok,
         ssh_fail(3, "inactive\n"),
         ssh_ok,
       )
@@ -742,7 +804,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner = FakeSSHRunner.new
         runner.enqueue_results_for_host(
           "192.168.1.10",
-          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -781,7 +843,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner = FakeSSHRunner.new
         runner.enqueue_results_for_host(
           "192.168.1.10",
-          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -818,7 +880,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner = FakeSSHRunner.new
         runner.enqueue_results_for_host(
           "192.168.1.10",
-          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -1041,6 +1103,23 @@ describe "Meridian::Deploy::Orchestrator" do
       invocation.remote_command.should eq("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
     end
 
+    it "probes the new container from a sidecar on the shared proxy network" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      invocation = runner.invocations.find do |candidate|
+        health_command?(candidate.remote_command)
+      end || raise "Expected sidecar health check invocation"
+
+      command = invocation.remote_command || raise "Expected remote command"
+      invocation.host.should eq("192.168.1.10")
+      command.should eq("podman run --rm --network=meridian-proxy docker.io/library/alpine:latest wget -q -O- --timeout=5 '--header=Host: myapp.example.com' http://myapp-blue:3000/health")
+      command.starts_with?("podman exec myapp-blue").should be_false
+    end
+
     it "runs the health check before switching proxy traffic" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, green_active: true)
@@ -1084,6 +1163,35 @@ describe "Meridian::Deploy::Orchestrator" do
       marker_upload.input.should eq("blue\n")
     end
 
+    it "writes the active colour to the service-scoped state path after a successful deploy" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      marker_upload = runner.invocations.find do |candidate|
+        candidate.remote_command == "cat > .local/state/meridian/services/myapp/active-color" && candidate.input == "blue\n"
+      end || raise "Expected service-scoped active color upload"
+
+      marker_upload.host.should eq("192.168.1.10")
+    end
+
+    it "records a service manifest after a successful deploy" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .local/state/meridian/services/myapp/manifest.json" } || raise "Expected manifest upload"
+      manifest = Meridian::Runtime::ServiceManifest.from_json(upload.input.to_s)
+
+      manifest.service.should eq("myapp")
+      manifest.proxy_routes.first.host.should eq("myapp.example.com")
+      manifest.networks.should contain("meridian-proxy")
+    end
+
     it "removes the old Quadlet file after a successful deploy" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, green_active: true)
@@ -1104,7 +1212,7 @@ describe "Meridian::Deploy::Orchestrator" do
       remote_commands_for(runner).should contain("podman image prune -f")
     end
 
-    it "uses the stored marker when .meridian-color is present" do
+    it "uses the service-scoped stored marker when present" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, marker: "green")
       orchestrator = build_orchestrator(runner: runner)
@@ -1112,10 +1220,26 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      commands.first.should eq("cat .config/containers/systemd/.meridian-color")
+      commands.first.should eq("cat .local/state/meridian/services/myapp/active-color")
       commands.should contain("systemctl --user start myapp-blue.service")
       commands.count("systemctl --user is-active myapp-blue.service").should eq(0)
       commands.count("systemctl --user is-active myapp-green.service").should eq(1)
+    end
+
+    it "migrates the legacy .meridian-color marker lazily" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, legacy_marker: "green")
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner)
+      commands[0, 2].should eq([
+        "cat .local/state/meridian/services/myapp/active-color",
+        "cat .config/containers/systemd/.meridian-color",
+      ])
+      migration_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .local/state/meridian/services/myapp/active-color" } || raise "Expected active color migration"
+      migration_upload.input.should eq("green\n")
     end
 
     it "auto-detects the existing green service when the marker is missing" do
@@ -1145,6 +1269,7 @@ describe "Meridian::Deploy::Orchestrator" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
         ssh_fail(1, "", "No such file\n"),
+        ssh_fail(1, "", "No such file\n"),
         ssh_ok("active\n"),
         ssh_ok("active\n"),
       )
@@ -1167,6 +1292,7 @@ describe "Meridian::Deploy::Orchestrator" do
       )
       runner.enqueue_results_for_host(
         "192.168.1.10",
+        ssh_fail(1, "", "No such file\n"),
         ssh_fail(1, "", "No such file\n"),
         ssh_fail(3, "inactive\n"),
         ssh_ok("active\n"),
@@ -1389,8 +1515,8 @@ describe "Meridian::Deploy::Orchestrator" do
 
       log_output = output.to_s
       log_output.should contain("[192.168.1.10] Pulling image registry.example.com/myorg/myapp")
-      log_output.should contain("[192.168.1.10] Health check attempt 1/10: myapp-green -> http://127.0.0.1:3000/health (Host: myapp.example.com)")
-      log_output.should contain("[192.168.1.10] Health check passed: myapp-green -> http://127.0.0.1:3000/health")
+      log_output.should contain("[192.168.1.10] Health check attempt 1/10: myapp-green -> http://myapp-green:3000/health (Host: myapp.example.com)")
+      log_output.should contain("[192.168.1.10] Health check passed: myapp-green -> http://myapp-green:3000/health")
     end
 
     it "sleeps between successful batches but not after the final batch" do

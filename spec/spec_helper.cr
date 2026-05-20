@@ -261,6 +261,7 @@ end
 class FakeProxyManager < Meridian::Proxy::Manager
   getter setup_calls = 0
   getter remove_calls = 0
+  getter remove_force : Bool?
   property setup_error : Meridian::Proxy::SetupFailed?
   property remove_error : Meridian::Proxy::RemoveFailed?
 
@@ -285,8 +286,9 @@ class FakeProxyManager < Meridian::Proxy::Manager
     end
   end
 
-  def remove : Nil
+  def remove(force : Bool = false) : Nil
     @remove_calls += 1
+    @remove_force = force
     if error = @remove_error
       raise error
     end

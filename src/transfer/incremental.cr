@@ -192,7 +192,7 @@ module Meridian
       end
 
       private def oci_layout_path : String
-        File.join(OCI_ROOT, @service)
+        Runtime::Paths.incremental_oci_directory(@service)
       end
 
       private def target_host(host : String) : String

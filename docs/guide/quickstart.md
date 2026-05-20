@@ -71,7 +71,7 @@ Inspect the resolved deploy intent locally first - no SSH, no registry calls:
 meridian plan
 ```
 
-Then probe the remote hosts, then deploy:
+Then probe the remote hosts, including same-host route collisions with any other Meridian service manifests, then deploy:
 
 ```bash
 meridian check
@@ -82,9 +82,9 @@ What happens during deploy:
 
 1. **You've already built the image locally** (`podman build` / `docker build`). Meridian does not build the image for you.
 2. The image is transferred to the server - via `podman pull` from a registry, or registry-free with `transfer.mode: stream` (SSH + zstd) or `transfer.mode: incremental` (OCI layout + rsync).
-3. Meridian writes a **Quadlet unit** under `~/.config/containers/systemd/` and `daemon-reload`s your user systemd.
+3. Meridian writes **Quadlet units** under `~/.config/containers/systemd/`, including the shared `meridian-proxy` network for proxied services, and `daemon-reload`s your user systemd.
 4. **kamal-proxy** waits for the health check and atomically switches traffic from the old container color to the new one.
-5. The old color is stopped and unused images are pruned.
+5. The old color is stopped, service-scoped runtime state is recorded under `~/.local/state/meridian/services/<service>/`, and unused images are pruned.
 
 This typically takes 10-20 seconds for a small app.
 

@@ -64,7 +64,7 @@ end
 
 describe "Meridian::Commands::Rollback" do
   describe "#run" do
-    it "reads the active colour from .meridian-color on each host" do
+    it "reads the active colour from the service-scoped state path on each host" do
       runner = FakeSSHRunner.new
       command = build_rollback_command(runner: runner)
       runner.enqueue_results_for_host("192.168.1.10", ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
@@ -72,7 +72,7 @@ describe "Meridian::Commands::Rollback" do
 
       command.run
 
-      reads = runner.invocations.select(&.remote_command.==("cat .config/containers/systemd/.meridian-color"))
+      reads = runner.invocations.select(&.remote_command.==("cat .local/state/meridian/services/myapp/active-color"))
       reads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
@@ -124,7 +124,7 @@ describe "Meridian::Commands::Rollback" do
       command = build_rollback_command(content: single_host_rollback_config, runner: runner)
       runner.enqueue_results(
         ssh_ok("blue\n"),
-        ssh_fail(1, "", "missing\n"),
+        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "missing\n"),
       )
 
       expect_raises(Meridian::Deploy::RollbackFailed, /Rollback target myapp-green is not present/) do

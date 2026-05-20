@@ -117,7 +117,11 @@ module Meridian
 
         if check_proxy?(host_context)
           results << check_kamal_proxy(host_context.host, 30)
+          results << check_proxy_network(host_context.host, 31)
         end
+
+        results << same_host_readiness(host_context.host, 40)
+        results << check_manifest_collisions(host_context.host, 41)
 
         results
       end
@@ -158,6 +162,44 @@ module Meridian
         result.stdout.strip == "true" ? pass(host, "kamal-proxy", position, "running") : fail(host, "kamal-proxy", position, "not running")
       rescue ex : SSH::ConnectionError
         fail(host, "kamal-proxy", position, ex.message || "kamal-proxy check failed")
+      end
+
+      private def check_proxy_network(host : String, position : Int32) : ProbeResult
+        result = run_ssh(
+          host,
+          ["podman", "network", "exists", Runtime::Paths::SHARED_PROXY_NETWORK],
+          batch_mode: true
+        )
+        return pass(host, "proxy-network", position, Runtime::Paths::SHARED_PROXY_NETWORK) if result.exit_code.zero?
+
+        fail(host, "proxy-network", position, failure_detail(result))
+      rescue ex : SSH::ConnectionError
+        fail(host, "proxy-network", position, ex.message || "proxy network check failed")
+      end
+
+      private def same_host_readiness(host : String, position : Int32) : ProbeResult
+        manifest = Runtime::ServiceManifest.from_config(@config)
+        route_summary = manifest.proxy_routes.empty? ? "routes=(none)" : "routes=#{manifest.proxy_routes.map(&.display).join(",")}"
+        detail = "service=#{@config.service} state=#{Runtime::Paths.service_directory(@config.service)} proxy_network=#{Runtime::Paths::SHARED_PROXY_NETWORK} #{route_summary}"
+        pass(host, "same-host", position, detail)
+      end
+
+      private def check_manifest_collisions(host : String, position : Int32) : ProbeResult
+        result = run_ssh(host, ["sh", "-lc", manifest_list_command], batch_mode: true)
+        return fail(host, "manifest-collisions", position, failure_detail(result)) unless result.exit_code.zero?
+
+        current = Runtime::ServiceManifest.from_config(@config)
+        collisions = remote_manifests(result.stdout).flat_map { |manifest| current.collisions_with(manifest) }
+
+        if collisions.empty?
+          pass(host, "manifest-collisions", position, "none")
+        else
+          fail(host, "manifest-collisions", position, compact(collisions.join("; ")))
+        end
+      rescue ex : JSON::ParseException
+        fail(host, "manifest-collisions", position, "invalid manifest: #{ex.message}")
+      rescue ex : SSH::ConnectionError
+        fail(host, "manifest-collisions", position, ex.message || "manifest collision check failed")
       end
 
       private def command_probe(
@@ -209,6 +251,20 @@ module Meridian
         return false unless host_context.roles.includes?("web")
 
         !!@config.servers["web"]?.try(&.proxy)
+      end
+
+      private def manifest_list_command : String
+        dir = Process.quote_posix(Runtime::Paths::SERVICES_DIRECTORY)
+        "if test -d #{dir}; then find #{dir} -mindepth 2 -maxdepth 2 -name manifest.json -exec cat {} \\; -exec printf '\\n' \\;; fi"
+      end
+
+      private def remote_manifests(output : String) : Array(Runtime::ServiceManifest)
+        output.lines.compact_map do |line|
+          text = line.strip
+          next if text.empty?
+
+          Runtime::ServiceManifest.from_json(text)
+        end
       end
 
       private def pass(host : String, probe : String, position : Int32, detail : String) : ProbeResult

@@ -4,7 +4,9 @@ Description=<%= @service %> (<%= @color.slug %>)
 [Container]
 Image=<%= @image %>
 ContainerName=<%= @service %>-<%= @color.slug %>
-Network=<%= @service %>.network
+<% @networks.each do |network| %>
+Network=<%= network %>.network
+<% end %>
 <% @environment.each do |key, value| %>
 Environment=<%= key %>=<%= value %>
 <% end %>

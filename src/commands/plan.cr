@@ -22,6 +22,7 @@ module Meridian
         write_hooks(plan)
         write_assets(plan)
         write_accessories(plan)
+        write_same_host_readiness
       end
 
       private def write_header(plan : Deploy::Plan) : Nil
@@ -151,6 +152,22 @@ module Meridian
             @output.puts "    secrets:  #{accessory.secrets.join(", ")}"
           end
         end
+      end
+
+      private def write_same_host_readiness : Nil
+        manifest = Runtime::ServiceManifest.from_config(@config)
+        @output.puts "same-host:"
+        @output.puts "  service:       #{manifest.service}"
+        @output.puts "  state:         #{Runtime::Paths.service_directory(@config.service)}"
+        @output.puts "  active_color:  #{manifest.active_color_path}"
+        @output.puts "  manifest:      #{Runtime::Paths.manifest_file(@config.service)}"
+        @output.puts "  proxy_network: #{Runtime::Paths::SHARED_PROXY_NETWORK}"
+        if manifest.proxy_routes.empty?
+          @output.puts "  routes:        (none)"
+        else
+          @output.puts "  routes:        #{manifest.proxy_routes.map(&.display).join(", ")}"
+        end
+        @output.puts "  check:         meridian check reports remote manifest collisions"
       end
 
       private def write_field(label : String, value : String) : Nil

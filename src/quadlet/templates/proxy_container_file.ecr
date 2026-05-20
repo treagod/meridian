@@ -2,7 +2,7 @@
 Image=<%= @image %>
 ContainerName=kamal-proxy
 AddCapability=NET_BIND_SERVICE
-Network=<%= @service %>.network
+Network=<%= Meridian::Runtime::Paths::SHARED_PROXY_NETWORK %>.network
 PublishPort=<%= @http_port %>:80
 PublishPort=<%= @https_port %>:443
 Volume=<%= @data_dir %>:<%= @data_dir %>

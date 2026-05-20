@@ -69,7 +69,8 @@ describe "Meridian::Commands::Exec" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_role_exec_command(runner: runner, streaming_runner: streaming_runner)
       runner.enqueue_results(
-        ssh_fail(1, "", "No such file\n"),
+        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "No such file\n"),
+        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "No such file\n"),
         ssh_ok("active\n"),
         ssh_ok("active\n"),
       )

@@ -263,5 +263,99 @@ describe "Meridian::Commands::Check" do
 
       remote_commands_for(runner).should contain(%(podman inspect --format '{{.State.Running}}' kamal-proxy))
     end
+
+    it "fails when a remote service manifest owns an overlapping proxy route" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      other_manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+        service: otherapp
+        image: registry.example.com/myorg/otherapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+        YAML
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                ssl: true
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok("true\n"),
+        ssh_ok,
+        ssh_ok("#{other_manifest.to_json}\n")
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("manifest-collisions")
+      text.should contain("otherapp")
+      text.should contain("overlaps")
+    end
+
+    it "fails when the same service name is registered with different ownership data" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      other_manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: other.example.com
+        YAML
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok("true\n"),
+        ssh_ok,
+        ssh_ok("#{other_manifest.to_json}\n")
+      )
+
+      command.run.should be_false
+
+      output.to_s.should contain("service name myapp is already registered")
+    end
   end
 end

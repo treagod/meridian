@@ -38,7 +38,7 @@ You'll need Crystal 1.17+ to build. Target servers need Podman 4.4+ and systemd.
 meridian init                              # generates deploy.yml from your project
 # edit deploy.yml: set hosts, ssh.keys, image, and transfer mode
 meridian server bootstrap --host 1.2.3.4   # provisions a fresh Debian/Ubuntu box
-meridian setup                             # installs kamal-proxy on the servers
+meridian setup                             # installs the shared proxy network and kamal-proxy
 meridian check                             # preflight: SSH, Podman, secrets, proxy
 meridian deploy
 ```
@@ -51,7 +51,7 @@ Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. Run `m
 
 ### `deploy`
 
-Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host finishes, secondary roles (workers, etc.) start releasing in parallel: they don't wait for every web batch to complete. If you've configured a proxy block, each host gets a blue/green swap through kamal-proxy and the active colour is recorded in `~/.config/containers/systemd/.meridian-color`. Without a proxy block, you get a stop/start with brief downtime, which is fine for some things.
+Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host finishes, secondary roles (workers, etc.) start releasing in parallel: they don't wait for every web batch to complete. If you've configured a proxy block, each host gets a blue/green swap through the shared host-level kamal-proxy and the active colour is recorded under `~/.local/state/meridian/services/<service>/active-color` (with a temporary legacy `.meridian-color` write for older CLIs). Without a proxy block, you get a stop/start with brief downtime, which is fine for some things.
 
 ### `plan`
 
@@ -59,7 +59,11 @@ Prints exactly what Meridian resolved from your `deploy.yml` (roles, hosts, imag
 
 ### `check`
 
-Read-only preflight. SSH reachable? Podman new enough? Lingering on? Quadlet directory writable? Transfer tools installed? Podman secrets present? kamal-proxy running on web hosts? Any failure exits non-zero, so this is the thing to put in CI before `deploy`.
+Read-only preflight. SSH reachable? Podman new enough? Lingering on? Quadlet directory writable? Transfer tools installed? Podman secrets present? kamal-proxy and the shared `meridian-proxy` network running on web hosts? Any same-host route or ownership collisions with other Meridian service manifests? Any failure exits non-zero, so this is the thing to put in CI before `deploy`.
+
+### Same-host apps
+
+Multiple independent Meridian projects can target the same VPS as long as their `service:` names and proxy hosts/paths do not collide. Meridian keeps per-service runtime state in `~/.local/state/meridian/services/<service>/`, registers a compact manifest there after deploy, and makes `meridian check` compare that manifest against other services on the host. `meridian proxy remove` removes the current service's proxy routes and manifest, but leaves the shared proxy running when other services are still registered unless `--force` is passed.
 
 ### `quadlet`
 

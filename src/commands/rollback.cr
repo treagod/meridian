@@ -28,7 +28,7 @@ module Meridian
           end
 
           log(host, "Recording active color #{rollback_color.slug}")
-          upload_ssh(host, ACTIVE_COLOR_FILE, "#{rollback_color.slug}\n")
+          record_active_color(host, rollback_color)
         end
       rescue ex : Config::UnknownRole | ArgumentError | SSH::CommandFailed | SSH::ConnectionError
         raise Deploy::RollbackFailed.new(ex.message || "Rollback failed")

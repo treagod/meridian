@@ -493,6 +493,81 @@
   51%, 100% { opacity: 0; }
 }
 
+/* --- terminal: yaml variant --- */
+.landing-root .terminal-yaml .terminal-body {
+  padding: 0;
+}
+.landing-root .yaml-body {
+  margin: 0;
+  padding: 20px 22px;
+  white-space: pre;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--cream);
+  background:
+    radial-gradient(circle at 80% 10%, rgba(232, 184, 70, 0.04) 0%, transparent 50%),
+    var(--navy-950);
+}
+.landing-root .yaml-body code { font-family: inherit; color: inherit; background: transparent; }
+.landing-root .yaml-body .k { color: var(--gold-300); }
+.landing-root .yaml-body .s { color: var(--cream); }
+.landing-root .yaml-body .v { color: var(--gold-500); }
+.landing-root .yaml-body .c { color: var(--slate); font-style: italic; }
+
+/* --- config section (real deploy.yml example) --- */
+.landing-root section.config { padding: 64px 0 96px; }
+@media (max-width: 768px) { .landing-root section.config { padding: 48px 0 72px; } }
+.landing-root .config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 56px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .landing-root .config-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+}
+.landing-root .config-side .section-eyebrow { margin-bottom: 14px; }
+.landing-root .config-side .section-title {
+  font-size: clamp(26px, 3.2vw, 38px);
+  margin-bottom: 18px;
+}
+.landing-root .config-side .section-sub { font-size: 16px; }
+.landing-root .config-callouts {
+  list-style: none;
+  padding: 0;
+  margin: 28px 0 0;
+}
+.landing-root .config-callouts li {
+  position: relative;
+  padding: 12px 0 12px 22px;
+  color: var(--cream-muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+  border-top: 1px solid rgba(232, 184, 70, 0.08);
+}
+.landing-root .config-callouts li:first-child { border-top: 0; padding-top: 6px; }
+.landing-root .config-callouts li::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  color: var(--gold-500);
+  font-size: 22px;
+  line-height: 1.4;
+}
+.landing-root .config-callouts strong {
+  color: var(--cream);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+
 /* --- meridian divider --- */
 .landing-root .meridian-divider {
   display: flex;

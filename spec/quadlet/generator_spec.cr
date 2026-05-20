@@ -216,6 +216,14 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("PublishPort=8080:8080")
       output.should contain("PublishPort=9090:9090")
     end
+
+    it "attaches proxied app containers to the shared proxy network" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Blue)
+
+      output.should contain("Network=myapp.network")
+      output.should contain("Network=meridian-proxy.network")
+    end
   end
 
   describe "#network_file" do
@@ -229,6 +237,14 @@ describe "Meridian::Quadlet::Generator" do
       output = build_quadlet_generator.network_file
 
       output.should contain("NetworkName=myapp")
+    end
+  end
+
+  describe "#proxy_network_file" do
+    it "names the shared proxy network" do
+      output = build_quadlet_generator.proxy_network_file
+
+      output.should contain("NetworkName=meridian-proxy")
     end
   end
 
@@ -280,6 +296,12 @@ describe "Meridian::Quadlet::Generator" do
       output = build_quadlet_generator.proxy_container_file
 
       output.should contain("AddCapability=NET_BIND_SERVICE")
+    end
+
+    it "attaches the proxy to the shared proxy network" do
+      output = build_quadlet_generator.proxy_container_file
+
+      output.should contain("Network=meridian-proxy.network")
     end
   end
 
@@ -507,10 +529,10 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Volume=%h/.config/containers/myapp-assets-caddy/Caddyfile:/etc/caddy/Caddyfile:ro")
     end
 
-    it "attaches to the service network" do
+    it "attaches to the shared proxy network" do
       output = build_quadlet_generator(assets_config).assets_server_file
 
-      output.should contain("Network=myapp.network")
+      output.should contain("Network=meridian-proxy.network")
     end
 
     it "raises when assets configuration is absent" do
