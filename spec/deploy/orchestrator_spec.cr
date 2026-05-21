@@ -126,11 +126,13 @@ def enqueue_zero_downtime_success(
   results << ssh_ok if resolved_old_active
 
   results.concat([
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
+    ssh_ok,                            # rm old container quadlet
+    ssh_ok,                            # daemon-reload
+    ssh_ok,                            # upload service active-color
+    ssh_ok,                            # upload legacy active-color
+    ssh_fail(1, "", "No such file\n"), # read prior release-state
+    ssh_ok,                            # upload release-state
+    ssh_ok,                            # upload service manifest
     prune_result,
   ])
 
@@ -199,11 +201,13 @@ def enqueue_zero_downtime_success_for_host(
   results << ssh_ok if resolved_old_active
 
   results.concat([
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
-    ssh_ok,
+    ssh_ok,                            # rm old container quadlet
+    ssh_ok,                            # daemon-reload
+    ssh_ok,                            # upload service active-color
+    ssh_ok,                            # upload legacy active-color
+    ssh_fail(1, "", "No such file\n"), # read prior release-state
+    ssh_ok,                            # upload release-state
+    ssh_ok,                            # upload service manifest
     prune_result,
   ])
 
@@ -340,10 +344,12 @@ def enqueue_deploy_success_for_host(
   ]
   results << ssh_ok if active_service # stop active service
   results.concat([
-    ssh_ok, # start service
-    ssh_ok, # upload service active-color
-    ssh_ok, # upload legacy active-color
-    ssh_ok, # upload service manifest
+    ssh_ok,                            # start service
+    ssh_ok,                            # upload service active-color
+    ssh_ok,                            # upload legacy active-color
+    ssh_fail(1, "", "No such file\n"), # read prior release-state
+    ssh_ok,                            # upload release-state
+    ssh_ok,                            # upload service manifest
   ])
 
   runner.enqueue_results_for_host(host, results)
@@ -411,6 +417,8 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
     ssh_ok,                            # daemon-reload
     ssh_ok("green\n"),                 # upload service active-color
     ssh_ok("green\n"),                 # upload legacy .meridian-color
+    ssh_fail(1, "", "No such file\n"), # read prior release-state
+    ssh_ok,                            # upload release-state
     ssh_ok,                            # upload service manifest
     ssh_ok,                            # podman image prune
   )
@@ -1200,6 +1208,37 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       remote_commands_for(runner).should contain("rm -f .config/containers/systemd/myapp-green.container")
+    end
+
+    it "records release-state after a successful deploy" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .local/state/meridian/services/myapp/release-state.json" } || raise "Expected release-state upload"
+      state = Meridian::Runtime::ReleaseState.from_json(upload.input.to_s)
+
+      state.current.service.should eq("myapp")
+      state.current.role.should eq("web")
+      state.current.host.should eq("192.168.1.10")
+      state.current.color.should eq("blue")
+      state.current.image.should eq("registry.example.com/myorg/myapp")
+      state.current.release_id.should match(/\A\d{8}T\d{6}Z\z/)
+      state.previous.should be_nil
+    end
+
+    it "does not record release-state when the health check fails" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_health_failure(runner, green_active: true, health_attempts: 1)
+      orchestrator = build_orchestrator(content: fast_health_config, runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Health check failed/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      runner.invocations.find { |candidate| candidate.remote_command == "cat > .local/state/meridian/services/myapp/release-state.json" }.should be_nil
     end
 
     it "prunes old images after a successful deploy" do

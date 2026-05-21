@@ -23,10 +23,12 @@ describe "Meridian::Commands::Status" do
       command.run
 
       remote_commands_for(runner, "192.168.1.10").should eq([
+        "cat .local/state/meridian/services/myapp/release-state.json",
         "systemctl --user status myapp-blue.service --no-pager --lines 0",
         "systemctl --user status myapp-green.service --no-pager --lines 0",
       ])
       remote_commands_for(runner, "192.168.1.11").should eq([
+        "cat .local/state/meridian/services/myapp/release-state.json",
         "systemctl --user status myapp-blue.service --no-pager --lines 0",
         "systemctl --user status myapp-green.service --no-pager --lines 0",
       ])
@@ -40,11 +42,81 @@ describe "Meridian::Commands::Status" do
       command.run
 
       remote_commands_for(runner, "192.168.1.12").should eq([
+        "cat .local/state/meridian/services/myapp/release-state.json",
         "systemctl --user status myapp-blue.service --no-pager --lines 0",
         "systemctl --user status myapp-green.service --no-pager --lines 0",
       ])
       output.to_s.should contain("workers")
       output.to_s.should contain("192.168.1.12")
+    end
+
+    it "shows the recorded release id when present" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_status_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+        YAML
+        runner: runner,
+        output: output
+      )
+
+      release_state = Meridian::Runtime::ReleaseState.new(
+        current: Meridian::Runtime::ReleaseRecord.new(
+          service: "myapp",
+          role: "web",
+          host: "192.168.1.10",
+          color: "green",
+          image: "registry.example.com/myorg/myapp",
+          release_id: "20260519T101530Z",
+          deployed_at: "2026-05-19T10:15:30Z"
+        )
+      )
+
+      runner.enqueue_results(
+        ssh_ok(release_state.to_json),
+        ssh_ok("Active: active (running)\n"),
+        ssh_fail(3, "Active: inactive (dead)\n"),
+      )
+
+      command.run
+
+      output.to_s.should contain("20260519T101530Z")
+      output.to_s.should contain("release")
+    end
+
+    it "renders a dash when release state is missing" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_status_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+        YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_fail(1, "", "No such file\n"),
+        ssh_ok("Active: active (running)\n"),
+        ssh_fail(3, "Active: inactive (dead)\n"),
+      )
+
+      command.run
+
+      output.to_s.should match(/release\b.*\n.*-/)
     end
 
     it "scopes output to the supplied targets" do
@@ -81,6 +153,7 @@ describe "Meridian::Commands::Status" do
       )
 
       runner.enqueue_results(
+        ssh_fail(1, "", "No such file\n"),
         ssh_ok("Active: active (running)\n"),
         ssh_fail(3, "Active: inactive (dead)\n"),
       )

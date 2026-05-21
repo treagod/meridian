@@ -21,8 +21,8 @@ module Meridian
         File.join(service_directory(service), "manifest.json")
       end
 
-      def self.releases_directory(service : String) : String
-        File.join(service_directory(service), "releases")
+      def self.release_state_file(service : String) : String
+        File.join(service_directory(service), "release-state.json")
       end
 
       def self.lock_file(service : String) : String

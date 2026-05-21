@@ -4,6 +4,7 @@ module Meridian
       private record Row,
         role : String,
         host : String,
+        release : String,
         blue : String,
         green : String
 
@@ -14,6 +15,7 @@ module Meridian
           Row.new(
             role: role,
             host: host,
+            release: release_label(host),
             blue: service_state(host, Quadlet::Color::Blue),
             green: service_state(host, Quadlet::Color::Green)
           )
@@ -21,12 +23,14 @@ module Meridian
 
         role_width = Math.max("role".size, rows.max_of?(&.role.size) || 0)
         host_width = Math.max("host".size, rows.max_of?(&.host.size) || 0)
+        release_width = Math.max("release".size, rows.max_of?(&.release.size) || 0)
         blue_width = Math.max("blue".size, rows.max_of?(&.blue.size) || 0)
         green_width = Math.max("green".size, rows.max_of?(&.green.size) || 0)
 
         @output.puts [
           pad("role", role_width),
           pad("host", host_width),
+          pad("release", release_width),
           pad("blue", blue_width),
           pad("green", green_width),
         ].join("  ")
@@ -35,6 +39,7 @@ module Meridian
           @output.puts [
             pad(row.role, role_width),
             pad(row.host, host_width),
+            pad(row.release, release_width),
             pad(row.blue, blue_width),
             pad(row.green, green_width),
           ].join("  ")
@@ -47,6 +52,10 @@ module Meridian
         return all_role_hosts unless targets
 
         targets.map { |target| {target.role, target.host} }
+      end
+
+      private def release_label(host : String) : String
+        read_release_state(host).try(&.current.release_id) || "-"
       end
 
       private def service_state(host : String, color : Quadlet::Color) : String

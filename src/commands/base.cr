@@ -152,6 +152,28 @@ module Meridian
         Runtime::Paths.manifest_file(@config.service)
       end
 
+      protected def release_state_file : String
+        Runtime::Paths.release_state_file(@config.service)
+      end
+
+      protected def read_release_state(host : String) : Runtime::ReleaseState?
+        result = run_ssh(host, ["cat", release_state_file])
+        return unless result.exit_code.zero?
+
+        text = result.stdout.strip
+        return if text.empty?
+
+        Runtime::ReleaseState.from_json(text)
+      rescue JSON::ParseException
+        nil
+      rescue ex : SSH::ConnectionError
+        raise ArgumentError.new(ex.message || "Failed to read release state for #{host}")
+      end
+
+      protected def write_release_state(host : String, state : Runtime::ReleaseState) : Nil
+        upload_ssh(host, release_state_file, "#{state.to_json}\n")
+      end
+
       protected def record_active_color(host : String, color : Quadlet::Color) : Nil
         content = "#{color.slug}\n"
         upload_ssh(host, active_color_file, content)

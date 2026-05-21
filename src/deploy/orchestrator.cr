@@ -90,9 +90,11 @@ module Meridian
         deployed_service_name = service_name(color)
         service_unit = service_unit(color)
         container_file = @quadlet_generator.container_file(server, color)
+        image = server.image || @config.image
+        release_id = generate_release_id
 
         run_remote_hooks(host, role, "before_transfer")
-        transfer_image_to_host(host, server.image || @config.image)
+        transfer_image_to_host(host, image)
         run_remote_hooks(host, role, "after_transfer")
 
         log(host, "Ensuring Quadlet directory exists")
@@ -123,6 +125,7 @@ module Meridian
         run_ssh!(host, ["systemctl", "--user", "start", service_unit])
         run_remote_hooks(host, role, "after_start")
         record_active_color(host, color)
+        record_release(host, role, color, image, release_id)
         record_service_manifest(host)
         run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
@@ -140,9 +143,11 @@ module Meridian
         migrate_legacy_active_color(host, old_color) if stored_color.try(&.path) == LEGACY_ACTIVE_COLOR_FILE
         new_color = inactive_color(old_color)
         new_service = service_name(new_color)
+        image = server.image || @config.image
+        release_id = generate_release_id
 
         run_remote_hooks(host, role, "before_transfer")
-        transfer_image_to_host(host, server.image || @config.image)
+        transfer_image_to_host(host, image)
         run_remote_hooks(host, role, "after_transfer")
 
         log(host, "Ensuring Quadlet directory exists")
@@ -158,7 +163,6 @@ module Meridian
         upload_file_syncs(host, role)
 
         if @config.assets
-          release_id = Time.utc.to_s("%Y%m%d%H%M%S")
           upload_assets_to_host(host, release_id)
         end
         run_remote_hooks(host, role, "after_upload")
@@ -203,6 +207,7 @@ module Meridian
 
         log(host, "Recording active color #{new_color.slug}")
         record_active_color(host, new_color)
+        record_release(host, role, new_color, image, release_id)
         record_service_manifest(host)
 
         log(host, "Pruning unused images")
@@ -757,6 +762,14 @@ module Meridian
         Runtime::Paths.manifest_file(@config.service)
       end
 
+      private def release_state_file : String
+        Runtime::Paths.release_state_file(@config.service)
+      end
+
+      private def generate_release_id : String
+        Time.utc.to_s("%Y%m%dT%H%M%SZ")
+      end
+
       private def record_active_color(host : String, color : Quadlet::Color) : Nil
         content = "#{color.slug}\n"
         upload_ssh(host, active_color_file, content)
@@ -771,6 +784,40 @@ module Meridian
       private def record_service_manifest(host : String) : Nil
         manifest = Runtime::ServiceManifest.from_config(@config)
         upload_ssh(host, manifest_file, "#{manifest.to_json}\n")
+      end
+
+      private def record_release(
+        host : String,
+        role : String,
+        color : Quadlet::Color,
+        image : String,
+        release_id : String,
+      ) : Nil
+        record = Runtime::ReleaseRecord.new(
+          service: @config.service,
+          role: role,
+          host: host,
+          color: color.slug,
+          image: image,
+          release_id: release_id,
+          deployed_at: Time.utc.to_rfc3339
+        )
+        state = Runtime::ReleaseState.promote(read_release_state(host), record)
+        log(host, "Recording release #{release_id}")
+        upload_ssh(host, release_state_file, "#{state.to_json}\n")
+      end
+
+      private def read_release_state(host : String) : Runtime::ReleaseState?
+        result = run_ssh(host, ["cat", release_state_file])
+        return unless result.exit_code.zero?
+
+        text = result.stdout.strip
+        return if text.empty?
+
+        Runtime::ReleaseState.from_json(text)
+      rescue JSON::ParseException
+        log(host, "Ignoring unparseable release-state.json on #{host}")
+        nil
       end
 
       private def ssh_user : String?

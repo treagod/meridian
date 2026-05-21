@@ -90,7 +90,7 @@ module Meridian
           networks: networks,
           generated_files: generated_files,
           active_color_path: Paths.active_color_file(config.service),
-          release_state_path: Paths.releases_directory(config.service),
+          release_state_path: Paths.release_state_file(config.service),
           lock_path: Paths.lock_file(config.service),
           audit_path: Paths.audit_log(config.service),
           incremental_cache_path: Paths.incremental_oci_directory(config.service)

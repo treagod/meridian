@@ -135,8 +135,8 @@ describe "Meridian::CLI" do
 
     it "runs the rollback subcommand with the loaded config" do
       runner = FakeSSHRunner.new
-      runner.enqueue_results_for_host("192.168.1.10", ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
-      runner.enqueue_results_for_host("192.168.1.11", ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
+      runner.enqueue_results_for_host("192.168.1.10", ssh_fail(1, "", "No such file\n"), ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
+      runner.enqueue_results_for_host("192.168.1.11", ssh_fail(1, "", "No such file\n"), ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
       executor = Meridian::SSH::Executor.new(
         runner: runner,
         streaming_runner: FakeSSHStreamingRunner.new
