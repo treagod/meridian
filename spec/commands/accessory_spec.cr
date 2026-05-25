@@ -5,10 +5,17 @@ def build_accessory_command(
   runner : FakeSSHRunner = FakeSSHRunner.new,
   streaming_runner : FakeSSHStreamingRunner = FakeSSHStreamingRunner.new,
   output : IO = IO::Memory.new,
+  audit_logger : Meridian::Audit::Logger? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: streaming_runner)
-  Meridian::Commands::Accessory.new(config, ssh_executor: executor, output: output, error: output)
+  Meridian::Commands::Accessory.new(
+    config,
+    ssh_executor: executor,
+    output: output,
+    error: output,
+    audit_logger: audit_logger || FakeAuditLogger.new(config)
+  )
 end
 
 def accessory_clear_env_config : String

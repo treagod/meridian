@@ -29,6 +29,10 @@ module Meridian
         File.join(service_directory(service), "lock")
       end
 
+      def self.lock_metadata_file(service : String) : String
+        File.join(lock_file(service), "meta.json")
+      end
+
       def self.audit_log(service : String) : String
         File.join(service_directory(service), "audit.log")
       end

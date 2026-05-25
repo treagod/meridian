@@ -10,8 +10,10 @@ module Meridian
         @ssh_executor : SSH::Executor = SSH::Executor.new,
         quadlet_generator : Quadlet::Generator? = nil,
         @output : IO = STDOUT,
+        audit_logger : Audit::Logger? = nil,
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
+        @audit_logger = audit_logger || Audit::Logger.new(@config, @ssh_executor)
       end
 
       def setup : Nil
@@ -55,6 +57,8 @@ module Meridian
             "curl", "--silent", "--show-error", "--output", "/dev/null",
             "--write-out", "%{http_code}", "--head", proxy_url,
           ])
+
+          @audit_logger.record(host, "proxy", "setup")
         end
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError
         raise SetupFailed.new(ex.message || "Proxy setup failed")
@@ -66,6 +70,7 @@ module Meridian
         hosts.each do |host|
           remove_current_service_routes(host)
           remove_current_manifest(host)
+          @audit_logger.record(host, "proxy", "remove")
 
           other_services = other_service_manifests(host).map(&.service).sort
           if other_services.present? && !force

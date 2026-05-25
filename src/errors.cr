@@ -39,6 +39,16 @@ module Meridian
     end
   end
 
+  module Lock
+    # Raised when the deploy lock is already held by another caller.
+    class LockHeld < Exception
+    end
+
+    # Raised when a lock operation fails for any reason other than contention.
+    class LockError < Exception
+    end
+  end
+
   module Transfer
     class TransferFailed < Exception
     end

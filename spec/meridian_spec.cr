@@ -632,3 +632,135 @@ describe "Meridian::CLI" do
     end
   end
 end
+
+describe "Meridian::CLI lock and audit commands" do
+  it "reports no lock for `lock status` when the lock host is free" do
+    runner = FakeSSHRunner.new
+    runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "")
+    executor = Meridian::SSH::Executor.new(runner: runner)
+
+    with_tempdir do |path|
+      config_path = File.join(path, "deploy.yml")
+      File.write(config_path, MINIMAL_CONFIG)
+
+      result = run_cli(["lock", "status", "--file", config_path], ssh_executor: executor)
+
+      result.exit_code.should eq(0)
+      result.output.should contain("No deploy lock held on 192.168.1.10")
+    end
+  end
+
+  it "acquires a lock with `lock acquire`" do
+    runner = FakeSSHRunner.new
+    executor = Meridian::SSH::Executor.new(runner: runner)
+
+    with_tempdir do |path|
+      config_path = File.join(path, "deploy.yml")
+      File.write(config_path, MINIMAL_CONFIG)
+
+      result = run_cli(
+        ["lock", "acquire", "--message", "maintenance", "--file", config_path],
+        ssh_executor: executor
+      )
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Acquired deploy lock on 192.168.1.10")
+    end
+  end
+
+  it "exits non-zero for `lock acquire` when a lock is already held" do
+    metadata = Meridian::Runtime::LockMetadata.new(
+      actor: "ops@ci",
+      acquired_at: "2026-05-20T09:00:00Z",
+      message: "release freeze"
+    )
+    runner = FakeSSHRunner.new
+    runner.enqueue_results(
+      ssh_ok,
+      Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "File exists\n"),
+      ssh_ok,
+      ssh_ok(metadata.to_json)
+    )
+    executor = Meridian::SSH::Executor.new(runner: runner)
+
+    with_tempdir do |path|
+      config_path = File.join(path, "deploy.yml")
+      File.write(config_path, MINIMAL_CONFIG)
+
+      result = run_cli(["lock", "acquire", "--file", config_path], ssh_executor: executor)
+
+      result.exit_code.should eq(1)
+      result.output.should contain("held by ops@ci since 2026-05-20T09:00:00Z: release freeze")
+    end
+  end
+
+  it "releases a lock with `lock release`" do
+    metadata = Meridian::Runtime::LockMetadata.new(
+      actor: "ops@ci",
+      acquired_at: "2026-05-20T09:00:00Z"
+    )
+    runner = FakeSSHRunner.new
+    runner.enqueue_results(ssh_ok, ssh_ok(metadata.to_json), ssh_ok)
+    executor = Meridian::SSH::Executor.new(runner: runner)
+
+    with_tempdir do |path|
+      config_path = File.join(path, "deploy.yml")
+      File.write(config_path, MINIMAL_CONFIG)
+
+      result = run_cli(["lock", "release", "--file", config_path], ssh_executor: executor)
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Releasing deploy lock on 192.168.1.10")
+    end
+  end
+
+  it "prints help for the lock command" do
+    result = run_cli(["lock", "--help"])
+
+    result.exit_code.should eq(0)
+    result.output.should contain("Usage: meridian lock SUBCOMMAND")
+    result.output.should contain("status")
+    result.output.should contain("acquire")
+    result.output.should contain("release")
+  end
+
+  it "prints recent audit entries with `audit`" do
+    runner = FakeSSHRunner.new
+    runner.enqueue_results_for_host(
+      "192.168.1.10",
+      ssh_ok("2026-05-21T09:00:00Z | ops | lock | acquired\n" \
+             "2026-05-21T09:05:00Z | ops | deploy | role=web\n")
+    )
+    executor = Meridian::SSH::Executor.new(runner: runner)
+
+    with_tempdir do |path|
+      config_path = File.join(path, "deploy.yml")
+      File.write(config_path, MINIMAL_CONFIG)
+
+      result = run_cli(
+        ["audit", "--host", "192.168.1.10", "--file", config_path],
+        ssh_executor: executor
+      )
+
+      result.exit_code.should eq(0)
+      result.output.should contain("[192.168.1.10]")
+      result.output.should contain("ops | deploy | role=web")
+    end
+  end
+
+  it "prints help for the audit command" do
+    result = run_cli(["audit", "--help"])
+
+    result.exit_code.should eq(0)
+    result.output.should contain("Usage: meridian audit [options]")
+    result.output.should contain("--lines")
+  end
+
+  it "lists lock and audit in the global help output" do
+    result = run_cli(["--help"])
+
+    result.exit_code.should eq(0)
+    result.output.should contain("lock")
+    result.output.should contain("audit")
+  end
+end

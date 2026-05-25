@@ -45,6 +45,8 @@ module Meridian
 
         log(host, "Recording rollback release #{previous.release_id}")
         write_release_state(host, state.swap)
+
+        audit_logger.record(host, "rollback", "to release #{previous.release_id} (#{rollback_color.slug})")
       end
 
       private def rollback_with_legacy_color(host : String, proxy : Config::ServerProxyConfig) : Nil
@@ -64,6 +66,8 @@ module Meridian
 
         log(host, "Recording active color #{rollback_color.slug}")
         record_active_color(host, rollback_color)
+
+        audit_logger.record(host, "rollback", "to #{rollback_color.slug}")
       end
 
       private def ensure_container_running(host : String, container_name : String) : Nil

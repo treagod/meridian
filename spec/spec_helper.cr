@@ -295,6 +295,54 @@ class FakeProxyManager < Meridian::Proxy::Manager
   end
 end
 
+class FakeAuditLogger < Meridian::Audit::Logger
+  record Recorded, host : String, action : String, detail : String
+
+  getter recorded = [] of Recorded
+  property entries = [] of Meridian::Audit::Entry
+
+  def initialize(config : Meridian::Config::DeployConfig)
+    super(config, Meridian::SSH::Executor.new(runner: FakeSSHRunner.new))
+  end
+
+  def record(host : String, action : String, detail : String) : Nil
+    @recorded << Recorded.new(host: host, action: action, detail: detail)
+  end
+
+  def recent(host : String, limit : Int32) : Array(Meridian::Audit::Entry)
+    @entries.last(limit)
+  end
+end
+
+class FakeLockManager < Meridian::Lock::Manager
+  getter acquire_calls = 0
+  getter release_calls = 0
+  getter acquire_messages = [] of String?
+  property acquire_error : Exception? = nil
+
+  def initialize(config : Meridian::Config::DeployConfig)
+    super(config, Meridian::SSH::Executor.new(runner: FakeSSHRunner.new))
+  end
+
+  def acquire(message : String? = nil) : Meridian::Runtime::LockMetadata
+    @acquire_calls += 1
+    @acquire_messages << message
+    if error = @acquire_error
+      raise error
+    end
+    Meridian::Runtime::LockMetadata.new(
+      actor: "tester",
+      acquired_at: "2026-05-21T00:00:00Z",
+      message: message
+    )
+  end
+
+  def release(*, announce : Bool = true) : Meridian::Runtime::LockMetadata?
+    @release_calls += 1
+    nil
+  end
+end
+
 record FakeBootstrapInvocation,
   command : String,
   args : Array(String),

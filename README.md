@@ -53,6 +53,8 @@ Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. Run `m
 
 Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host finishes, secondary roles (workers, etc.) start releasing in parallel: they don't wait for every web batch to complete. If you've configured a proxy block, each host gets a blue/green swap through the shared host-level kamal-proxy and the active colour is recorded under `~/.local/state/meridian/services/<service>/active-color` (with a temporary legacy `.meridian-color` write for older CLIs). Without a proxy block, you get a stop/start with brief downtime, which is fine for some things.
 
+Before touching any host, `deploy` acquires a remote deploy lock (an atomic `mkdir` on the first web host) and releases it at the end. A second deploy started while the first is running exits non-zero and prints who holds the lock. See `lock` and `audit` below.
+
 ### `plan`
 
 Prints exactly what Meridian resolved from your `deploy.yml` (roles, hosts, image, transfer mode, required secrets, hooks, everything) without touching a server. Handy whenever you're editing config. Secret *values* are never printed, only their names.
@@ -87,6 +89,25 @@ Standalone services that aren't part of your app deploy: databases, caches, that
 ```bash
 meridian accessory start db
 meridian accessory logs db
+```
+
+### `lock`
+
+`deploy` takes a remote deploy lock automatically, but you can also drive it by hand: hold the lock during a maintenance window, or clear a stale lock left behind by an interrupted deploy. A stale lock is only ever cleared by an explicit `lock release` — never silently — and the release announces who held it.
+
+```bash
+meridian lock status                       # is a deploy lock held, and by whom?
+meridian lock acquire --message 'db migration'
+meridian lock release
+```
+
+### `audit`
+
+Deploys, rollbacks, proxy lifecycle, and accessory lifecycle append a concise, line-oriented audit entry to each host they touch (under `~/.local/state/meridian/services/<service>/audit.log`). `meridian audit` tails those entries so you can reconstruct what happened after an incident.
+
+```bash
+meridian audit                             # recent entries for every host
+meridian audit --host 1.2.3.4 --lines 50
 ```
 
 ## Image transfer

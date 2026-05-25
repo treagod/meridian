@@ -4,6 +4,7 @@ def build_proxy_manager(
   content : String = FULL_CONFIG,
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
+  audit_logger : Meridian::Audit::Logger? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -11,7 +12,8 @@ def build_proxy_manager(
     config,
     ssh_executor: executor,
     quadlet_generator: Meridian::Quadlet::Generator.new(config),
-    output: output
+    output: output,
+    audit_logger: audit_logger || FakeAuditLogger.new(config)
   )
 end
 

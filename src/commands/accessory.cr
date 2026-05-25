@@ -7,8 +7,9 @@ module Meridian
         quadlet_generator : Quadlet::Generator? = nil,
         output : IO = STDOUT,
         error : IO = STDERR,
+        audit_logger : ::Meridian::Audit::Logger? = nil,
       )
-        super(config, ssh_executor: ssh_executor, output: output, error: error)
+        super(config, ssh_executor: ssh_executor, output: output, error: error, audit_logger: audit_logger)
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(config)
       end
 
@@ -28,6 +29,7 @@ module Meridian
 
         log(host, "Starting #{accessory_service_unit(name)}")
         run_ssh!(host, ["systemctl", "--user", "start", accessory_service_unit(name)])
+        audit_logger.record(host, "accessory", "start #{name}")
       end
 
       def stop(name : String) : Nil
@@ -36,6 +38,7 @@ module Meridian
 
         log(host, "Stopping #{accessory_service_unit(name)}")
         run_ssh!(host, ["systemctl", "--user", "stop", accessory_service_unit(name)])
+        audit_logger.record(host, "accessory", "stop #{name}")
       end
 
       def logs(name : String) : Int32

@@ -6,13 +6,16 @@ module Meridian
       protected getter config : Config::DeployConfig
       protected getter output : IO
       protected getter error : IO
+      protected getter audit_logger : ::Meridian::Audit::Logger
 
       def initialize(
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
         @output : IO = STDOUT,
         @error : IO = STDERR,
+        audit_logger : ::Meridian::Audit::Logger? = nil,
       )
+        @audit_logger = audit_logger || ::Meridian::Audit::Logger.new(@config, @ssh_executor)
       end
 
       protected def service_name(color : Quadlet::Color) : String

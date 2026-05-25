@@ -9,6 +9,8 @@ def build_orchestrator(
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
   hook_runner : Proc(String, Hash(String, String), Int32) = ->(_script : String, _env : Hash(String, String)) { 0 },
   file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
+  lock_manager : Meridian::Lock::Manager? = nil,
+  audit_logger : Meridian::Audit::Logger? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -21,7 +23,9 @@ def build_orchestrator(
     output: output,
     batch_sleeper: batch_sleeper,
     hook_runner: hook_runner,
-    file_reader: file_reader
+    file_reader: file_reader,
+    lock_manager: lock_manager || FakeLockManager.new(config),
+    audit_logger: audit_logger || FakeAuditLogger.new(config)
   )
 end
 
@@ -2023,5 +2027,66 @@ describe "Meridian::Deploy::Orchestrator" do
 
       hook_calls.should eq(0)
     end
+  end
+end
+
+describe "Meridian::Deploy::Orchestrator deploy lock and audit" do
+  it "acquires and releases the deploy lock around the rollout" do
+    config = load_config(FULL_CONFIG)
+    lock = FakeLockManager.new(config)
+    runner = FakeSSHRunner.new
+    enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+    enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+    enqueue_deploy_success_for_host(runner, "192.168.1.12")
+    orchestrator = build_orchestrator(runner: runner, lock_manager: lock)
+
+    orchestrator.deploy
+
+    lock.acquire_calls.should eq(1)
+    lock.release_calls.should eq(1)
+  end
+
+  it "does not touch any host when the deploy lock is already held" do
+    config = load_config(FULL_CONFIG)
+    lock = FakeLockManager.new(config)
+    lock.acquire_error = Meridian::Lock::LockHeld.new("Deploy lock on 192.168.1.10 is held by ops since now")
+    runner = FakeSSHRunner.new
+    orchestrator = build_orchestrator(runner: runner, lock_manager: lock)
+
+    expect_raises(Meridian::Lock::LockHeld, /held by ops/) do
+      orchestrator.deploy
+    end
+
+    runner.invocations.should be_empty
+    lock.release_calls.should eq(0)
+  end
+
+  it "releases the deploy lock even when the rollout fails" do
+    config = load_config(fast_health_config)
+    lock = FakeLockManager.new(config)
+    runner = FakeSSHRunner.new
+    enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", green_active: true, health_attempts: 1)
+    orchestrator = build_orchestrator(content: fast_health_config, runner: runner, lock_manager: lock)
+
+    expect_raises(Meridian::Deploy::DeployFailed, /Health check failed/) do
+      orchestrator.deploy
+    end
+
+    lock.release_calls.should eq(1)
+  end
+
+  it "records a deploy audit entry for each deployed host" do
+    config = load_config(FULL_CONFIG)
+    audit = FakeAuditLogger.new(config)
+    runner = FakeSSHRunner.new
+    enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")
+    enqueue_zero_downtime_success_for_host(runner, "192.168.1.11")
+    enqueue_deploy_success_for_host(runner, "192.168.1.12")
+    orchestrator = build_orchestrator(runner: runner, audit_logger: audit)
+
+    orchestrator.deploy
+
+    deploy_entries = audit.recorded.select(&.action.== "deploy")
+    deploy_entries.map(&.host).sort.should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
   end
 end

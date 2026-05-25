@@ -53,13 +53,20 @@ def build_rollback_command(
   content : String = rollback_config,
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
+  audit_logger : Meridian::Audit::Logger? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(
     runner: runner,
     streaming_runner: FakeSSHStreamingRunner.new
   )
-  Meridian::Commands::Rollback.new(config, ssh_executor: executor, output: output, error: output)
+  Meridian::Commands::Rollback.new(
+    config,
+    ssh_executor: executor,
+    output: output,
+    error: output,
+    audit_logger: audit_logger || FakeAuditLogger.new(config)
+  )
 end
 
 describe "Meridian::Commands::Rollback" do

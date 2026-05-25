@@ -3,6 +3,7 @@ module Meridian
     class Orchestrator
       DEFAULT_COLOR            = Quadlet::Color::Green
       LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
+      DEPLOY_LOCK_MESSAGE      = "meridian deploy"
 
       private record HostDeployResult,
         role : String,
@@ -52,7 +53,16 @@ module Meridian
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
         @hook_runner : Proc(String, Hash(String, String), Int32) = ->(script : String, env : Hash(String, String)) { Process.run(script, env: env, shell: true).exit_code },
         @file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
+        lock_manager : Lock::Manager? = nil,
+        audit_logger : Audit::Logger? = nil,
       )
+        @audit_logger = audit_logger || Audit::Logger.new(@config, @ssh_executor)
+        @lock_manager = lock_manager || Lock::Manager.new(
+          @config,
+          @ssh_executor,
+          output: @output,
+          audit_logger: @audit_logger
+        )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
         @stream_transfer = stream_transfer || Transfer::Stream.new(
           @ssh_executor,
@@ -221,6 +231,21 @@ module Meridian
       end
 
       def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
+        @lock_manager.acquire(DEPLOY_LOCK_MESSAGE)
+        begin
+          run_deploy(targets)
+        ensure
+          release_deploy_lock
+        end
+      end
+
+      private def release_deploy_lock : Nil
+        @lock_manager.release(announce: false)
+      rescue ex : Lock::LockError
+        @output.puts "Warning: failed to release deploy lock: #{ex.message}"
+      end
+
+      private def run_deploy(targets : Array(CLI::TargetSelector::Target)?) : Nil
         @allowed_hosts = build_allowed_hosts(targets)
         validate_rollout_settings!
         validate_registry_credentials!
@@ -521,6 +546,7 @@ module Meridian
               batch_errors << error
             else
               log(result.host, "Deploy completed")
+              record_deploy_audit(result.host, role)
               on_host_success.call(result.host)
             end
           end
@@ -538,6 +564,11 @@ module Meridian
       private def deploy_role(role : String, abort_rollout : RolloutAbort) : RoleDeployResult
         deploy_role(role, abort_rollout) do |_host|
         end
+      end
+
+      private def record_deploy_audit(host : String, role : String) : Nil
+        image = server_config(role).image || @config.image
+        @audit_logger.record(host, "deploy", "role=#{role} image=#{image}")
       end
 
       private def deploy_host(host : String, role : String) : Nil

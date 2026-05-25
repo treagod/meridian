@@ -27,7 +27,12 @@ module Meridian
         end
 
         def rescuable : Array(Exception.class)
-          super + [::Meridian::Deploy::DeployFailed.as(Exception.class), ArgumentError.as(Exception.class)]
+          super + [
+            ::Meridian::Deploy::DeployFailed,
+            ArgumentError,
+            ::Meridian::Lock::LockHeld,
+            ::Meridian::Lock::LockError,
+          ] of Exception.class
         end
 
         def failure_message : String

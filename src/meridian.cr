@@ -5,6 +5,10 @@ require "./quadlet/generator"
 require "./runtime/paths"
 require "./runtime/service_manifest"
 require "./runtime/release_state"
+require "./runtime/lock_metadata"
+require "./audit/entry"
+require "./audit/logger"
+require "./lock/manager"
 require "./commands/base"
 require "./commands/**"
 require "./deploy/plan"
@@ -63,6 +67,11 @@ module Meridian
       Commands::Quadlet,
       Commands::Proxy,
       Commands::ProxyRemove,
+      Commands::Lock,
+      Commands::LockStatus,
+      Commands::LockAcquire,
+      Commands::LockRelease,
+      Commands::Audit,
       Commands::Server,
       Commands::ServerBootstrap,
     ] of Command.class)
