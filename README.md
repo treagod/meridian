@@ -61,7 +61,7 @@ Prints exactly what Meridian resolved from your `deploy.yml` (roles, hosts, imag
 
 ### `check`
 
-Read-only preflight. SSH reachable? Podman new enough? Lingering on? Quadlet directory writable? Transfer tools installed? Podman secrets present? kamal-proxy and the shared `meridian-proxy` network running on web hosts? Any same-host route or ownership collisions with other Meridian service manifests? Any failure exits non-zero, so this is the thing to put in CI before `deploy`.
+Read-only preflight. SSH reachable? Podman new enough? Lingering on? Quadlet directory writable? Transfer tools installed? Podman secrets present? kamal-proxy and the shared `meridian-proxy` network running on web hosts? Any same-host route or ownership collisions with other Meridian service manifests? For `transfer.mode: stream` and `incremental`, are the selected images present in the *local* Podman storage so the deploy doesn't fail mid-transfer? Any failure exits non-zero, so this is the thing to put in CI before `deploy`. `deploy` itself re-runs the local image check up front so users who skip `check` still fail before any remote mutation.
 
 ### Same-host apps
 

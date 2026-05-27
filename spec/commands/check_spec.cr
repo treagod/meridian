@@ -36,13 +36,20 @@ def build_check_command(
   content : String = check_config,
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
+  local_image_probe : Meridian::Commands::Check::LocalImageProbe = ->(_image : String) { true },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(
     runner: runner,
     streaming_runner: FakeSSHStreamingRunner.new
   )
-  Meridian::Commands::Check.new(config, ssh_executor: executor, output: output, error: output)
+  Meridian::Commands::Check.new(
+    config,
+    ssh_executor: executor,
+    output: output,
+    error: output,
+    local_image_probe: local_image_probe
+  )
 end
 
 def check_ssh_fail(exit_code : Int32 = 1, stdout : String = "", stderr : String = "") : Meridian::SSH::Result
@@ -356,6 +363,172 @@ describe "Meridian::Commands::Check" do
       command.run.should be_false
 
       output.to_s.should contain("service name myapp is already registered")
+    end
+
+    it "passes a local image row when the configured image is present locally" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        output: output,
+        local_image_probe: ->(image : String) { probed << image; true }
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_true
+
+      probed.should eq(["registry.example.com/myorg/myapp"])
+      text = output.to_s
+      text.should contain("local")
+      text.should contain("image:registry.example.com/myorg/myapp")
+      text.should contain("present")
+      text.should contain("Check passed")
+    end
+
+    it "fails when the local image is missing for a registry-free transfer mode" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        output: output,
+        local_image_probe: ->(_image : String) { false }
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("image:registry.example.com/myorg/myapp")
+      text.should contain("not found locally")
+      text.should contain("Check failed")
+    end
+
+    it "probes per-role image overrides as distinct local images" do
+      runner = FakeSSHRunner.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+            workers:
+              hosts:
+                - 192.168.1.11
+              image: registry.example.com/myorg/worker
+              cmd: bin/sidekiq
+
+          transfer:
+            mode: incremental
+          YAML
+        runner: runner,
+        local_image_probe: ->(image : String) { probed << image; true }
+      )
+
+      runner.enqueue_results_for_host(
+        "192.168.1.10",
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+      runner.enqueue_results_for_host(
+        "192.168.1.11",
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_true
+
+      probed.sort.should eq([
+        "registry.example.com/myorg/myapp",
+        "registry.example.com/myorg/worker",
+      ])
+    end
+
+    it "skips local image checks when transfer mode is registry" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: registry
+          YAML
+        runner: runner,
+        output: output,
+        local_image_probe: ->(image : String) { probed << image; false }
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_true
+
+      probed.should be_empty
+      output.to_s.should_not contain("image:")
     end
   end
 end

@@ -11,6 +11,7 @@ def build_orchestrator(
   file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
   lock_manager : Meridian::Lock::Manager? = nil,
   audit_logger : Meridian::Audit::Logger? = nil,
+  local_image_probe : Meridian::Deploy::Orchestrator::LocalImageProbe = ->(_image : String) { true },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -25,7 +26,8 @@ def build_orchestrator(
     hook_runner: hook_runner,
     file_reader: file_reader,
     lock_manager: lock_manager || FakeLockManager.new(config),
-    audit_logger: audit_logger || FakeAuditLogger.new(config)
+    audit_logger: audit_logger || FakeAuditLogger.new(config),
+    local_image_probe: local_image_probe
   )
 end
 
@@ -806,6 +808,74 @@ describe "Meridian::Deploy::Orchestrator" do
       end
 
       runner.invocations.should be_empty
+    end
+
+    it "raises before acquiring the deploy lock when a local image is missing" do
+      runner = FakeSSHRunner.new
+      lock_manager = FakeLockManager.new(load_config(<<-YAML))
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        transfer:
+          mode: stream
+        YAML
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        lock_manager: lock_manager,
+        local_image_probe: ->(_image : String) { false }
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /not found.*registry\.example\.com\/myorg\/myapp/) do
+        orchestrator.deploy
+      end
+
+      lock_manager.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "skips local image validation when transfer mode is registry" do
+      probed = [] of String
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: registry
+          YAML
+        local_image_probe: ->(image : String) { probed << image; false }
+      )
+
+      begin
+        orchestrator.deploy
+      rescue
+        # downstream may still fail without a full SSH script; the probe
+        # assertion below is what matters.
+      end
+
+      probed.should be_empty
     end
 
     it "uploads files matching the role after Quadlet upload" do

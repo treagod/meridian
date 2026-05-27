@@ -43,6 +43,14 @@ module Meridian
 
       @allowed_hosts : Hash(String, Array(String))? = nil
 
+      alias LocalImageProbe = Proc(String, Bool)
+
+      DEFAULT_LOCAL_IMAGE_PROBE = ->(image : String) do
+        Process.run("podman", ["image", "exists", image]).success?
+        rescue
+          false
+      end
+
       def initialize(
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
@@ -55,7 +63,9 @@ module Meridian
         @file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
         lock_manager : Lock::Manager? = nil,
         audit_logger : Audit::Logger? = nil,
+        local_image_probe : LocalImageProbe? = nil,
       )
+        @local_image_probe = local_image_probe || DEFAULT_LOCAL_IMAGE_PROBE
         @audit_logger = audit_logger || Audit::Logger.new(@config, @ssh_executor)
         @lock_manager = lock_manager || Lock::Manager.new(
           @config,
@@ -231,12 +241,28 @@ module Meridian
       end
 
       def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
+        validate_local_images!(targets)
         @lock_manager.acquire(DEPLOY_LOCK_MESSAGE)
         begin
           run_deploy(targets)
         ensure
           release_deploy_lock
         end
+      end
+
+      private def validate_local_images!(targets : Array(CLI::TargetSelector::Target)?) : Nil
+        mode = @config.transfer.try(&.mode)
+        return if mode.nil? || mode.registry?
+
+        roles = targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
+        images = roles.map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!
+        missing = images.reject { |image| @local_image_probe.call(image) }
+        return if missing.empty?
+
+        label = missing.size == 1 ? "image" : "images"
+        raise DeployFailed.new(
+          "Local #{label} not found for #{mode.to_s.downcase} transfer: #{missing.join(", ")}. Build or pull #{missing.size == 1 ? "it" : "them"} locally before deploying."
+        )
       end
 
       private def release_deploy_lock : Nil

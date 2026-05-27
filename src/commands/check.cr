@@ -20,6 +20,28 @@ module Meridian
         passed : Bool,
         detail : String
 
+      alias LocalImageProbe = Proc(String, Bool)
+
+      DEFAULT_LOCAL_IMAGE_PROBE = ->(image : String) do
+        Process.run("podman", ["image", "exists", image]).success?
+rescue
+  false
+      end
+
+      @local_image_probe : LocalImageProbe
+
+      def initialize(
+        config : Config::DeployConfig,
+        ssh_executor : SSH::Executor = SSH::Executor.new,
+        output : IO = STDOUT,
+        error : IO = STDERR,
+        audit_logger : ::Meridian::Audit::Logger? = nil,
+        local_image_probe : LocalImageProbe? = nil,
+      )
+        super(config, ssh_executor, output, error, audit_logger)
+        @local_image_probe = local_image_probe || DEFAULT_LOCAL_IMAGE_PROBE
+      end
+
       def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Bool
         validate_batch_settings!
 
@@ -43,10 +65,30 @@ module Meridian
           end
         end
 
+        rows.concat(check_local_images(targets))
+
         print_rows(rows)
         passed = rows.all?(&.passed)
         @output.puts(passed ? "Check passed" : "Check failed")
         passed
+      end
+
+      private def check_local_images(targets : Array(CLI::TargetSelector::Target)?) : Array(ProbeResult)
+        mode = @config.transfer.try(&.mode)
+        return [] of ProbeResult if mode.nil? || mode.registry?
+
+        selected_local_images(targets).map_with_index do |image, index|
+          if @local_image_probe.call(image)
+            pass("local", "image:#{image}", index, "present")
+          else
+            fail("local", "image:#{image}", index, "not found locally; build or pull it first")
+          end
+        end
+      end
+
+      private def selected_local_images(targets : Array(CLI::TargetSelector::Target)?) : Array(String)
+        roles = targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
+        roles.map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!.sort!
       end
 
       private def validate_batch_settings! : Nil
