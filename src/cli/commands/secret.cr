@@ -30,7 +30,7 @@ module Meridian
       class SecretSet < Command
         @value : String? = nil
         @role = "web"
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "secret set"
@@ -63,7 +63,7 @@ module Meridian
         def configure(parser : OptionParser) : Nil
           parser.on("--value VALUE", "Secret value (default: read from stdin)") { |v| @value = v }
           parser.on("--role ROLE", "Target role (default: web)") { |v| @role = v }
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
         end
 
         def rescuable : Array(Exception.class)
@@ -89,7 +89,7 @@ module Meridian
 
       class SecretRm < Command
         @role = "web"
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "secret rm"
@@ -118,7 +118,7 @@ module Meridian
 
         def configure(parser : OptionParser) : Nil
           parser.on("--role ROLE", "Target role (default: web)") { |v| @role = v }
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
         end
 
         def rescuable : Array(Exception.class)
@@ -143,7 +143,7 @@ module Meridian
 
       class SecretLs < Command
         @role = "web"
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "secret ls"
@@ -163,7 +163,7 @@ module Meridian
 
         def configure(parser : OptionParser) : Nil
           parser.on("--role ROLE", "Target role (default: web)") { |v| @role = v }
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
         end
 
         def rescuable : Array(Exception.class)

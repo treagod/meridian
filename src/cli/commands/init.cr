@@ -9,7 +9,7 @@ module Meridian
         end
 
         def summary : String
-          "Generate deploy.yml and .env"
+          "Generate the .meridian/ project layout"
         end
 
         def usage : String
@@ -17,11 +17,11 @@ module Meridian
         end
 
         def description : String
-          "Generate deploy.yml and .env for the current project directory."
+          "Generate .meridian/deploy.yml and supporting files for the current project directory."
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--force", "Overwrite existing deploy.yml and .env") { @force = true }
+          parser.on("--force", "Overwrite an existing .meridian/deploy.yml") { @force = true }
         end
 
         def rescuable : Array(Exception.class)

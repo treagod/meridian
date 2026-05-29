@@ -1,5 +1,6 @@
 require "option_parser"
 require "./errors"
+require "./paths"
 require "./config/loader"
 require "./quadlet/generator"
 require "./runtime/paths"

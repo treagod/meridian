@@ -137,7 +137,7 @@ describe "meridian plan CLI" do
     )
     path = write_config(MINIMAL_CONFIG)
 
-    result = run_cli(["plan", "--file", path], ssh_executor: executor)
+    result = run_cli(["plan", "--config", path], ssh_executor: executor)
 
     result.exit_code.should eq(0)
     result.output.should contain("service:   myapp")
@@ -145,7 +145,7 @@ describe "meridian plan CLI" do
   end
 
   it "returns non-zero and prints the loader error when the file is missing" do
-    result = run_cli(["plan", "--file", "/definitely/does/not/exist.yml"])
+    result = run_cli(["plan", "--config", "/definitely/does/not/exist.yml"])
 
     result.exit_code.should eq(1)
     result.output.downcase.should contain("no such file")
@@ -154,7 +154,7 @@ describe "meridian plan CLI" do
   it "returns non-zero for invalid YAML and propagates the loader message" do
     path = write_config("service: myapp\nimage: example.com/myapp\n")
 
-    result = run_cli(["plan", "--file", path])
+    result = run_cli(["plan", "--config", path])
 
     result.exit_code.should eq(1)
     result.output.should contain("servers")

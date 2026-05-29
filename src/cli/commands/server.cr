@@ -35,7 +35,7 @@ module Meridian
         @passwordless_sudo = true
         @rootless_low_ports = true
         @rootless_port_start = 80
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "server bootstrap"
@@ -74,7 +74,7 @@ module Meridian
             @rootless_low_ports = parse_bool_flag(v, "--rootless-low-ports")
           end
           parser.on("--rootless-port-start PORT", "Lowest unprivileged port (default: 80)") { |v| @rootless_port_start = v.to_i }
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
         end
 
         def rescuable : Array(Exception.class)

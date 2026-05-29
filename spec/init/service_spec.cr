@@ -42,7 +42,7 @@ describe "Meridian::Init::Service" do
         git_remote: "git@github.com:acme/myapp.git"
       )
 
-      config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
+      config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
       config.image.should eq("ghcr.io/acme/myapp")
       config.proxy.try(&.image).should eq("docker.io/basecamp/kamal-proxy:latest")
       config.registry.try(&.server).should eq("ghcr.io")
@@ -60,35 +60,42 @@ describe "Meridian::Init::Service" do
         "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
       )
 
-      config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
+      config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
       config.build.should be_nil
       output.should contain("Dockerfile present")
     end
   end
 
-  it "does not duplicate .env in .gitignore when it is already present" do
+  it "creates the .meridian/ layout with deploy.yml, .gitignore, and hooks/" do
     with_tempdir do |path|
-      write_project_file(path, ".gitignore", ".env\nbin/\n")
       output = run_init_service(
         path,
         "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
       )
 
-      File.read(File.join(path, ".gitignore")).scan(/^\Q.env\E$/m).size.should eq(1)
-      output.should contain(".env already present in .gitignore")
+      File.file?(File.join(path, ".meridian/deploy.yml")).should be_true
+      File.directory?(File.join(path, ".meridian/hooks")).should be_true
+      File.read(File.join(path, ".meridian/.gitignore")).should eq("secrets\ncache/\ntmp/\n")
+
+      output.should contain("Created .meridian/deploy.yml")
+      output.should contain("Created .meridian/.gitignore")
+      output.should contain("Created .meridian/hooks/")
+      output.should contain("Everything Meridian owns lives under .meridian/.")
+      output.should contain("Next step: meridian setup")
     end
   end
 
-  it "creates a comment-only .env for registry-free transfer modes" do
+  it "does not create a root .env or pre-create secrets, cache, or tmp" do
     with_tempdir do |path|
       run_init_service(
         path,
         "\n95.216.1.10\n\nmyapp.example.com\nincremental\nghcr.io/acme/myapp\n"
       )
 
-      env_file = File.read(File.join(path, ".env"))
-      env_file.should contain("# Fill in secret values used by deploy.yml")
-      env_file.should_not contain("REGISTRY_PASSWORD=")
+      File.exists?(File.join(path, ".env")).should be_false
+      File.exists?(File.join(path, ".meridian/secrets")).should be_false
+      File.exists?(File.join(path, ".meridian/cache")).should be_false
+      File.exists?(File.join(path, ".meridian/tmp")).should be_false
     end
   end
 
@@ -101,11 +108,11 @@ describe "Meridian::Init::Service" do
         "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
       )
 
-      deploy_yml = File.read(File.join(path, "deploy.yml"))
+      deploy_yml = File.read(File.join(path, ".meridian/deploy.yml"))
       deploy_yml.should contain("app_port: 8000")
       deploy_yml.should contain("path: /health")
 
-      config = Meridian::Config::Loader.load(File.join(path, "deploy.yml"))
+      config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
       proxy = config.servers["web"].proxy || raise "Expected web proxy config"
       proxy.app_port.should eq(8000)
       proxy.healthcheck.path.should eq("/health")
@@ -118,9 +125,9 @@ describe "Meridian::Init::Service" do
         run_init_service(path, "\n95.216.1.10\n")
       end
 
-      File.exists?(File.join(path, "deploy.yml")).should be_false
+      File.exists?(File.join(path, ".meridian/deploy.yml")).should be_false
+      File.exists?(File.join(path, ".meridian")).should be_false
       File.exists?(File.join(path, ".env")).should be_false
-      File.exists?(File.join(path, ".gitignore")).should be_false
     end
   end
 end

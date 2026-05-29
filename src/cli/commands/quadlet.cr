@@ -4,7 +4,7 @@ module Meridian
       class Quadlet < Command
         @color : ::Meridian::Quadlet::Color? = nil
         @output_dir = "./quadlet-preview"
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "quadlet"
@@ -27,7 +27,7 @@ module Meridian
             @color = ::Meridian::Quadlet::Color.parse?(value) || raise ParseError.new("Invalid color: #{value}")
           end
           parser.on("--output-dir DIR", "Directory for generated Quadlet files") { |value| @output_dir = value }
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |value| @file = value }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |value| @file = value }
         end
 
         def rescuable : Array(Exception.class)

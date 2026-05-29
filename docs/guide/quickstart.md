@@ -29,7 +29,16 @@ meridian init
 
 For Marten projects, Meridian recognizes the standard project layout, sets `MARTEN_ENV=production`, and reuses `/health` if you have defined that route.
 
-This writes a `deploy.yml` that you should review before the first deploy. Update at minimum the host address, public hostname, and image name:
+Everything Meridian owns lives under a single `.meridian/` directory, so your repo root stays uncluttered:
+
+```
+.meridian/
+  deploy.yml      # your deploy config — commit this
+  hooks/          # optional deploy hooks
+  .gitignore      # ignores secrets, cache/, tmp/
+```
+
+This writes a `.meridian/deploy.yml` that you should review before the first deploy. Update at minimum the host address, public hostname, and image name:
 
 ```yaml
 service: my-app

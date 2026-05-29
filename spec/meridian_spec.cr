@@ -61,7 +61,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["deploy", "--file", config_path], orchestrator_factory: orchestrator_factory)
+        result = run_cli(["deploy", "--config", config_path], orchestrator_factory: orchestrator_factory)
 
         result.exit_code.should eq(0)
         captured_service.should eq("myapp")
@@ -83,7 +83,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["deploy", "--file", config_path], orchestrator_factory: orchestrator_factory)
+        result = run_cli(["deploy", "--config", config_path], orchestrator_factory: orchestrator_factory)
 
         result.exit_code.should eq(1)
         result.output.should contain("pull failed")
@@ -104,7 +104,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["setup", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+        result = run_cli(["setup", "--config", config_path], proxy_manager_factory: proxy_manager_factory)
 
         result.exit_code.should eq(0)
         captured_service.should eq("myapp")
@@ -126,7 +126,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["setup", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+        result = run_cli(["setup", "--config", config_path], proxy_manager_factory: proxy_manager_factory)
 
         result.exit_code.should eq(1)
         result.output.should contain("proxy start failed")
@@ -146,7 +146,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["rollback", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["rollback", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/.meridian-color"))
@@ -167,7 +167,15 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian deploy [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
+      result.output.should contain(".meridian/deploy.yml")
+    end
+
+    it "rejects the removed --file flag" do
+      result = run_cli(["deploy", "--file", "deploy.yml"])
+
+      result.exit_code.should eq(1)
+      result.output.should contain("--file")
     end
 
     it "prints help for the setup subcommand" do
@@ -175,7 +183,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian setup [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "runs the status subcommand with the loaded config" do
@@ -189,7 +197,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["status", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["status", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         result.output.should contain("role")
@@ -203,7 +211,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian status [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "runs the check subcommand with the loaded config" do
@@ -232,7 +240,7 @@ describe "Meridian::CLI" do
           ssh_ok
         )
 
-        result = run_cli(["check", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["check", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         result.output.should contain("Check passed")
@@ -245,7 +253,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian check [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "runs the logs subcommand on the selected host" do
@@ -257,7 +265,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["logs", "--host", "192.168.1.10", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["logs", "--host", "192.168.1.10", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         streaming_runner.invocations.map(&.host).should eq(["192.168.1.10"])
@@ -276,7 +284,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["proxy", "remove", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+        result = run_cli(["proxy", "remove", "--config", config_path], proxy_manager_factory: proxy_manager_factory)
 
         result.exit_code.should eq(0)
         fake_manager.should_not be_nil
@@ -295,7 +303,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["accessory", "start", "db", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["accessory", "start", "db", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         runner.invocations.compact_map(&.remote_command).should contain("cat > .config/containers/systemd/db.container")
@@ -313,7 +321,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["accessory", "stop", "db", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["accessory", "stop", "db", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         runner.invocations.compact_map(&.remote_command).should contain("systemctl --user stop db.service")
@@ -329,7 +337,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["accessory", "logs", "db", "--file", config_path], ssh_executor: executor)
+        result = run_cli(["accessory", "logs", "db", "--config", config_path], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         streaming_runner.invocations.map(&.host).should eq(["192.168.1.20"])
@@ -349,7 +357,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["proxy", "remove", "--file", config_path], proxy_manager_factory: proxy_manager_factory)
+        result = run_cli(["proxy", "remove", "--config", config_path], proxy_manager_factory: proxy_manager_factory)
 
         result.exit_code.should eq(1)
         result.output.should contain("proxy stop failed")
@@ -376,7 +384,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian proxy remove [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "runs the exec subcommand inside the active role container" do
@@ -392,7 +400,7 @@ describe "Meridian::CLI" do
           ssh_ok("true\n"),
         )
 
-        result = run_cli(["exec", "web", "--file", config_path, "--", "uptime"], ssh_executor: executor)
+        result = run_cli(["exec", "web", "--config", config_path, "--", "uptime"], ssh_executor: executor)
 
         result.exit_code.should eq(0)
         streaming_runner.invocations.last.host.should eq("192.168.1.10")
@@ -414,7 +422,7 @@ describe "Meridian::CLI" do
           ssh_ok("true\n"),
         )
 
-        result = run_cli(["exec", "web", "--file", config_path, "--", "false"], ssh_executor: executor)
+        result = run_cli(["exec", "web", "--config", config_path, "--", "false"], ssh_executor: executor)
 
         result.exit_code.should eq(23)
       end
@@ -434,7 +442,7 @@ describe "Meridian::CLI" do
           ssh_ok("true\n"),
         )
 
-        result = run_cli(["exec", "web", "--file", config_path, "--", "uptime"], ssh_executor: executor)
+        result = run_cli(["exec", "web", "--config", config_path, "--", "uptime"], ssh_executor: executor)
 
         result.output.should eq("hello\nwarn\n")
       end
@@ -460,7 +468,7 @@ describe "Meridian::CLI" do
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]")
       result.output.should contain("--host HOST")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "prints help for the accessory command" do
@@ -478,7 +486,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian accessory start NAME [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "prints help for the accessory stop subcommand" do
@@ -486,7 +494,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian accessory stop NAME [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "prints help for the accessory logs subcommand" do
@@ -494,7 +502,7 @@ describe "Meridian::CLI" do
 
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian accessory logs NAME [options]")
-      result.output.should contain("--file PATH")
+      result.output.should contain("--config PATH")
     end
 
     it "exits with a non-zero code for unknown accessory subcommands" do
@@ -517,7 +525,7 @@ describe "Meridian::CLI" do
         output_dir = File.join(path, "preview")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["quadlet", "--color", "green", "--output-dir", output_dir, "--file", config_path])
+        result = run_cli(["quadlet", "--color", "green", "--output-dir", output_dir, "--config", config_path])
 
         result.exit_code.should eq(0)
         result.output.should contain("Wrote Quadlet preview to #{output_dir}")
@@ -534,7 +542,7 @@ describe "Meridian::CLI" do
         File.write(config_path, FULL_CONFIG)
 
         Dir.cd(path) do
-          result = run_cli(["quadlet", "--color", "green", "--file", config_path])
+          result = run_cli(["quadlet", "--color", "green", "--config", config_path])
 
           result.exit_code.should eq(0)
           File.exists?(File.join(path, "quadlet-preview", "myapp-green.container")).should be_true
@@ -549,7 +557,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["quadlet", "--file", config_path])
+        result = run_cli(["quadlet", "--config", config_path])
 
         result.exit_code.should eq(1)
         result.output.should contain("Missing required option: --color")
@@ -562,7 +570,7 @@ describe "Meridian::CLI" do
         output_dir = File.join(path, "preview")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["quadlet", "--color", "red", "--output-dir", output_dir, "--file", config_path])
+        result = run_cli(["quadlet", "--color", "red", "--output-dir", output_dir, "--config", config_path])
 
         result.exit_code.should eq(1)
         result.output.should contain("Invalid color: red")
@@ -607,7 +615,7 @@ describe "Meridian::CLI" do
         config_path = File.join(path, "deploy.yml")
         File.write(config_path, FULL_CONFIG)
 
-        result = run_cli(["server", "bootstrap", "--file", config_path])
+        result = run_cli(["server", "bootstrap", "--config", config_path])
         result.exit_code.should eq(1)
         result.output.should contain("Multiple hosts")
       end
@@ -643,7 +651,7 @@ describe "Meridian::CLI lock and audit commands" do
       config_path = File.join(path, "deploy.yml")
       File.write(config_path, MINIMAL_CONFIG)
 
-      result = run_cli(["lock", "status", "--file", config_path], ssh_executor: executor)
+      result = run_cli(["lock", "status", "--config", config_path], ssh_executor: executor)
 
       result.exit_code.should eq(0)
       result.output.should contain("No deploy lock held on 192.168.1.10")
@@ -659,7 +667,7 @@ describe "Meridian::CLI lock and audit commands" do
       File.write(config_path, MINIMAL_CONFIG)
 
       result = run_cli(
-        ["lock", "acquire", "--message", "maintenance", "--file", config_path],
+        ["lock", "acquire", "--message", "maintenance", "--config", config_path],
         ssh_executor: executor
       )
 
@@ -687,7 +695,7 @@ describe "Meridian::CLI lock and audit commands" do
       config_path = File.join(path, "deploy.yml")
       File.write(config_path, MINIMAL_CONFIG)
 
-      result = run_cli(["lock", "acquire", "--file", config_path], ssh_executor: executor)
+      result = run_cli(["lock", "acquire", "--config", config_path], ssh_executor: executor)
 
       result.exit_code.should eq(1)
       result.output.should contain("held by ops@ci since 2026-05-20T09:00:00Z: release freeze")
@@ -707,7 +715,7 @@ describe "Meridian::CLI lock and audit commands" do
       config_path = File.join(path, "deploy.yml")
       File.write(config_path, MINIMAL_CONFIG)
 
-      result = run_cli(["lock", "release", "--file", config_path], ssh_executor: executor)
+      result = run_cli(["lock", "release", "--config", config_path], ssh_executor: executor)
 
       result.exit_code.should eq(0)
       result.output.should contain("Releasing deploy lock on 192.168.1.10")
@@ -738,7 +746,7 @@ describe "Meridian::CLI lock and audit commands" do
       File.write(config_path, MINIMAL_CONFIG)
 
       result = run_cli(
-        ["audit", "--host", "192.168.1.10", "--file", config_path],
+        ["audit", "--host", "192.168.1.10", "--config", config_path],
         ssh_executor: executor
       )
 

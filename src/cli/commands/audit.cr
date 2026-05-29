@@ -2,7 +2,7 @@ module Meridian
   module CLI
     module Commands
       class Audit < Command
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
         @host : String? = nil
         @lines = ::Meridian::Commands::Audit::DEFAULT_LIMIT
 
@@ -23,7 +23,7 @@ module Meridian
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
           parser.on("--host HOST", "Limit to a single configured host") { |v| @host = v }
           parser.on("--lines N", "Entries to show per host (default: #{@lines})") do |v|
             @lines = v.to_i? || raise ParseError.new("Invalid --lines value: #{v}")

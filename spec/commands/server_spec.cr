@@ -41,7 +41,7 @@ private def make_invocation(
   passwordless_sudo : Bool = true,
   rootless_low_ports : Bool = true,
   rootless_port_start : Int32 = 80,
-  file : String = "deploy.yml",
+  file : String = ".meridian/deploy.yml",
 ) : Meridian::CLI::ServerBootstrapInvocation
   Meridian::CLI::ServerBootstrapInvocation.new(
     host: host,

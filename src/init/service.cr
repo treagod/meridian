@@ -55,30 +55,24 @@ module Meridian
         print_detection_summary(detected)
         answers = collect_answers(detected)
 
-        deploy_yml_path = root_path("deploy.yml")
-        env_path = root_path(".env")
-        gitignore_path = root_path(".gitignore")
+        deploy_yml_path = root_path(Meridian::Paths::CONFIG_FILE)
+        hooks_dir = root_path(Meridian::Paths::HOOKS_DIR)
+        gitignore_path = File.join(root_path(Meridian::Paths::CONFIG_DIR), ".gitignore")
 
-        preflight!(deploy_yml_path, env_path, force)
+        preflight!(deploy_yml_path, force)
 
         deploy_yml = render_deploy_yml(answers)
         validate_deploy_yml!(deploy_yml)
-        env_file = render_env_file(answers)
 
+        Dir.mkdir_p(hooks_dir)
         File.write(deploy_yml_path, deploy_yml)
-        File.write(env_path, env_file)
-        gitignore_result = update_gitignore(gitignore_path)
+        File.write(gitignore_path, GITIGNORE_CONTENTS)
 
-        @output.puts "Created deploy.yml"
-        @output.puts "Created .env  (fill in the secret values before deploying)"
-        case gitignore_result
-        when :created
-          @output.puts "Created .gitignore and added .env"
-        when :added
-          @output.puts "Added .env to .gitignore"
-        when :unchanged
-          @output.puts ".env already present in .gitignore"
-        end
+        @output.puts "Created #{Meridian::Paths::CONFIG_FILE}"
+        @output.puts "Created #{File.join(Meridian::Paths::CONFIG_DIR, ".gitignore")}"
+        @output.puts "Created #{Meridian::Paths::HOOKS_DIR}/"
+        @output.puts
+        @output.puts "Everything Meridian owns lives under #{Meridian::Paths::CONFIG_DIR}/."
         @output.puts
         @output.puts "Next step: meridian setup"
       rescue ex : Config::ValidationError | YAML::ParseException
@@ -218,14 +212,11 @@ module Meridian
         end
       end
 
-      private def preflight!(deploy_yml_path : String, env_path : String, force : Bool) : Nil
+      private def preflight!(deploy_yml_path : String, force : Bool) : Nil
         return if force
 
         if File.exists?(deploy_yml_path)
-          raise OverwriteRefused.new("deploy.yml already exists. Use --force to overwrite it.")
-        end
-        if File.exists?(env_path)
-          raise OverwriteRefused.new(".env already exists. Use --force to overwrite it.")
+          raise OverwriteRefused.new("#{Meridian::Paths::CONFIG_FILE} already exists. Use --force to overwrite it.")
         end
       end
 
@@ -309,43 +300,6 @@ module Meridian
         end
       end
 
-      private def render_env_file(answers : Answers) : String
-        secret_names = [] of String
-        if answers.transfer_mode.registry?
-          secret_names << "REGISTRY_PASSWORD"
-        end
-
-        String.build do |io|
-          io.puts "# Fill in secret values used by deploy.yml"
-          secret_names.uniq.sort!.each do |name|
-            io.puts "#{name}="
-          end
-        end
-      end
-
-      private def update_gitignore(path : String) : Symbol
-        content =
-          if File.exists?(path)
-            File.read(path)
-          else
-            ""
-          end
-
-        lines = content.lines(chomp: true)
-        return :unchanged if lines.includes?(".env")
-
-        updated_content = String.build do |io|
-          io << content
-          if !content.empty? && !content.ends_with?('\n')
-            io.puts
-          end
-          io.puts ".env"
-        end
-
-        File.write(path, updated_content)
-        content.empty? ? :created : :added
-      end
-
       private def image_from_git_remote(remote : String?) : String?
         return unless remote
 
@@ -387,6 +341,8 @@ module Meridian
       end
 
       private EMPTY_ENV = {} of String => String
+
+      private GITIGNORE_CONTENTS = "secrets\ncache/\ntmp/\n"
     end
   end
 end

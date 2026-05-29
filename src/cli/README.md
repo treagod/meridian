@@ -23,7 +23,7 @@ module Meridian
   module CLI
     module Commands
       class Prune < Command
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
         @keep = 3
 
         def name : String
@@ -43,7 +43,7 @@ module Meridian
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
           parser.on("--keep N", "Number of recent images to retain (default: 3)") { |v| @keep = v.to_i }
         end
 

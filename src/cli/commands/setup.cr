@@ -2,7 +2,7 @@ module Meridian
   module CLI
     module Commands
       class Setup < Command
-        @file = "deploy.yml"
+        @file = Meridian::Paths::CONFIG_FILE
 
         def name : String
           "setup"
@@ -21,7 +21,7 @@ module Meridian
         end
 
         def configure(parser : OptionParser) : Nil
-          parser.on("--file PATH", "Path to deploy config (default: deploy.yml)") { |v| @file = v }
+          parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
         end
 
         def rescuable : Array(Exception.class)

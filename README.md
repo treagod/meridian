@@ -35,8 +35,8 @@ You'll need Crystal 1.17+ to build. Target servers need Podman 4.4+ and systemd.
 ## Five minutes from zero to deployed
 
 ```bash
-meridian init                              # generates deploy.yml from your project
-# edit deploy.yml: set hosts, ssh.keys, image, and transfer mode
+meridian init                              # generates .meridian/deploy.yml from your project
+# edit .meridian/deploy.yml: set hosts, ssh.keys, image, and transfer mode
 meridian server bootstrap --host 1.2.3.4   # provisions a fresh Debian/Ubuntu box
 meridian setup                             # installs the shared proxy network and kamal-proxy
 meridian check                             # preflight: SSH, Podman, secrets, proxy
