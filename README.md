@@ -73,9 +73,12 @@ Generates the `.container` files locally without contacting any server. Useful f
 
 ### `secret`
 
-Podman secrets, managed remotely. Names go in `env.secret` in `deploy.yml`, values are set with `meridian secret set NAME` (reads from stdin if you don't pass `--value`).
+Podman secrets, managed remotely. Names go in `env.secret` in `deploy.yml`, values are generated with `meridian secret gen NAME` or set explicitly with `meridian secret set NAME` (reads from stdin if you don't pass `--value`). `secret gen` refuses to overwrite an existing remote secret unless you pass `--force`.
 
 ```bash
+meridian secret gen SECRET_KEY_BASE       # 32 random bytes, hex-encoded
+meridian secret gen JWT_SECRET --format base64url
+meridian secret gen API_TOKEN --print     # print locally; do not store remotely
 meridian secret set DATABASE_URL          # stdin
 meridian secret set DATABASE_URL --value 's3cr3t' --role workers
 meridian secret ls

@@ -62,6 +62,7 @@ module Meridian
       Commands::AccessoryStop,
       Commands::AccessoryLogs,
       Commands::Secret,
+      Commands::SecretGen,
       Commands::SecretSet,
       Commands::SecretRm,
       Commands::SecretLs,

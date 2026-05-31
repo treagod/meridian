@@ -63,12 +63,14 @@ env:
   clear:
     MARTEN_ENV: production
   secret:
+    - SECRET_KEY_BASE
     - DATABASE_URL
 ```
 
 Set any remote secrets listed in `env.secret` before checking or deploying:
 
 ```bash
+meridian secret gen SECRET_KEY_BASE
 printf '%s' "$DATABASE_URL" | meridian secret set DATABASE_URL
 ```
 

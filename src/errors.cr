@@ -23,6 +23,11 @@ module Meridian
     end
   end
 
+  module Commands
+    class SecretExists < Exception
+    end
+  end
+
   module Deploy
     class DeployFailed < Exception
     end
