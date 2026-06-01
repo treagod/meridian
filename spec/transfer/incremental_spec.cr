@@ -124,7 +124,7 @@ describe "Meridian::Transfer::Incremental" do
       rsync_request.command.should contain("--stats")
       rsync_request.command.should contain("--delete")
       rsync_request.command.should contain("deployer@192.168.1.10:/tmp/meridian-oci/myapp/")
-      rsync_shell = rsync_request.command[rsync_request.command.index("-e").not_nil! + 1]
+      rsync_shell = rsync_request.command[rsync_request.command.index!("-e") + 1]
       rsync_shell.should eq("ssh -p 2222 -i /tmp/id_ed25519")
     end
 
@@ -151,7 +151,7 @@ describe "Meridian::Transfer::Incremental" do
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       rsync_request = requests[1]
-      rsync_shell = rsync_request.command[rsync_request.command.index("-e").not_nil! + 1]
+      rsync_shell = rsync_request.command[rsync_request.command.index!("-e") + 1]
       rsync_shell.should eq("ssh -J bastion.example.com -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=3")
     end
 

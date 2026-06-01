@@ -1,5 +1,5 @@
 name: meridian
-version: 0.2.0
+version: 0.1.0
 
 authors:
   - Marvin Ahlgrimm <marv.ahlgrimm@gmail.com>
@@ -13,6 +13,8 @@ crystal: '>= 1.17.0'
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
-    branch: master
+    # Pinned to the exact commit already in shard.lock. `branch: master` let
+    # ameba's ruleset drift and silently break the `make lint` release gate.
+    commit: ae09e383a062d50cec1dd7cc93382ca6ad2363ce
 
 license: MIT

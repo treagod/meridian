@@ -62,7 +62,7 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
-        YAML
+          YAML
         runner: runner,
         output: output
       )
@@ -103,7 +103,7 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
-        YAML
+          YAML
         runner: runner,
         output: output
       )
@@ -147,7 +147,7 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
-        YAML
+          YAML
         runner: runner,
         output: output
       )

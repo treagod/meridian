@@ -30,7 +30,7 @@ describe "Meridian::Commands::Logs" do
       command.run(["192.168.1.10"])
 
       invocation = streaming_runner.invocations.last
-      remote_command = invocation.remote_command.not_nil!
+      remote_command = value!(invocation.remote_command)
       remote_command.should contain("journalctl --user")
       remote_command.should contain("-f")
       remote_command.should contain("--no-pager")
@@ -43,7 +43,7 @@ describe "Meridian::Commands::Logs" do
       command.run(["192.168.1.10"])
 
       invocation = streaming_runner.invocations.last
-      remote_command = invocation.remote_command.not_nil!
+      remote_command = value!(invocation.remote_command)
       remote_command.should contain("-u myapp-blue.service")
       remote_command.should contain("-u myapp-green.service")
     end

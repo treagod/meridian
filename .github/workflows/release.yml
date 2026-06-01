@@ -29,7 +29,7 @@ jobs:
           docker run --rm \
             -v "$PWD":/workspace \
             -w /workspace \
-            crystallang/crystal:latest-alpine \
+            crystallang/crystal:1.19.1-alpine \
             sh -c "
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
@@ -43,13 +43,22 @@ jobs:
             --platform linux/arm64 \
             -v "$PWD":/workspace \
             -w /workspace \
-            crystallang/crystal:latest-alpine \
+            crystallang/crystal:1.19.1-alpine \
             sh -c "
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
                 -o meridian-${{ steps.version.outputs.VERSION }}-linux-arm64 && \
               llvm-strip meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
             "
+
+      - name: Verify binary version matches tag
+        run: |
+          built="$(./meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64 --version)"
+          echo "Built binary reports version: $built"
+          if [ "$built" != "${{ steps.version.outputs.VERSION }}" ]; then
+            echo "::error::Binary version '$built' does not match tag '${{ steps.version.outputs.VERSION }}' (check shard.yml version)" >&2
+            exit 1
+          fi
 
       - name: Generate checksums
         run: |

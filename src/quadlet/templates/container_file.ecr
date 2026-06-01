@@ -13,11 +13,11 @@ Environment=<%= key %>=<%= value %>
 <% @secrets.each do |secret| %>
 Secret=<%= secret %>
 <% end %>
-<% @volumes.each do |v| %>
-Volume=<%= v %>
+<% @volumes.each do |volume| %>
+Volume=<%= volume %>
 <% end %>
-<% @ports.each do |p| %>
-PublishPort=<%= p %>
+<% @ports.each do |port| %>
+PublishPort=<%= port %>
 <% end %>
 <% if command = @command %>
 Exec=<%= command %>

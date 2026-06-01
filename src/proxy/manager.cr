@@ -72,7 +72,7 @@ module Meridian
           remove_current_manifest(host)
           @audit_logger.record(host, "proxy", "remove")
 
-          other_services = other_service_manifests(host).map(&.service).sort
+          other_services = other_service_manifests(host).map(&.service).sort!
           if other_services.present? && !force
             log(host, "Leaving shared #{PROXY_SERVICE} running; other services are registered: #{other_services.join(", ")}")
             next

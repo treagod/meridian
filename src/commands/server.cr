@@ -38,7 +38,7 @@ module Meridian
       end
 
       private def resolve_single_host : String
-        hosts = config.servers.values.flat_map(&.hosts).uniq
+        hosts = config.servers.values.flat_map(&.hosts).uniq!
         if hosts.size == 1
           hosts.first
         else

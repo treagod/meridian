@@ -21,7 +21,7 @@ class ServerContentCapturingRunner < FakeBootstrapRunner
 
   def run_interactive(command : String, args : Array(String), step : String) : Nil
     if command == "scp"
-      local_path = args.find { |arg| arg.includes?("meridian-bootstrap") }
+      local_path = args.find(&.includes?("meridian-bootstrap"))
       if local_path && File.exists?(local_path)
         @captured_scripts[step] = File.read(local_path)
       end
@@ -91,8 +91,8 @@ describe Meridian::Commands::Server do
         command = build_server_command(content: config_yaml, runner: runner)
         command.bootstrap(make_invocation(host: "1.2.3.4", deploy_user: nil))
 
-        deploy_op = runner.invocations.find { |i| i.args.includes?("BatchMode=yes") }
-        deploy_op.not_nil!.args.any?(&.includes?("customdeploy@")).should be_true
+        deploy_op = runner.invocations.find(&.args.includes?("BatchMode=yes"))
+        value!(deploy_op).args.any?(&.includes?("customdeploy@")).should be_true
       end
     end
 
@@ -128,8 +128,8 @@ describe Meridian::Commands::Server do
         command = build_server_command(content: config_yaml, runner: runner)
         command.bootstrap(make_invocation(host: "1.2.3.4", deploy_user: "myuser"))
 
-        deploy_op = runner.invocations.find { |i| i.args.includes?("BatchMode=yes") }
-        deploy_op.not_nil!.args.any?(&.includes?("myuser@")).should be_true
+        deploy_op = runner.invocations.find(&.args.includes?("BatchMode=yes"))
+        value!(deploy_op).args.any?(&.includes?("myuser@")).should be_true
       end
     end
 
@@ -165,7 +165,7 @@ describe Meridian::Commands::Server do
         command = build_server_command(content: config_yaml, runner: runner)
         command.bootstrap(make_invocation(host: "1.2.3.4", port: nil))
 
-        runner.invocations.all? { |i| i.args.includes?("2222") }.should be_true
+        runner.invocations.all?(&.args.includes?("2222")).should be_true
       end
     end
 
@@ -206,8 +206,8 @@ describe Meridian::Commands::Server do
           command = build_server_command(content: config_yaml, runner: runner)
           command.bootstrap(make_invocation(host: "1.2.3.4"))
 
-          deploy_op = runner.invocations.find { |i| i.args.includes?("BatchMode=yes") }
-          deploy_op.not_nil!.args.should contain(priv)
+          deploy_op = runner.invocations.find(&.args.includes?("BatchMode=yes"))
+          value!(deploy_op).args.should contain(priv)
         ensure
           if old_home
             ENV["HOME"] = old_home
@@ -374,8 +374,8 @@ describe Meridian::Commands::Server do
         command = build_server_command(content: config_yaml, runner: runner)
         command.bootstrap(make_invocation)
 
-        phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]).not_nil!
-        install_line = phase1.lines.find(&.includes?("apt-get install -y")).not_nil!
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        install_line = phase1.lines.find!(&.includes?("apt-get install -y"))
         install_line.should contain(%("zstd"))
         install_line.should contain(%("rsync"))
         install_line.should contain(%("skopeo"))

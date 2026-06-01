@@ -152,6 +152,7 @@ module Meridian
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def zero_downtime_deploy_to_host(host : String, role : String) : Nil
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
@@ -924,7 +925,7 @@ module Meridian
       end
 
       private def run_asset_build_on_host(host : String) : Nil
-        assets = @config.assets.not_nil!
+        assets = @config.assets || raise DeployFailed.new("assets configuration missing")
 
         log(host, "Running asset builder")
         run_ssh!(host, ["systemctl", "--user", "restart", "#{@config.service}-assets-builder.service"])

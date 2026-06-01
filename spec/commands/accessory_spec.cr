@@ -39,7 +39,7 @@ def accessory_clear_env_config : String
           clear:
             POSTGRES_DB: meridian
         cmd: postgres -c shared_buffers=256MB
-  YAML
+    YAML
 end
 
 def accessory_missing_host_config : String
@@ -55,7 +55,7 @@ def accessory_missing_host_config : String
     accessories:
       db:
         image: docker.io/library/postgres:16
-  YAML
+    YAML
 end
 
 def accessory_commands_for(runner : FakeSSHRunner, host : String) : Array(String)
@@ -76,7 +76,7 @@ describe "Meridian::Commands::Accessory" do
 
       upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/db.container"))
       upload.should_not be_nil
-      input = upload.not_nil!.input || raise "Expected uploaded Quadlet content"
+      input = value!(upload).input || raise "Expected uploaded Quadlet content"
       input.should contain("Image=docker.io/library/postgres:16")
       input.should contain("ContainerName=db")
     end
@@ -87,7 +87,7 @@ describe "Meridian::Commands::Accessory" do
 
       command.start("db")
 
-      runner.invocations.compact_map(&.host).uniq.should eq(["192.168.1.20"])
+      runner.invocations.compact_map(&.host).uniq!.should eq(["192.168.1.20"])
     end
 
     it "runs daemon-reload before starting the accessory" do
@@ -112,7 +112,7 @@ describe "Meridian::Commands::Accessory" do
 
       upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/db.container"))
       upload.should_not be_nil
-      input = upload.not_nil!.input || raise "Expected uploaded Quadlet content"
+      input = value!(upload).input || raise "Expected uploaded Quadlet content"
       input.should contain("PublishPort=5432:5432")
     end
 
@@ -124,7 +124,7 @@ describe "Meridian::Commands::Accessory" do
 
       upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/db.container"))
       upload.should_not be_nil
-      input = upload.not_nil!.input || raise "Expected uploaded Quadlet content"
+      input = value!(upload).input || raise "Expected uploaded Quadlet content"
       input.should contain("Volume=pgdata:/var/lib/postgresql/data")
     end
 

@@ -11,7 +11,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:latest
+      image: crystallang/crystal:1.19.1
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -23,8 +23,34 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:latest
+      image: crystallang/crystal:1.19.1
     steps:
       - uses: actions/checkout@v4
       - name: Check formatting
         run: crystal tool format --check -e tmp
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container:
+      image: crystallang/crystal:1.19.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: shards install
+      # bin/ is gitignored, so run the ameba wrapper straight from lib/
+      # (equivalent to the `make lint` target devs run locally).
+      - name: Run ameba
+        run: crystal run lib/ameba/bin/ameba.cr
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    container:
+      image: crystallang/crystal:1.19.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: shards install --without-development
+      - name: Build release binary
+        run: crystal build src/meridian_cli.cr --release -o meridian

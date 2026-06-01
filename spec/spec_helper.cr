@@ -7,6 +7,13 @@ record FakeSSHInvocation, command : String, args : Array(String), input : String
 record FakeSSHStreamInvocation, command : String, args : Array(String)
 record FakeSSHStreamResult, exit_code : Int32, stdout : String = "", stderr : String = ""
 
+# Unwrap a nilable value in specs, failing the example if it is nil. Used in
+# assertions in place of `not_nil!` so test code carries no production bang.
+def value!(value : T?) : T forall T
+  value.should_not be_nil
+  value.as(T)
+end
+
 struct FakeSSHInvocation
   def host : String?
     target = target_host

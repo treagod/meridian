@@ -9,7 +9,7 @@ module Meridian
 
         if env = @config.env
           env.clear.each { |k, v| cmd << "--env" << "#{k}=#{v}" }
-          env.secret.each { |s| cmd << "--secret" << "#{s},type=env,target=#{s}" }
+          env.secret.each { |secret| cmd << "--secret" << "#{secret},type=env,target=#{secret}" }
         end
 
         cmd << @config.image

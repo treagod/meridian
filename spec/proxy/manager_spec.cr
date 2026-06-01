@@ -95,7 +95,7 @@ describe "Meridian::Proxy::Manager" do
       end
 
       network_command.should_not be_nil
-      commands.index(network_command.not_nil!).not_nil!.should be < commands.index("systemctl --user start kamal-proxy.service").not_nil!
+      commands.index!(value!(network_command)).should be < commands.index!("systemctl --user start kamal-proxy.service")
     end
 
     it "connects a running legacy proxy container to the shared proxy network" do
@@ -178,7 +178,7 @@ describe "Meridian::Proxy::Manager" do
 
       commands = runner.invocations.select { |invocation| invocation.host == "192.168.1.10" }.compact_map(&.remote_command)
       commands.should contain("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy")
-      commands.index("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy").not_nil!.should be < commands.index("systemctl --user start kamal-proxy.service").not_nil!
+      commands.index!("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy").should be < commands.index!("systemctl --user start kamal-proxy.service")
     end
 
     it "uses a custom data_dir in the uploaded Quadlet when configured" do

@@ -76,7 +76,7 @@ module Meridian
           )
         end
 
-        accessories = (config.accessories || {} of String => Config::AccessoryConfig).keys.sort
+        accessories = (config.accessories || {} of String => Config::AccessoryConfig).keys.sort!
         networks = [config.service]
         networks << Paths::SHARED_PROXY_NETWORK if proxy_routes.present?
         generated_files = generated_files_for(config)
@@ -166,7 +166,7 @@ module Meridian
       end
 
       private def same_owner?(other : ServiceManifest) : Bool
-        proxy_routes.map(&.display).sort == other.proxy_routes.map(&.display).sort &&
+        proxy_routes.map(&.display).sort! == other.proxy_routes.map(&.display).sort! &&
           asset_host == other.asset_host &&
           ports == other.ports &&
           accessories == other.accessories &&

@@ -29,7 +29,7 @@ describe "Meridian::Runtime::ReleaseState" do
       second_state = Meridian::Runtime::ReleaseState.promote(first_state, second)
 
       second_state.current.release_id.should eq("r2")
-      second_state.previous.not_nil!.release_id.should eq("r1")
+      value!(second_state.previous).release_id.should eq("r1")
     end
 
     it "drops the older previous when a third release lands" do
@@ -42,7 +42,7 @@ describe "Meridian::Runtime::ReleaseState" do
       state = Meridian::Runtime::ReleaseState.promote(state, r3)
 
       state.current.release_id.should eq("r3")
-      state.previous.not_nil!.release_id.should eq("r2")
+      value!(state.previous).release_id.should eq("r2")
     end
   end
 
@@ -55,7 +55,7 @@ describe "Meridian::Runtime::ReleaseState" do
       swapped = state.swap
 
       swapped.current.release_id.should eq("b")
-      swapped.previous.not_nil!.release_id.should eq("a")
+      value!(swapped.previous).release_id.should eq("a")
     end
 
     it "raises when there is no previous release" do

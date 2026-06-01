@@ -26,7 +26,7 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.parse(yaml)
@@ -76,7 +76,7 @@ describe "Meridian::Config::Loader" do
             managed: false
             units:
               - myapp.service
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       server = config.servers["web"]
@@ -95,7 +95,7 @@ describe "Meridian::Config::Loader" do
             hosts:
               - 192.168.1.10
             managed: false
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -115,7 +115,7 @@ describe "Meridian::Config::Loader" do
               - 192.168.1.10
             units:
               - myapp.service
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -137,7 +137,7 @@ describe "Meridian::Config::Loader" do
             hosts:
               - 192.168.1.12
             image: ghcr.io/myorg/myapp-worker:latest
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.servers["workers"].image.should eq("ghcr.io/myorg/myapp-worker:latest")
@@ -158,7 +158,7 @@ describe "Meridian::Config::Loader" do
             hosts:
               - 192.168.1.10
             unknown_key: bad
-      YAML
+        YAML
 
       expect_raises(Meridian::Config::ValidationError, /unknown_key/) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -195,7 +195,7 @@ describe "Meridian::Config::Loader" do
 
         transfer:
           mode: stream
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.transfer.try(&.mode).should eq(Meridian::Config::TransferMode::Stream)
@@ -212,7 +212,7 @@ describe "Meridian::Config::Loader" do
             hosts:
               - 192.168.1.10
             replicas: 2
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -233,7 +233,7 @@ describe "Meridian::Config::Loader" do
               - 192.168.1.10
             proxy:
               response_buffer: 1024
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -253,7 +253,7 @@ describe "Meridian::Config::Loader" do
             hosts:
               - 192.168.1.10
             typo: true
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -319,7 +319,7 @@ describe "Meridian::Config::Loader" do
 
         proxy:
           image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -339,7 +339,7 @@ describe "Meridian::Config::Loader" do
 
         proxy:
           image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -355,7 +355,7 @@ describe "Meridian::Config::Loader" do
 
         proxy:
           image: ghcr.io/basecamp/kamal-proxy:latest
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -375,7 +375,7 @@ describe "Meridian::Config::Loader" do
               - 192.168.1.10
 
         transfer: {}
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -412,7 +412,7 @@ describe "Meridian::Config::Loader" do
             template: true
             roles:
               - web
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
 
@@ -436,7 +436,7 @@ describe "Meridian::Config::Loader" do
         files:
           - source: config/nginx.conf
             destination: /home/deploy/nginx.conf
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
 
@@ -468,7 +468,7 @@ describe "Meridian::Config::Loader" do
                   - web
             after_deploy:
               - command: systemctl --user status myapp.service --no-pager
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       remote = config.hooks.try(&.remote) || raise "Expected remote hooks"
@@ -495,7 +495,7 @@ describe "Meridian::Config::Loader" do
             before_start:
               - command: systemctl --user start myapp.service
                 unknown_key: bad
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -522,7 +522,7 @@ describe "Meridian::Config::Loader" do
           command: python manage.py collectstatic --noinput
           output_dir: /app/staticfiles
           retain_releases: 3
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       assets = config.assets || raise "Expected assets config"
@@ -550,7 +550,7 @@ describe "Meridian::Config::Loader" do
           host: static.example.com
           command: bin/build-assets
           output_dir: /app/public/assets
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       assets = config.assets || raise "Expected assets config"
@@ -579,7 +579,7 @@ describe "Meridian::Config::Loader" do
           command: bin/build
           output_dir: /app/public
           unknown_key: oops
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -602,7 +602,7 @@ describe "Meridian::Config::Loader" do
           - source: config/Caddyfile
             destination: /home/deploy/Caddyfile
             unknown_key: oops
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -620,7 +620,7 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -638,7 +638,7 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
-      YAML
+        YAML
 
       expect_raises(Meridian::Config::ValidationError, /Invalid service name/) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -654,7 +654,7 @@ describe "Meridian::Config::Loader" do
           web:
             hosts:
               - 192.168.1.10
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.service.should eq("my-app_v2")
@@ -674,7 +674,7 @@ describe "Meridian::Config::Loader" do
           host: static.example.com
           command: bin/build-assets
           output_dir: /app/public/assets
-      YAML
+        YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
         Meridian::Config::Loader.load(write_config(yaml))
@@ -700,7 +700,7 @@ describe "Meridian::Config::Loader" do
           host: static.example.com
           command: bin/build-assets
           output_dir: /app/public/assets
-      YAML
+        YAML
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.assets.should_not be_nil

@@ -111,37 +111,37 @@ module Meridian
       private def print_banner : Nil
         @output.puts <<-TEXT
 
-        This script will:
-          1. Connect to #{@config.root_user}@#{@config.host} for the initial bootstrap (password prompt).
-          2. Update the system and install Podman, rootless helpers, UFW, and #{transfer_package_summary}.
-          3. Create '#{@config.deploy_user}', install your SSH public key, and enable lingering.
-          4. Open SSH (port #{@config.port}), HTTP, and HTTPS in UFW and enable the firewall.
-          5. #{@config.passwordless_sudo ? "Grant passwordless sudo to '#{@config.deploy_user}'." : "Keep normal sudo rules for '#{@config.deploy_user}'."}
-          6. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
-          7. #{@config.enable_auto_updates ? "Enable unattended security updates." : "Disable unattended automatic updates."}
-          8. Verify key-based SSH login for '#{@config.deploy_user}'.
-          9. Create rootless Podman directories for '#{@config.deploy_user}'.
-          10. Disable root SSH login and SSH password authentication.
+          This script will:
+            1. Connect to #{@config.root_user}@#{@config.host} for the initial bootstrap (password prompt).
+            2. Update the system and install Podman, rootless helpers, UFW, and #{transfer_package_summary}.
+            3. Create '#{@config.deploy_user}', install your SSH public key, and enable lingering.
+            4. Open SSH (port #{@config.port}), HTTP, and HTTPS in UFW and enable the firewall.
+            5. #{@config.passwordless_sudo ? "Grant passwordless sudo to '#{@config.deploy_user}'." : "Keep normal sudo rules for '#{@config.deploy_user}'."}
+            6. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
+            7. #{@config.enable_auto_updates ? "Enable unattended security updates." : "Disable unattended automatic updates."}
+            8. Verify key-based SSH login for '#{@config.deploy_user}'.
+            9. Create rootless Podman directories for '#{@config.deploy_user}'.
+            10. Disable root SSH login and SSH password authentication.
 
-        Notes:
-          - The first SSH/SCP steps will prompt for the #{@config.root_user} password interactively.
-          - After phase 1, the script validates deploy-key login before hardening SSH.
-        TEXT
+          Notes:
+            - The first SSH/SCP steps will prompt for the #{@config.root_user} password interactively.
+            - After phase 1, the script validates deploy-key login before hardening SSH.
+          TEXT
       end
 
       private def print_success_summary : Nil
         @output.puts <<-TEXT
 
-        Bootstrap completed successfully.
+          Bootstrap completed successfully.
 
-        You can now log in with:
-          ssh -i #{@config.private_key_file} #{@config.deploy_user}@#{@config.host}
+          You can now log in with:
+            ssh -i #{@config.private_key_file} #{@config.deploy_user}@#{@config.host}
 
-        Recommended next steps:
-          - Verify the firewall rules: sudo ufw status
-          - Verify rootless Podman as #{@config.deploy_user}: podman info
-          - Run: meridian setup
-        TEXT
+          Recommended next steps:
+            - Verify the firewall rules: sudo ufw status
+            - Verify rootless Podman as #{@config.deploy_user}: podman info
+            - Run: meridian setup
+          TEXT
       end
 
       private def write_temp_script(name : String, content : String) : String
@@ -227,126 +227,126 @@ module Meridian
 
       private def phase1_script(public_key_b64 : String) : String
         <<-BASH
-        #!/usr/bin/env bash
-        set -euo pipefail
+          #!/usr/bin/env bash
+          set -euo pipefail
 
-        export DEBIAN_FRONTEND=noninteractive
+          export DEBIAN_FRONTEND=noninteractive
 
-        DEPLOY_USER=#{@config.deploy_user.inspect}
-        PUBKEY_B64=#{public_key_b64.inspect}
-        ENABLE_AUTO_UPDATES=#{(@config.enable_auto_updates ? "yes" : "no").inspect}
-        PASSWORDLESS_SUDO=#{(@config.passwordless_sudo ? "yes" : "no").inspect}
-        ROOTLESS_LOW_PORTS=#{(@config.rootless_low_ports ? "yes" : "no").inspect}
-        ROOTLESS_PORT_START=#{@config.rootless_port_start.to_s.inspect}
+          DEPLOY_USER=#{@config.deploy_user.inspect}
+          PUBKEY_B64=#{public_key_b64.inspect}
+          ENABLE_AUTO_UPDATES=#{(@config.enable_auto_updates ? "yes" : "no").inspect}
+          PASSWORDLESS_SUDO=#{(@config.passwordless_sudo ? "yes" : "no").inspect}
+          ROOTLESS_LOW_PORTS=#{(@config.rootless_low_ports ? "yes" : "no").inspect}
+          ROOTLESS_PORT_START=#{@config.rootless_port_start.to_s.inspect}
 
-        apt-get update
-        apt-get -y upgrade
-        apt-get install -y #{package_install_list}
+          apt-get update
+          apt-get -y upgrade
+          apt-get install -y #{package_install_list}
 
-        systemctl enable --now ssh
-        ufw allow #{@config.port}/tcp
-        ufw allow 80/tcp
-        ufw allow 443/tcp
-        ufw --force enable
+          systemctl enable --now ssh
+          ufw allow #{@config.port}/tcp
+          ufw allow 80/tcp
+          ufw allow 443/tcp
+          ufw --force enable
 
-        if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
-          useradd --create-home --shell /bin/bash "$DEPLOY_USER"
-        fi
+          if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash "$DEPLOY_USER"
+          fi
 
-        usermod -aG sudo "$DEPLOY_USER"
+          usermod -aG sudo "$DEPLOY_USER"
 
-        HOME_DIR="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
-        SSH_DIR="$HOME_DIR/.ssh"
-        AUTH_KEYS="$SSH_DIR/authorized_keys"
+          HOME_DIR="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
+          SSH_DIR="$HOME_DIR/.ssh"
+          AUTH_KEYS="$SSH_DIR/authorized_keys"
 
-        install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$SSH_DIR"
-        touch "$AUTH_KEYS"
-        chown "$DEPLOY_USER:$DEPLOY_USER" "$AUTH_KEYS"
-        chmod 600 "$AUTH_KEYS"
+          install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$SSH_DIR"
+          touch "$AUTH_KEYS"
+          chown "$DEPLOY_USER:$DEPLOY_USER" "$AUTH_KEYS"
+          chmod 600 "$AUTH_KEYS"
 
-        PUBKEY_FILE="$(mktemp)"
-        trap 'rm -f "$PUBKEY_FILE"' EXIT
-        printf '%s' "$PUBKEY_B64" | base64 -d > "$PUBKEY_FILE"
-        PUBKEY_CONTENT="$(cat "$PUBKEY_FILE")"
+          PUBKEY_FILE="$(mktemp)"
+          trap 'rm -f "$PUBKEY_FILE"' EXIT
+          printf '%s' "$PUBKEY_B64" | base64 -d > "$PUBKEY_FILE"
+          PUBKEY_CONTENT="$(cat "$PUBKEY_FILE")"
 
-        if ! grep -qxF "$PUBKEY_CONTENT" "$AUTH_KEYS"; then
-          cat "$PUBKEY_FILE" >> "$AUTH_KEYS"
-          printf '\\n' >> "$AUTH_KEYS"
-        fi
+          if ! grep -qxF "$PUBKEY_CONTENT" "$AUTH_KEYS"; then
+            cat "$PUBKEY_FILE" >> "$AUTH_KEYS"
+            printf '\\n' >> "$AUTH_KEYS"
+          fi
 
-        chown "$DEPLOY_USER:$DEPLOY_USER" "$AUTH_KEYS"
-        chmod 600 "$AUTH_KEYS"
+          chown "$DEPLOY_USER:$DEPLOY_USER" "$AUTH_KEYS"
+          chmod 600 "$AUTH_KEYS"
 
-        if ! grep -qE "^${DEPLOY_USER}:" /etc/subuid; then
-          echo "${DEPLOY_USER}:100000:65536" >> /etc/subuid
-        fi
+          if ! grep -qE "^${DEPLOY_USER}:" /etc/subuid; then
+            echo "${DEPLOY_USER}:100000:65536" >> /etc/subuid
+          fi
 
-        if ! grep -qE "^${DEPLOY_USER}:" /etc/subgid; then
-          echo "${DEPLOY_USER}:100000:65536" >> /etc/subgid
-        fi
+          if ! grep -qE "^${DEPLOY_USER}:" /etc/subgid; then
+            echo "${DEPLOY_USER}:100000:65536" >> /etc/subgid
+          fi
 
-        if [ "$PASSWORDLESS_SUDO" = "yes" ]; then
-          cat > "/etc/sudoers.d/90-${DEPLOY_USER}" <<EOF
-        ${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL
-        EOF
-          chmod 440 "/etc/sudoers.d/90-${DEPLOY_USER}"
-          visudo -cf "/etc/sudoers.d/90-${DEPLOY_USER}"
-        fi
+          if [ "$PASSWORDLESS_SUDO" = "yes" ]; then
+            cat > "/etc/sudoers.d/90-${DEPLOY_USER}" <<EOF
+          ${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL
+          EOF
+            chmod 440 "/etc/sudoers.d/90-${DEPLOY_USER}"
+            visudo -cf "/etc/sudoers.d/90-${DEPLOY_USER}"
+          fi
 
-        loginctl enable-linger "$DEPLOY_USER"
+          loginctl enable-linger "$DEPLOY_USER"
 
-        if [ "$ENABLE_AUTO_UPDATES" = "yes" ]; then
-          cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-        APT::Periodic::Update-Package-Lists "1";
-        APT::Periodic::Download-Upgradeable-Packages "1";
-        APT::Periodic::AutocleanInterval "7";
-        APT::Periodic::Unattended-Upgrade "1";
-        EOF
-        else
-          cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-        APT::Periodic::Update-Package-Lists "0";
-        APT::Periodic::Download-Upgradeable-Packages "0";
-        APT::Periodic::AutocleanInterval "0";
-        APT::Periodic::Unattended-Upgrade "0";
-        EOF
-        fi
+          if [ "$ENABLE_AUTO_UPDATES" = "yes" ]; then
+            cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Download-Upgradeable-Packages "1";
+          APT::Periodic::AutocleanInterval "7";
+          APT::Periodic::Unattended-Upgrade "1";
+          EOF
+          else
+            cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+          APT::Periodic::Update-Package-Lists "0";
+          APT::Periodic::Download-Upgradeable-Packages "0";
+          APT::Periodic::AutocleanInterval "0";
+          APT::Periodic::Unattended-Upgrade "0";
+          EOF
+          fi
 
-        if [ "$ROOTLESS_LOW_PORTS" = "yes" ]; then
-          cat > /etc/sysctl.d/99-rootless-low-ports.conf <<EOF
-        net.ipv4.ip_unprivileged_port_start=${ROOTLESS_PORT_START}
-        EOF
-          sysctl --system >/dev/null
-        fi
+          if [ "$ROOTLESS_LOW_PORTS" = "yes" ]; then
+            cat > /etc/sysctl.d/99-rootless-low-ports.conf <<EOF
+          net.ipv4.ip_unprivileged_port_start=${ROOTLESS_PORT_START}
+          EOF
+            sysctl --system >/dev/null
+          fi
 
-        /usr/sbin/sshd -t
+          /usr/sbin/sshd -t
 
-        echo
-        echo "Phase 1 complete. Deploy user '$DEPLOY_USER' is prepared."
-        BASH
+          echo
+          echo "Phase 1 complete. Deploy user '$DEPLOY_USER' is prepared."
+          BASH
       end
 
       private def phase2_script : String
         <<-BASH
-        #!/usr/bin/env bash
-        set -euo pipefail
+          #!/usr/bin/env bash
+          set -euo pipefail
 
-        mkdir -p /etc/ssh/sshd_config.d
+          mkdir -p /etc/ssh/sshd_config.d
 
-        cat > /etc/ssh/sshd_config.d/99-bootstrap-hardening.conf <<'EOF'
-        PermitRootLogin no
-        PasswordAuthentication no
-        KbdInteractiveAuthentication no
-        ChallengeResponseAuthentication no
-        PubkeyAuthentication yes
-        UsePAM yes
-        EOF
+          cat > /etc/ssh/sshd_config.d/99-bootstrap-hardening.conf <<'EOF'
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+          PubkeyAuthentication yes
+          UsePAM yes
+          EOF
 
-        /usr/sbin/sshd -t
-        systemctl reload ssh
+          /usr/sbin/sshd -t
+          systemctl reload ssh
 
-        echo
-        echo "Phase 2 complete. Root SSH login and SSH password auth are disabled."
-        BASH
+          echo
+          echo "Phase 2 complete. Root SSH login and SSH password auth are disabled."
+          BASH
       end
 
       private def package_install_list : String

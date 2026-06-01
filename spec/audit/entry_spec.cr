@@ -31,8 +31,7 @@ describe "Meridian::Audit::Entry" do
       "2026-05-21T10:00:00Z | ops@ci | rollback | to green"
     )
 
-    parsed.should_not be_nil
-    parsed = parsed.not_nil!
+    parsed = value!(parsed)
     parsed.timestamp.should eq("2026-05-21T10:00:00Z")
     parsed.actor.should eq("ops@ci")
     parsed.action.should eq("rollback")

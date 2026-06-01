@@ -56,7 +56,7 @@ describe "Meridian::Commands::Audit" do
 
       command.run("192.168.1.10", 5)
 
-      runner.invocations.last.remote_command.not_nil!.should contain("tail -n 5")
+      value!(runner.invocations.last.remote_command).should contain("tail -n 5")
     end
   end
 end

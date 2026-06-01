@@ -27,7 +27,7 @@ def assets_config : String
       command: bin/build-assets
       output_dir: /app/public/assets
       retain_releases: 2
-  YAML
+    YAML
 end
 
 def accessory_generator_config : String
@@ -51,7 +51,7 @@ def accessory_generator_config : String
           clear:
             POSTGRES_DB: meridian
         cmd: postgres -c shared_buffers=256MB
-  YAML
+    YAML
 end
 
 describe "Meridian::Quadlet::Generator" do
@@ -308,7 +308,7 @@ describe "Meridian::Quadlet::Generator" do
   describe "#accessory_container_file" do
     it "names the accessory container after the accessory key" do
       config = load_config(FULL_CONFIG)
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
       output.should contain("ContainerName=db")
@@ -317,7 +317,7 @@ describe "Meridian::Quadlet::Generator" do
 
     it "publishes the configured port and mounts volumes" do
       config = load_config(FULL_CONFIG)
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
       output.should contain("PublishPort=5432:5432")
@@ -326,7 +326,7 @@ describe "Meridian::Quadlet::Generator" do
 
     it "includes clear environment variables and command overrides" do
       config = load_config(accessory_generator_config)
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
       output.should contain("Environment=POSTGRES_DB=meridian")
@@ -335,7 +335,7 @@ describe "Meridian::Quadlet::Generator" do
 
     it "emits Secret= directives for each accessory env.secret name injected as env vars" do
       config = load_config(FULL_CONFIG)
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
       output.should contain("Secret=POSTGRES_PASSWORD,type=env,target=POSTGRES_PASSWORD")
@@ -343,7 +343,7 @@ describe "Meridian::Quadlet::Generator" do
 
     it "includes a [Unit] section with a description" do
       config = load_config(FULL_CONFIG)
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
       output.should contain("[Unit]")
@@ -366,7 +366,7 @@ describe "Meridian::Quadlet::Generator" do
               host: 192.168.1.20
               network: myapp.network
         YAML
-      accessory = config.accessories.not_nil!["cache"]
+      accessory = value!(config.accessories)["cache"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
 
       output.should contain("Network=myapp.network")
@@ -388,7 +388,7 @@ describe "Meridian::Quadlet::Generator" do
               host: 192.168.1.20
               depends_on: myapp-green.service
         YAML
-      accessory = config.accessories.not_nil!["cache"]
+      accessory = value!(config.accessories)["cache"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
 
       output.should contain("Requires=myapp-green.service")
@@ -413,7 +413,7 @@ describe "Meridian::Quadlet::Generator" do
                 - REDIS_PASSWORD
                 - REDIS_TLS_CERT
         YAML
-      accessory = config.accessories.not_nil!["cache"]
+      accessory = value!(config.accessories)["cache"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
 
       output.should contain("Secret=REDIS_PASSWORD")
@@ -435,7 +435,7 @@ describe "Meridian::Quadlet::Generator" do
               host: 192.168.1.20
         YAML
 
-      accessory = config.accessories.not_nil!["db"]
+      accessory = value!(config.accessories)["db"]
 
       expect_raises(ArgumentError, /Accessory db is missing required image/) do
         Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)

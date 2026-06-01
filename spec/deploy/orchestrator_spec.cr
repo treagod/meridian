@@ -73,6 +73,7 @@ def health_command?(
   end || false
 end
 
+# ameba:disable Metrics/CyclomaticComplexity
 def enqueue_zero_downtime_success(
   runner : FakeSSHRunner,
   *,
@@ -85,16 +86,15 @@ def enqueue_zero_downtime_success(
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
-  resolved_old_active = false
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    resolved_old_active = old_active.nil? ? true : old_active
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
   elsif stored_marker = legacy_marker
     results << ssh_fail(1, "", "No such file\n")
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    resolved_old_active = old_active.nil? ? true : old_active
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << ssh_ok
     results << ssh_ok
@@ -147,6 +147,7 @@ def enqueue_zero_downtime_success(
   end
 end
 
+# ameba:disable Metrics/CyclomaticComplexity
 def enqueue_zero_downtime_success_for_host(
   runner : FakeSSHRunner,
   host : String,
@@ -160,16 +161,15 @@ def enqueue_zero_downtime_success_for_host(
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
-  resolved_old_active = false
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    resolved_old_active = old_active.nil? ? true : old_active
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
   elsif stored_marker = legacy_marker
     results << ssh_fail(1, "", "No such file\n")
     results << ssh_ok("#{stored_marker}\n")
-    resolved_old_active = old_active.nil? ? true : old_active.not_nil!
+    resolved_old_active = old_active.nil? ? true : old_active
     results << (resolved_old_active ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"))
     results << ssh_ok
     results << ssh_ok
@@ -913,7 +913,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
         file_upload = runner.invocations.find { |i| i.remote_command == "cat > /home/deploy/nginx.conf" }
         file_upload.should_not be_nil
-        file_upload.not_nil!.input.should eq("server { listen 80; }")
+        value!(file_upload).input.should eq("server { listen 80; }")
       end
     end
 
@@ -988,7 +988,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
         file_upload = runner.invocations.find { |i| i.remote_command == "cat > /home/deploy/Caddyfile" }
         file_upload.should_not be_nil
-        file_upload.not_nil!.input.should eq("handle myapp.example.com")
+        value!(file_upload).input.should eq("handle myapp.example.com")
       end
     end
 
@@ -1028,7 +1028,7 @@ describe "Meridian::Deploy::Orchestrator" do
                       - web
                 after_deploy:
                   - command: systemctl --user --no-pager --full status legacy-app.service
-          YAML
+            YAML
           runner: runner
         )
 
@@ -1068,7 +1068,7 @@ describe "Meridian::Deploy::Orchestrator" do
                 - command: systemctl --user start --wait myapp-migrate.service
                   roles:
                     - web
-        YAML
+          YAML
         runner: runner
       )
 
@@ -1099,7 +1099,7 @@ describe "Meridian::Deploy::Orchestrator" do
                 - command: systemctl --user start --wait workers-only.service
                   roles:
                     - workers
-        YAML
+          YAML
         runner: runner
       )
 
@@ -1129,7 +1129,7 @@ describe "Meridian::Deploy::Orchestrator" do
             remote:
               before_start:
                 - command: systemctl --user start --wait myapp-migrate.service
-        YAML
+          YAML
         runner: runner
       )
 
@@ -1746,20 +1746,20 @@ describe "Meridian::Deploy::Orchestrator" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(
         content: <<-YAML,
-            service: myapp
-            image: registry.example.com/myorg/myapp
+          service: myapp
+          image: registry.example.com/myorg/myapp
 
-            servers:
-              web:
-                hosts:
-                  - 192.168.1.10
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
 
-            registry:
-              server: registry.example.com
-              username: deploy
-              password:
-                - MERIDIAN_TEST_REGISTRY_PASSWORD
-            YAML
+          registry:
+            server: registry.example.com
+            username: deploy
+            password:
+              - MERIDIAN_TEST_REGISTRY_PASSWORD
+          YAML
         runner: runner
       )
       ENV["MERIDIAN_TEST_REGISTRY_PASSWORD"] = "s3cr3t"
@@ -1770,43 +1770,43 @@ describe "Meridian::Deploy::Orchestrator" do
         ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD")
       end
 
-      login_invocation = runner.invocations.find { |inv|
+      login_invocation = runner.invocations.find do |inv|
         inv.remote_command.try(&.starts_with?("podman login"))
-      }
-      pull_invocation = runner.invocations.find { |inv|
+      end
+      pull_invocation = runner.invocations.find do |inv|
         inv.remote_command.try(&.starts_with?("podman pull"))
-      }
+      end
 
       login_invocation.should_not be_nil
       pull_invocation.should_not be_nil
 
-      li = login_invocation.not_nil!
+      li = value!(login_invocation)
       li.remote_command.should eq("podman login registry.example.com --username deploy --password-stdin")
       li.input.should eq("s3cr3t")
 
-      runner.invocations.index(li).not_nil!.should be < runner.invocations.index(pull_invocation.not_nil!).not_nil!
+      runner.invocations.index!(li).should be < runner.invocations.index!(value!(pull_invocation))
     end
 
     it "does not log in when no registry block is configured" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(
         content: <<-YAML,
-            service: myapp
-            image: registry.example.com/myorg/myapp
+          service: myapp
+          image: registry.example.com/myorg/myapp
 
-            servers:
-              web:
-                hosts:
-                  - 192.168.1.10
-            YAML
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          YAML
         runner: runner
       )
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      runner.invocations.none? { |inv|
+      runner.invocations.none? do |inv|
         inv.remote_command.try(&.starts_with?("podman login"))
-      }.should be_true
+      end.should be_true
     end
   end
 
@@ -2034,7 +2034,7 @@ describe "Meridian::Deploy::Orchestrator" do
       enqueue_zero_downtime_success(runner)
 
       received_env = {} of String => String
-      hook_runner = ->(script : String, env : Hash(String, String)) {
+      hook_runner = ->(_script : String, env : Hash(String, String)) {
         received_env = env
         0
       }
@@ -2157,6 +2157,6 @@ describe "Meridian::Deploy::Orchestrator deploy lock and audit" do
     orchestrator.deploy
 
     deploy_entries = audit.recorded.select(&.action.== "deploy")
-    deploy_entries.map(&.host).sort.should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
+    deploy_entries.map(&.host).sort!.should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
   end
 end

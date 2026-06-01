@@ -21,9 +21,9 @@ describe "Meridian::Commands::Run" do
 
       invocation = streaming_runner.invocations.last
       invocation.host.should eq("192.168.1.10")
-      invocation.remote_command.not_nil!.should contain("podman run --rm")
-      invocation.remote_command.not_nil!.should contain("registry.example.com/myorg/myapp")
-      invocation.remote_command.not_nil!.should contain("bin/rails db:migrate")
+      value!(invocation.remote_command).should contain("podman run --rm")
+      value!(invocation.remote_command).should contain("registry.example.com/myorg/myapp")
+      value!(invocation.remote_command).should contain("bin/rails db:migrate")
     end
 
     it "attaches the service network" do
@@ -33,7 +33,7 @@ describe "Meridian::Commands::Run" do
       command.run("web", ["printenv"])
 
       invocation = streaming_runner.invocations.last
-      invocation.remote_command.not_nil!.should contain("--network myapp.network")
+      value!(invocation.remote_command).should contain("--network myapp.network")
     end
 
     it "passes env.clear variables as --env flags" do
@@ -43,8 +43,8 @@ describe "Meridian::Commands::Run" do
       command.run("web", ["printenv"])
 
       invocation = streaming_runner.invocations.last
-      invocation.remote_command.not_nil!.should contain("--env RAILS_ENV=production")
-      invocation.remote_command.not_nil!.should contain("--env DATABASE_HOST=db.internal")
+      value!(invocation.remote_command).should contain("--env RAILS_ENV=production")
+      value!(invocation.remote_command).should contain("--env DATABASE_HOST=db.internal")
     end
 
     it "passes env.secret names as --secret flags" do
@@ -54,8 +54,8 @@ describe "Meridian::Commands::Run" do
       command.run("web", ["printenv"])
 
       invocation = streaming_runner.invocations.last
-      invocation.remote_command.not_nil!.should contain("--secret SECRET_KEY_BASE,type=env,target=SECRET_KEY_BASE")
-      invocation.remote_command.not_nil!.should contain("--secret DATABASE_URL,type=env,target=DATABASE_URL")
+      value!(invocation.remote_command).should contain("--secret SECRET_KEY_BASE,type=env,target=SECRET_KEY_BASE")
+      value!(invocation.remote_command).should contain("--secret DATABASE_URL,type=env,target=DATABASE_URL")
     end
 
     it "defaults to the first configured host for the role" do
@@ -119,8 +119,8 @@ describe "Meridian::Commands::Run" do
       command.run("web", ["printenv"])
 
       invocation = streaming_runner.invocations.last
-      invocation.remote_command.not_nil!.should_not contain("--env")
-      invocation.remote_command.not_nil!.should_not contain("--secret")
+      value!(invocation.remote_command).should_not contain("--env")
+      value!(invocation.remote_command).should_not contain("--secret")
     end
   end
 end

@@ -51,7 +51,7 @@ describe "Meridian::Lock::Manager" do
 
       upload = runner.invocations.find(&.remote_command.==("cat > #{LOCK_METADATA}")) ||
                raise "Expected lock metadata upload"
-      metadata = Meridian::Runtime::LockMetadata.from_json(upload.input.not_nil!)
+      metadata = Meridian::Runtime::LockMetadata.from_json(value!(upload.input))
       metadata.actor.should eq("tester@spec")
       metadata.acquired_at.should eq("2026-05-21T10:00:00Z")
       metadata.message.should eq("scheduled maintenance")
@@ -109,7 +109,7 @@ describe "Meridian::Lock::Manager" do
 
       status.held.should be_true
       status.host.should eq("192.168.1.10")
-      status.metadata.not_nil!.actor.should eq("ops@ci")
+      value!(status.metadata).actor.should eq("ops@ci")
     end
 
     it "reports no lock when the lock directory is absent" do

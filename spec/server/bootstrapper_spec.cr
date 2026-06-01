@@ -36,7 +36,7 @@ class ContentCapturingRunner < FakeBootstrapRunner
 
   def run_interactive(command : String, args : Array(String), step : String) : Nil
     if command == "scp"
-      local_path = args.find { |a| a.includes?("meridian-bootstrap") }
+      local_path = args.find(&.includes?("meridian-bootstrap"))
       if local_path && File.exists?(local_path)
         @captured_scripts[step] = File.read(local_path)
       end
@@ -52,8 +52,8 @@ private def with_temp_keys(& : String, String ->)
   File.write(public_key, "ssh-ed25519 AAAAFAKEKEY comment")
   yield private_key, public_key
 ensure
-  FileUtils.rm_rf(private_key.not_nil!)
-  FileUtils.rm_rf("#{private_key.not_nil!}.pub")
+  FileUtils.rm_rf(value!(private_key))
+  FileUtils.rm_rf("#{value!(private_key)}.pub")
 end
 
 private def run_bootstrap(config, runner = FakeBootstrapRunner.new)
@@ -72,7 +72,7 @@ describe Meridian::Server::Bootstrapper do
         ssh_idx = all.index { |i| i.command == "ssh" && i.step.includes?("phase 1") }
         scp_idx.should_not be_nil
         ssh_idx.should_not be_nil
-        scp_idx.not_nil!.should be < ssh_idx.not_nil!
+        value!(scp_idx).should be < value!(ssh_idx)
       end
     end
 
@@ -82,9 +82,9 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv), runner)
 
         all = runner.invocations
-        phase1_idx = all.index { |i| i.command == "ssh" && i.step.includes?("phase 1") }.not_nil!
-        check1_idx = all.index { |i| !i.interactive }.not_nil!
-        phase2_idx = all.index { |i| i.command == "ssh" && i.step.includes?("phase 2") }.not_nil!
+        phase1_idx = all.index! { |i| i.command == "ssh" && i.step.includes?("phase 1") }
+        check1_idx = all.index! { |i| !i.interactive }
+        phase2_idx = all.index! { |i| i.command == "ssh" && i.step.includes?("phase 2") }
 
         phase1_idx.should be < check1_idx
         check1_idx.should be < phase2_idx
@@ -106,9 +106,9 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv), runner)
 
         all = runner.invocations
-        check1_idx = all.index { |i| !i.interactive }.not_nil!
-        mkdir_idx = all.index { |i| i.step.includes?("Create deploy directories") }.not_nil!
-        phase2_idx = all.index { |i| i.command == "ssh" && i.step.includes?("phase 2") }.not_nil!
+        check1_idx = all.index! { |i| !i.interactive }
+        mkdir_idx = all.index! { |i| i.step.includes?("Create deploy directories") }
+        phase2_idx = all.index! { |i| i.command == "ssh" && i.step.includes?("phase 2") }
 
         check1_idx.should be < mkdir_idx
         mkdir_idx.should be < phase2_idx
@@ -122,10 +122,10 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, passwordless_sudo: true), runner)
 
         phase2_scp = runner.invocations.find { |i| i.command == "scp" && i.step.includes?("phase2") }
-        phase2_scp.not_nil!.args.should contain("BatchMode=yes")
+        value!(phase2_scp).args.should contain("BatchMode=yes")
 
         phase2_ssh = runner.invocations.find { |i| i.command == "ssh" && i.step.includes?("phase 2") }
-        phase2_ssh.not_nil!.args.last.should contain("sudo -n bash")
+        value!(phase2_ssh).args.last.should contain("sudo -n bash")
       end
     end
 
@@ -135,8 +135,8 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, passwordless_sudo: false), runner)
 
         phase2_ssh = runner.invocations.find { |i| i.command == "ssh" && i.step.includes?("phase 2") }
-        phase2_ssh.not_nil!.args.should contain("PubkeyAuthentication=no")
-        phase2_ssh.not_nil!.args.last.should_not contain("sudo")
+        value!(phase2_ssh).args.should contain("PubkeyAuthentication=no")
+        value!(phase2_ssh).args.last.should_not contain("sudo")
       end
     end
 
@@ -199,7 +199,7 @@ describe Meridian::Server::Bootstrapper do
         runner = FakeBootstrapRunner.new
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv), runner)
 
-        deploy_ops = runner.invocations.select { |i| i.args.includes?("BatchMode=yes") }
+        deploy_ops = runner.invocations.select(&.args.includes?("BatchMode=yes"))
         deploy_ops.should_not be_empty
         deploy_ops.all? { |i| i.args.includes?("-i") && i.args.includes?(priv) }.should be_true
       end
@@ -228,7 +228,7 @@ describe Meridian::Server::Bootstrapper do
         runner = FakeBootstrapRunner.new
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, port: 2222), runner)
 
-        runner.invocations.all? { |i| i.args.includes?("2222") }.should be_true
+        runner.invocations.all?(&.args.includes?("2222")).should be_true
       end
     end
   end
@@ -241,8 +241,8 @@ describe Meridian::Server::Bootstrapper do
 
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
         phase1.should_not be_nil
-        phase1.not_nil!.should contain("apt-get install")
-        phase1.not_nil!.should contain("podman")
+        value!(phase1).should contain("apt-get install")
+        value!(phase1).should contain("podman")
       end
     end
 
@@ -251,8 +251,8 @@ describe Meridian::Server::Bootstrapper do
         runner = ContentCapturingRunner.new
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, transfer_mode: nil), runner)
 
-        phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]).not_nil!
-        install_line = phase1.lines.find(&.includes?("apt-get install -y")).not_nil!
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        install_line = phase1.lines.find!(&.includes?("apt-get install -y"))
         install_line.should contain(%("ufw"))
         install_line.should_not contain(%("zstd"))
         install_line.should_not contain(%("rsync"))
@@ -272,8 +272,8 @@ describe Meridian::Server::Bootstrapper do
           runner
         )
 
-        phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]).not_nil!
-        install_line = phase1.lines.find(&.includes?("apt-get install -y")).not_nil!
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        install_line = phase1.lines.find!(&.includes?("apt-get install -y"))
         install_line.should contain(%("ufw"))
         install_line.should contain(%("zstd"))
         install_line.should_not contain(%("rsync"))
@@ -293,8 +293,8 @@ describe Meridian::Server::Bootstrapper do
           runner
         )
 
-        phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]).not_nil!
-        install_line = phase1.lines.find(&.includes?("apt-get install -y")).not_nil!
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        install_line = phase1.lines.find!(&.includes?("apt-get install -y"))
         install_line.should contain(%("ufw"))
         install_line.should contain(%("zstd"))
         install_line.should contain(%("rsync"))
@@ -311,7 +311,7 @@ describe Meridian::Server::Bootstrapper do
         expected_b64 = Base64.strict_encode(pub_content)
 
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
-        phase1.not_nil!.should contain(expected_b64)
+        value!(phase1).should contain(expected_b64)
       end
     end
 
@@ -321,7 +321,7 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, passwordless_sudo: true), runner)
 
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
-        phase1.not_nil!.should contain("NOPASSWD:ALL")
+        value!(phase1).should contain("NOPASSWD:ALL")
       end
     end
 
@@ -331,7 +331,7 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, passwordless_sudo: false), runner)
 
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
-        phase1.not_nil!.should contain("PASSWORDLESS_SUDO=\"no\"")
+        value!(phase1).should contain("PASSWORDLESS_SUDO=\"no\"")
       end
     end
 
@@ -341,8 +341,8 @@ describe Meridian::Server::Bootstrapper do
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, rootless_low_ports: true, rootless_port_start: 80), runner)
 
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
-        phase1.not_nil!.should contain("ip_unprivileged_port_start")
-        phase1.not_nil!.should contain("80")
+        value!(phase1).should contain("ip_unprivileged_port_start")
+        value!(phase1).should contain("80")
       end
     end
 
@@ -353,7 +353,7 @@ describe Meridian::Server::Bootstrapper do
 
         # ROOTLESS_LOW_PORTS=no, script only sets sysctl when it equals "yes"
         phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1])
-        phase1.not_nil!.should contain("ROOTLESS_LOW_PORTS=\"no\"")
+        value!(phase1).should contain("ROOTLESS_LOW_PORTS=\"no\"")
       end
     end
 
@@ -362,7 +362,7 @@ describe Meridian::Server::Bootstrapper do
         runner = ContentCapturingRunner.new
         run_bootstrap(build_config(public_key_file: pub, private_key_file: priv, port: 2222), runner)
 
-        phase1 = runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]).not_nil!
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
         phase1.should contain("ufw allow 2222/tcp")
         phase1.should contain("ufw allow 80/tcp")
         phase1.should contain("ufw allow 443/tcp")
@@ -377,8 +377,8 @@ describe Meridian::Server::Bootstrapper do
 
         phase2 = runner.captured_scripts.find { |k, _| k.includes?("phase2") }.try(&.[1])
         phase2.should_not be_nil
-        phase2.not_nil!.should contain("PermitRootLogin no")
-        phase2.not_nil!.should contain("PasswordAuthentication no")
+        value!(phase2).should contain("PermitRootLogin no")
+        value!(phase2).should contain("PasswordAuthentication no")
       end
     end
   end
