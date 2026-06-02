@@ -433,24 +433,6 @@ module Meridian
         raise DeployFailed.new(ex.message || "Failed to inspect service state for #{host}")
       end
 
-      private def health_checker_for(host : String) : Health::Checker
-        Health::Checker.new(
-          output: @output,
-          transport: Health::SSHTransport.new(
-            host,
-            @ssh_executor,
-            user: ssh_user,
-            port: ssh_port,
-            identity_file: ssh_identity_file,
-            proxy_jump: ssh_proxy_jump,
-            connect_timeout: ssh_connect_timeout,
-            keepalive: ssh_keepalive,
-            keepalive_interval: ssh_keepalive_interval
-          ),
-          label: host
-        )
-      end
-
       private def poll_container_health(
         host : String,
         proxy : Config::ServerProxyConfig,
