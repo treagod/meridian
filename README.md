@@ -143,6 +143,7 @@ servers:
         interval: 2
         timeout: 5
         retries: 10
+        probe_image: docker.io/library/alpine:3.21
   workers:
     hosts: [192.168.1.12]
     cmd: bin/sidekiq
@@ -172,6 +173,8 @@ boot:
 That's a working config. Everything else is opt-in: `volumes`, `ports`, `accessories`, `transfer`, `files` (upload supporting config to hosts, optionally template-rendered with ECR), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static asset hosting via a Caddy sidecar on a separate subdomain). Run `meridian init` and read the comments in the generated file. They're the closest thing this project has to reference docs right now.
 
 Two things worth knowing: per-role `image:` overrides the global one (useful when your worker image differs from your web image), and unknown config keys fail fast rather than getting silently ignored. `build:` is reserved but not implemented. There's no `meridian build` yet, so bring your own image.
+
+The zero-downtime readiness check runs a small one-shot container (`healthcheck.probe_image`, default `docker.io/library/alpine:3.21`) on the proxy network to poll the new container before switching traffic. The image is pinned, not floating, so a rollout can't drift or stall on a `:latest` pull mid-deploy. On registry-free or air-gapped hosts, pre-pull it once (`podman pull docker.io/library/alpine:3.21`) — `meridian check` verifies its presence on each proxied host and fails preflight if it's missing, rather than failing mid-rollout. Override `probe_image` to use a host-local or mirrored image.
 
 ## Meridian vs. Kamal 2.0
 

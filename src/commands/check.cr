@@ -160,6 +160,15 @@ rescue
         if check_proxy?(host_context)
           results << check_kamal_proxy(host_context.host, 30)
           results << check_proxy_network(host_context.host, 31)
+          if proxy = @config.servers["web"]?.try(&.proxy)
+            results << command_probe(
+              host_context.host,
+              "probe-image",
+              32,
+              ["podman", "image", "exists", proxy.healthcheck.probe_image],
+              proxy.healthcheck.probe_image
+            )
+          end
         end
 
         results << same_host_readiness(host_context.host, 40)

@@ -67,7 +67,7 @@ def health_command?(
   host_header : String = "myapp.example.com",
 ) : Bool
   command.try do |remote_command|
-    remote_command.starts_with?("podman run --rm --network=meridian-proxy docker.io/library/alpine:latest wget -q -O- --timeout=5") &&
+    remote_command.starts_with?("podman run --rm --network=meridian-proxy docker.io/library/alpine:3.21 wget -q -O- --timeout=5") &&
       remote_command.includes?("'--header=Host: #{host_header}'") &&
       remote_command.includes?("http://#{container_name}:3000/health")
   end || false
@@ -1198,8 +1198,45 @@ describe "Meridian::Deploy::Orchestrator" do
 
       command = invocation.remote_command || raise "Expected remote command"
       invocation.host.should eq("192.168.1.10")
-      command.should eq("podman run --rm --network=meridian-proxy docker.io/library/alpine:latest wget -q -O- --timeout=5 '--header=Host: myapp.example.com' http://myapp-blue:3000/health")
+      command.should eq("podman run --rm --network=meridian-proxy docker.io/library/alpine:3.21 wget -q -O- --timeout=5 '--header=Host: myapp.example.com' http://myapp-blue:3000/health")
       command.starts_with?("podman exec myapp-blue").should be_false
+    end
+
+    it "uses a pinned probe image with no floating :latest tag" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      invocation = runner.invocations.find do |candidate|
+        health_command?(candidate.remote_command)
+      end || raise "Expected sidecar health check invocation"
+
+      command = invocation.remote_command || raise "Expected remote command"
+      command.should contain("docker.io/library/alpine:3.21")
+      command.should_not contain(":latest")
+    end
+
+    it "threads a configured probe_image into the readiness command" do
+      indent = FULL_CONFIG[/\n([ ]+)retries: 10/, 1]
+      custom_config = FULL_CONFIG.sub(
+        "retries: 10",
+        "retries: 10\n#{indent}probe_image: registry.example.com/ops/probe:1.2.3"
+      )
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      orchestrator = build_orchestrator(content: custom_config, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      invocation = runner.invocations.find do |candidate|
+        candidate.remote_command.try(&.includes?("podman run --rm --network=meridian-proxy")) || false
+      end || raise "Expected sidecar health check invocation"
+
+      command = invocation.remote_command || raise "Expected remote command"
+      command.should contain("registry.example.com/ops/probe:1.2.3")
+      command.should_not contain("alpine")
     end
 
     it "runs the health check before switching proxy traffic" do

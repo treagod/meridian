@@ -443,6 +443,7 @@ module Meridian
         timeout = proxy.healthcheck.timeout
         retries = proxy.healthcheck.retries
         interval = proxy.healthcheck.interval
+        probe_image = proxy.healthcheck.probe_image
         host_header = proxy.host || container_name
 
         retries.times do |attempt|
@@ -453,7 +454,7 @@ module Meridian
             host,
             [
               "podman", "run", "--rm", "--network=#{proxy_network}",
-              "docker.io/library/alpine:latest",
+              probe_image,
               "wget", "-q", "-O-",
               "--timeout=#{timeout}",
               "--header=Host: #{host_header}",

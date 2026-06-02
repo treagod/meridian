@@ -111,16 +111,20 @@ module Meridian
       include YAML::Serializable
       include YAML::Serializable::Strict
 
+      DEFAULT_PROBE_IMAGE = "docker.io/library/alpine:3.21"
+
       getter path : String = "/health"
       getter interval : Int32 = 2
       getter timeout : Int32 = 5
       getter retries : Int32 = 10
+      getter probe_image : String = DEFAULT_PROBE_IMAGE
 
       def initialize(
         @path : String = "/health",
         @interval : Int32 = 2,
         @timeout : Int32 = 5,
         @retries : Int32 = 10,
+        @probe_image : String = DEFAULT_PROBE_IMAGE,
       )
       end
     end
@@ -284,7 +288,7 @@ module Meridian
       BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS       = {"hosts", "proxy", "cmd", "image", "managed", "units"}
       SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
-      HEALTHCHECK_KEYS  = {"path", "interval", "timeout", "retries"}
+      HEALTHCHECK_KEYS  = {"path", "interval", "timeout", "retries", "probe_image"}
       PROXY_KEYS        = {"image", "http_port", "https_port", "data_dir"}
       REGISTRY_KEYS     = {"server", "username", "password"}
       ENV_KEYS          = {"clear", "secret"}

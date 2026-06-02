@@ -269,6 +269,42 @@ describe "Meridian::Commands::Check" do
       command.run.should be_true
 
       remote_commands_for(runner).should contain(%(podman inspect --format '{{.State.Running}}' kamal-proxy))
+      remote_commands_for(runner).should contain("podman image exists docker.io/library/alpine:3.21")
+    end
+
+    it "fails when the readiness probe image is missing on a proxied host" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+                ssl: true
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,                           # connectivity
+        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok,                           # lingering
+        ssh_ok,                           # quadlet-dir
+        ssh_ok("true\n"),                 # kamal-proxy running
+        ssh_ok,                           # proxy-network exists
+        check_ssh_fail                    # probe-image missing
+      )
+
+      command.run.should be_false
+
+      output.to_s.should contain("probe-image")
     end
 
     it "fails when a remote service manifest owns an overlapping proxy route" do
@@ -308,6 +344,7 @@ describe "Meridian::Commands::Check" do
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
+        ssh_ok,
         ssh_ok,
         ssh_ok("#{other_manifest.to_json}\n")
       )
@@ -356,6 +393,7 @@ describe "Meridian::Commands::Check" do
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
+        ssh_ok,
         ssh_ok,
         ssh_ok("#{other_manifest.to_json}\n")
       )
