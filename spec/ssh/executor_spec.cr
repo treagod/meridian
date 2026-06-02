@@ -222,12 +222,54 @@ describe "Meridian::SSH::Executor" do
   describe "#run!" do
     it "raises CommandFailed when the exit code is non-zero" do
       runner = FakeSSHRunner.new
-      runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "failed\n")
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "boom: image not known\n")
       executor = Meridian::SSH::Executor.new(runner: runner)
 
-      expect_raises(Meridian::SSH::CommandFailed, /exit code 1/) do
+      ex = expect_raises(Meridian::SSH::CommandFailed, /exit code 1/) do
+        executor.run!("1.2.3.4", ["podman", "pull", "missing"])
+      end
+
+      message = ex.message.to_s
+      message.should contain("podman pull missing")
+      message.should contain("boom: image not known")
+    end
+
+    it "falls back to stdout when stderr is empty" do
+      runner = FakeSSHRunner.new
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 2, stdout: "stdout diagnostic\n", stderr: "")
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      ex = expect_raises(Meridian::SSH::CommandFailed, /exit code 2/) do
         executor.run!("1.2.3.4", ["false"])
       end
+
+      ex.message.to_s.should contain("stdout diagnostic")
+    end
+
+    it "bounds the remote output tail" do
+      runner = FakeSSHRunner.new
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "x" * 10_000)
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      ex = expect_raises(Meridian::SSH::CommandFailed) do
+        executor.run!("1.2.3.4", ["chatty"])
+      end
+
+      message = ex.message.to_s
+      message.bytesize.should be < Meridian::SSH::Executor::MAX_OUTPUT_TAIL + 256
+      message.should contain("output truncated")
+    end
+
+    it "keeps the message clear when there is no remote output" do
+      runner = FakeSSHRunner.new
+      runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "")
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      ex = expect_raises(Meridian::SSH::CommandFailed, /exit code 1/) do
+        executor.run!("1.2.3.4", ["false"])
+      end
+
+      ex.message.to_s.should_not contain("output truncated")
     end
 
     it "does not raise when the command succeeds" do
@@ -259,9 +301,11 @@ describe "Meridian::SSH::Executor" do
       runner.next_result = Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "permission denied\n")
       executor = Meridian::SSH::Executor.new(runner: runner)
 
-      expect_raises(Meridian::SSH::CommandFailed, /config\.env/) do
+      ex = expect_raises(Meridian::SSH::CommandFailed, /config\.env/) do
         executor.upload("1.2.3.4", "/opt/meridian/config.env", "TOKEN=secret\n")
       end
+
+      ex.message.to_s.should contain("permission denied")
     end
 
     it "raises ConnectionError when the host is unreachable" do

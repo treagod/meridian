@@ -288,8 +288,10 @@ module Meridian
         command
       end
 
-      protected def ssh_command_failed(host : String, exit_code : Int32) : SSH::CommandFailed
-        SSH::CommandFailed.new("Remote command on #{target_host(host)} failed with exit code #{exit_code}")
+      protected def ssh_command_failed(host : String, command : Array(String), result : SSH::Result) : SSH::CommandFailed
+        SSH::CommandFailed.new(
+          SSH::Executor.command_failure_message(target_host(host), command.join(" "), result)
+        )
       end
 
       private def ssh_user : String

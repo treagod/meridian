@@ -74,11 +74,12 @@ module Meridian
         return if container_running?(host, container_name)
 
         log(host, "Starting rollback target #{container_name}")
-        start_result = run_ssh(host, ["podman", "start", container_name])
+        command = ["podman", "start", container_name]
+        start_result = run_ssh(host, command)
         return if start_result.exit_code.zero?
 
         raise Deploy::RollbackFailed.new(
-          ssh_command_failed(host, start_result.exit_code).message || "Rollback failed"
+          ssh_command_failed(host, command, start_result).message || "Rollback failed"
         )
       end
 
@@ -88,11 +89,12 @@ module Meridian
         color : Quadlet::Color,
       ) : Nil
         log(host, "Switching proxy traffic to #{service_name(color)}")
-        deploy_result = run_ssh(host, proxy_deploy_command(proxy, color))
+        command = proxy_deploy_command(proxy, color)
+        deploy_result = run_ssh(host, command)
         return if deploy_result.exit_code.zero?
 
         raise Deploy::RollbackFailed.new(
-          ssh_command_failed(host, deploy_result.exit_code).message || "Rollback failed"
+          ssh_command_failed(host, command, deploy_result).message || "Rollback failed"
         )
       end
 

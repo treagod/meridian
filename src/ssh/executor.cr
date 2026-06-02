@@ -38,10 +38,47 @@ module Meridian
         end
       end
 
+      MAX_OUTPUT_TAIL = 4096
+
       def initialize(
         @runner : Runner = ProcessRunner.new,
         @streaming_runner : StreamingRunner = ProcessStreamingRunner.new,
       )
+      end
+
+      def self.command_failure_message(
+        target : String,
+        summary : String,
+        result : Result,
+        cap : Int32 = MAX_OUTPUT_TAIL,
+      ) : String
+        message = String.build do |io|
+          io << "Remote command on " << target << " failed with exit code " << result.exit_code
+          io << ": " << summary unless summary.empty?
+        end
+
+        if tail = failure_tail(result, cap)
+          return "#{message}\n#{tail}"
+        end
+
+        message
+      end
+
+      private def self.failure_tail(result : Result, cap : Int32) : String?
+        detail = result.stderr.presence || result.stdout.presence
+        return unless detail
+
+        truncate_tail(detail.strip, cap)
+      end
+
+      private def self.truncate_tail(text : String, cap : Int32) : String
+        return text if text.bytesize <= cap
+
+        tail = text.byte_slice(text.bytesize - cap, cap).scrub
+        if newline = tail.index('\n')
+          tail = tail[(newline + 1)..]
+        end
+        "[output truncated to last #{cap} bytes]\n#{tail}"
       end
 
       def command_args(
@@ -209,7 +246,9 @@ module Meridian
         )
         return result if result.exit_code.zero?
 
-        raise CommandFailed.new("Remote command on #{target_host(host, user)} failed with exit code #{result.exit_code}")
+        raise CommandFailed.new(
+          self.class.command_failure_message(target_host(host, user), command.join(" "), result)
+        )
       end
 
       def upload(
@@ -246,7 +285,9 @@ module Meridian
         raise ConnectionError.new("SSH connection to #{target_host(host, user)} failed") if result.exit_code == 255
         return if result.exit_code.zero?
 
-        raise CommandFailed.new("Upload to #{target_host(host, user)}:#{remote_path} failed with exit code #{result.exit_code}")
+        raise CommandFailed.new(
+          self.class.command_failure_message(target_host(host, user), "upload to #{remote_path}", result)
+        )
       end
 
       private def ssh_args(
