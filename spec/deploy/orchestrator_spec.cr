@@ -1718,30 +1718,143 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "raises DeployFailed with a clear message when a registry password env var is not set" do
       runner = FakeSSHRunner.new
-      orchestrator = build_orchestrator(
-        content: <<-YAML,
-          service: myapp
-          image: registry.example.com/myorg/myapp
+      registry_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
 
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
 
-          registry:
-            server: registry.example.com
-            username: deploy
-            password:
-              - MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING
-          YAML
-        runner: runner
-      )
+        registry:
+          server: registry.example.com
+          username: deploy
+          password:
+            - MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING
+        YAML
+      lock_manager = FakeLockManager.new(load_config(registry_config))
+      orchestrator = build_orchestrator(content: registry_config, runner: runner, lock_manager: lock_manager)
       ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING")
 
-      expect_raises(Meridian::Deploy::DeployFailed, /MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING/) do
+      expect_raises(Meridian::Deploy::DeployFailed, /MERIDIAN_TEST_REGISTRY_PASSWORD_MISSING.*is not set/) do
         orchestrator.deploy
       end
 
+      lock_manager.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "raises before acquiring the lock when registry.server is missing" do
+      runner = FakeSSHRunner.new
+      registry_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        registry:
+          username: deploy
+          password:
+            - MERIDIAN_TEST_REGISTRY_PASSWORD
+        YAML
+      lock_manager = FakeLockManager.new(load_config(registry_config))
+      orchestrator = build_orchestrator(content: registry_config, runner: runner, lock_manager: lock_manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /registry\.server is required/) do
+        orchestrator.deploy
+      end
+
+      lock_manager.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "raises before acquiring the lock when registry.username is missing" do
+      runner = FakeSSHRunner.new
+      registry_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        registry:
+          server: registry.example.com
+          password:
+            - MERIDIAN_TEST_REGISTRY_PASSWORD
+        YAML
+      lock_manager = FakeLockManager.new(load_config(registry_config))
+      orchestrator = build_orchestrator(content: registry_config, runner: runner, lock_manager: lock_manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /registry\.username is required/) do
+        orchestrator.deploy
+      end
+
+      lock_manager.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "raises before acquiring the lock when registry.password names no env var" do
+      runner = FakeSSHRunner.new
+      registry_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        registry:
+          server: registry.example.com
+          username: deploy
+        YAML
+      lock_manager = FakeLockManager.new(load_config(registry_config))
+      orchestrator = build_orchestrator(content: registry_config, runner: runner, lock_manager: lock_manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /registry\.password must specify an environment variable name/) do
+        orchestrator.deploy
+      end
+
+      lock_manager.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "raises before acquiring the lock when a registry password env var is set but empty" do
+      runner = FakeSSHRunner.new
+      registry_config = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        registry:
+          server: registry.example.com
+          username: deploy
+          password:
+            - MERIDIAN_TEST_REGISTRY_PASSWORD_EMPTY
+        YAML
+      lock_manager = FakeLockManager.new(load_config(registry_config))
+      orchestrator = build_orchestrator(content: registry_config, runner: runner, lock_manager: lock_manager)
+      ENV["MERIDIAN_TEST_REGISTRY_PASSWORD_EMPTY"] = ""
+
+      begin
+        expect_raises(Meridian::Deploy::DeployFailed, /MERIDIAN_TEST_REGISTRY_PASSWORD_EMPTY.*is set but empty/) do
+          orchestrator.deploy
+        end
+      ensure
+        ENV.delete("MERIDIAN_TEST_REGISTRY_PASSWORD_EMPTY")
+      end
+
+      lock_manager.acquire_calls.should eq(0)
       runner.invocations.should be_empty
     end
 

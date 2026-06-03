@@ -243,6 +243,7 @@ module Meridian
 
       def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
         validate_local_images!(targets)
+        validate_registry_config!
         @lock_manager.acquire(DEPLOY_LOCK_MESSAGE)
         begin
           run_deploy(targets)
@@ -275,7 +276,6 @@ module Meridian
       private def run_deploy(targets : Array(CLI::TargetSelector::Target)?) : Nil
         @allowed_hosts = build_allowed_hosts(targets)
         validate_rollout_settings!
-        validate_registry_credentials!
         run_pre_deploy_hook
         web_hosts = hosts_for_role?("web")
         secondary_roles = ordered_secondary_roles
@@ -717,16 +717,23 @@ module Meridian
         run_ssh!(host, ["podman", "login", server, "--username", username, "--password-stdin"], input: password)
       end
 
-      private def validate_registry_credentials! : Nil
+      # Pre-lock completeness check for the registry path: decided locally before any
+      # remote mutation, lock acquisition, or pre-deploy hook. `login_to_registry` keeps
+      # its own defensive raises as a per-host backstop.
+      private def validate_registry_config! : Nil
         return unless registry = @config.registry
 
         transfer_mode = @config.transfer.try(&.mode)
         return if transfer_mode && !transfer_mode.registry?
 
+        raise DeployFailed.new("registry.server is required") unless registry.server.presence
+        raise DeployFailed.new("registry.username is required") unless registry.username.presence
+        raise DeployFailed.new("registry.password must specify an environment variable name") if registry.password.first?.nil?
+
         registry.password.each do |var_name|
-          ENV[var_name]? || raise DeployFailed.new(
-            "Environment variable #{var_name} (required by registry.password) is not set"
-          )
+          value = ENV[var_name]?
+          raise DeployFailed.new("Environment variable #{var_name} (required by registry.password) is not set") if value.nil?
+          raise DeployFailed.new("Environment variable #{var_name} (required by registry.password) is set but empty") if value.empty?
         end
       end
 
