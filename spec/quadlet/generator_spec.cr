@@ -271,7 +271,7 @@ describe "Meridian::Quadlet::Generator" do
         YAML
       output = Meridian::Quadlet::Generator.new(config).proxy_container_file
 
-      output.should contain("Image=basecamp/kamal-proxy:v0.9.2")
+      output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
     end
 
     it "publishes port 80" do

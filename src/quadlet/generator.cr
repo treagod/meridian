@@ -14,8 +14,6 @@ module Meridian
     end
 
     class Generator
-      DEFAULT_PROXY_IMAGE = "basecamp/kamal-proxy:v0.9.2"
-
       def initialize(@config : Config::DeployConfig)
       end
 
@@ -48,7 +46,7 @@ module Meridian
 
       def proxy_container_file : String
         proxy = @config.proxy || raise ArgumentError.new("Missing proxy configuration")
-        image = proxy.image || DEFAULT_PROXY_IMAGE
+        image = proxy.image || Defaults::PROXY_IMAGE
 
         ProxyContainerTemplate.new(
           service: @config.service,

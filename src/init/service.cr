@@ -2,8 +2,6 @@ require "yaml"
 
 module Meridian
   module Init
-    DEFAULT_PROXY_IMAGE = "docker.io/basecamp/kamal-proxy:latest"
-
     enum TransferChoice
       Registry
       Stream
@@ -257,7 +255,7 @@ module Meridian
 
             yaml.scalar "proxy"
             yaml.mapping do
-              write_scalar_field(yaml, "image", DEFAULT_PROXY_IMAGE)
+              write_scalar_field(yaml, "image", Defaults::PROXY_IMAGE)
             end
 
             case answers.transfer_mode
