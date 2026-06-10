@@ -145,6 +145,7 @@ module Meridian
             parts << "depends_on=#{depends_on}"
           end
           @output.puts "  #{accessory.name}  #{parts.join(" ")}"
+          @output.puts "    readiness:  #{accessory.readiness}"
           unless accessory.volumes.empty?
             @output.puts "    volumes:  #{accessory.volumes.join(", ")}"
           end

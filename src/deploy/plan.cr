@@ -22,7 +22,8 @@ module Meridian
       port : String?,
       volumes : Array(String),
       secrets : Array(String),
-      depends_on : String?
+      depends_on : String?,
+      readiness : String
 
     record AssetsPlan,
       host : String,
@@ -174,8 +175,15 @@ module Meridian
             volumes: accessory.volumes,
             secrets: accessory.env.try(&.secret) || [] of String,
             depends_on: accessory.depends_on,
+            readiness: readiness_summary(name, accessory),
           )
         end
+      end
+
+      private def self.readiness_summary(name : String, accessory : Config::AccessoryConfig) : String
+        accessory.effective_ready(name).summary
+      rescue ex : Config::ValidationError
+        "UNRESOLVED: #{ex.message}"
       end
     end
   end

@@ -1,8 +1,9 @@
 module Meridian
   module Commands
     class Check < Base
-      MIN_PODMAN_MAJOR = 4
-      MIN_PODMAN_MINOR = 4
+      MIN_PODMAN_MAJOR  = 4
+      MIN_PODMAN_MINOR  = 4
+      EMPTY_ACCESSORIES = {} of String => Config::AccessoryConfig
 
       private record HostContext,
         host : String,
@@ -173,8 +174,43 @@ rescue
 
         results << same_host_readiness(host_context.host, 40)
         results << check_manifest_collisions(host_context.host, 41)
+        results.concat(accessory_readiness_probes(host_context.host))
 
         results
+      end
+
+      private def accessory_readiness_probes(host : String) : Array(ProbeResult)
+        ref = "#{@config.service}.network"
+        accessories = @config.accessories || EMPTY_ACCESSORIES
+        names = accessories.select { |_, accessory| accessory.network == ref && accessory.host == host }.keys.sort!
+
+        names.map_with_index do |name, index|
+          accessory = accessories[name]
+          position = 50 + index
+          probe = "accessory-readiness:#{name}"
+          begin
+            ready = accessory.effective_ready(name)
+            command_probe(host, probe, position, accessory_probe_argv(name, ready), ready.summary)
+          rescue ex : Config::ValidationError
+            fail(host, probe, position, ex.message || "unresolved readiness")
+          end
+        end
+      end
+
+      private def accessory_probe_argv(name : String, ready : Config::AccessoryReadinessConfig) : Array(String)
+        probe_image = Config::HealthcheckConfig::DEFAULT_PROBE_IMAGE
+        network = @config.service
+
+        if tcp = ready.tcp
+          checks = tcp.map { |port| "nc -z #{name} #{port}" }.join(" && ")
+          ["podman", "run", "--rm", "--network=#{network}", probe_image, "sh", "-c", checks]
+        elsif http = ready.http
+          ["podman", "run", "--rm", "--network=#{network}", probe_image, "wget", "-q", "-O-", "http://#{name}:#{http.port}#{http.path}"]
+        elsif cmd = ready.cmd
+          ["podman", "exec", name] + cmd
+        else
+          ["false"]
+        end
       end
 
       private def check_connectivity(host : String, position : Int32) : ProbeResult

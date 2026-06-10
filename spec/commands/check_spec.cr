@@ -272,6 +272,78 @@ describe "Meridian::Commands::Check" do
       remote_commands_for(runner).should contain("podman image exists docker.io/library/alpine:3.21")
     end
 
+    it "probes co-located accessory readiness" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.10
+              network: myapp.network
+              ready:
+                tcp: 6379
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+
+      command.run.should be_true
+
+      remote_commands_for(runner).any?(&.includes?("nc -z cache 6379")).should be_true
+      output.to_s.should contain("accessory-readiness:cache")
+    end
+
+    it "fails when a co-located accessory is not ready" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.10
+              network: myapp.network
+              ready:
+                tcp: 6379
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,                           # connectivity
+        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok,                           # lingering
+        ssh_ok,                           # quadlet-dir
+        ssh_ok,                           # manifest-collisions
+        check_ssh_fail                    # accessory-readiness
+      )
+
+      command.run.should be_false
+
+      output.to_s.should contain("accessory-readiness:cache")
+    end
+
     it "fails when the readiness probe image is missing on a proxied host" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new

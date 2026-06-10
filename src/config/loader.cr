@@ -118,6 +118,7 @@ module Meridian
       getter timeout : Int32 = 5
       getter retries : Int32 = 10
       getter probe_image : String = DEFAULT_PROBE_IMAGE
+      getter required_successes : Int32 = 3
 
       def initialize(
         @path : String = "/health",
@@ -125,6 +126,7 @@ module Meridian
         @timeout : Int32 = 5,
         @retries : Int32 = 10,
         @probe_image : String = DEFAULT_PROBE_IMAGE,
+        @required_successes : Int32 = 3,
       )
       end
     end
@@ -217,6 +219,84 @@ module Meridian
       end
     end
 
+    # Accepts either a single scalar port (`tcp: 5432`) or a sequence
+    # (`tcp: [5432, 5433]`) and normalizes both to `Array(Int32)`.
+    module TcpPortsConverter
+      def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : Array(Int32)?
+        case node
+        when YAML::Nodes::Scalar
+          return if node.value.empty?
+          port = node.value.to_i? || node.raise("Invalid accessory readiness tcp port: #{node.value.inspect}")
+          [port]
+        when YAML::Nodes::Sequence
+          node.nodes.map do |child|
+            scalar = child.as?(YAML::Nodes::Scalar) || child.raise("accessory readiness tcp must be an integer or list of integers")
+            scalar.value.to_i? || scalar.raise("Invalid accessory readiness tcp port: #{scalar.value.inspect}")
+          end
+        else
+          node.raise("accessory readiness tcp must be an integer or list of integers")
+        end
+      end
+
+      def self.to_yaml(value : Array(Int32)?, yaml : YAML::Nodes::Builder)
+        return yaml.scalar("") unless value
+        yaml.sequence { value.each { |port| yaml.scalar(port) } }
+      end
+    end
+
+    struct AccessoryReadinessHTTPConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      getter path : String = "/"
+      getter port : Int32
+    end
+
+    struct AccessoryReadinessConfig
+      include YAML::Serializable
+      include YAML::Serializable::Strict
+
+      @[YAML::Field(converter: Meridian::Config::TcpPortsConverter)]
+      getter tcp : Array(Int32)?
+      getter cmd : Array(String)?
+      getter http : AccessoryReadinessHTTPConfig?
+
+      getter timeout : Int32 = 5
+      getter interval : Int32 = 1
+      getter retries : Int32 = 30
+
+      def initialize(
+        @tcp : Array(Int32)? = nil,
+        @cmd : Array(String)? = nil,
+        @http : AccessoryReadinessHTTPConfig? = nil,
+        @timeout : Int32 = 5,
+        @interval : Int32 = 1,
+        @retries : Int32 = 30,
+      )
+      end
+
+      protected def after_initialize
+        declared = [tcp.nil?, cmd.nil?, http.nil?].count(false)
+        unless declared == 1
+          raise ValidationError.new("accessory readiness must declare exactly one of tcp, cmd, http")
+        end
+      end
+
+      # Compact one-line description of the probe shape, shared by deploy logs,
+      # `check` rows, and `plan` output.
+      def summary : String
+        if ports = tcp
+          "tcp:#{ports.join(",")}"
+        elsif endpoint = http
+          "http:#{endpoint.path}:#{endpoint.port}"
+        elsif command = cmd
+          "cmd:#{command.join(" ")}"
+        else
+          "unknown"
+        end
+      end
+    end
+
     struct AccessoryConfig
       include YAML::Serializable
       include YAML::Serializable::Strict
@@ -230,6 +310,37 @@ module Meridian
       getter network : String?
       getter secrets : Array(String) = [] of String
       getter depends_on : String?
+      getter ready : AccessoryReadinessConfig?
+
+      # Resolves the readiness contract: the explicit `ready:` block when given,
+      # otherwise a sensible default inferred from the image. Raises
+      # `ValidationError` for unknown images that declare no port and no `ready:`.
+      def effective_ready(name : String) : AccessoryReadinessConfig
+        if readiness = ready
+          return readiness
+        end
+
+        image_name = image || raise ValidationError.new("accessory '#{name}' is missing required image")
+        base = image_name.split('/').last.split(':').first.downcase
+
+        case base
+        when "postgres"
+          user = env.try(&.clear["POSTGRES_USER"]?) || "postgres"
+          AccessoryReadinessConfig.new(cmd: ["pg_isready", "-U", user])
+        when "redis", "valkey", "dragonfly", "keydb"
+          AccessoryReadinessConfig.new(tcp: [6379])
+        when "mysql", "mariadb"
+          AccessoryReadinessConfig.new(cmd: ["mysqladmin", "ping", "--silent"])
+        else
+          if container_port = port.try(&.split(':').last.to_i?)
+            AccessoryReadinessConfig.new(tcp: [container_port])
+          else
+            raise ValidationError.new(
+              "accessory '#{name}': cannot infer readiness from image '#{image_name}'; declare an explicit `ready:` block"
+            )
+          end
+        end
+      end
     end
 
     struct FileSyncConfig
@@ -284,23 +395,25 @@ module Meridian
     end
 
     module Loader
-      ROOT_KEYS         = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
-      BUILD_KEYS        = {"dockerfile", "context", "args", "platform", "builder"}
-      SERVER_KEYS       = {"hosts", "proxy", "cmd", "image", "managed", "units"}
-      SERVER_PROXY_KEYS = {"host", "ssl", "app_port", "healthcheck", "path"}
-      HEALTHCHECK_KEYS  = {"path", "interval", "timeout", "retries", "probe_image"}
-      PROXY_KEYS        = {"image", "http_port", "https_port", "data_dir"}
-      REGISTRY_KEYS     = {"server", "username", "password"}
-      ENV_KEYS          = {"clear", "secret"}
-      SSH_KEYS          = {"user", "port", "keys", "proxy_jump", "connect_timeout", "keepalive", "keepalive_interval"}
-      BOOT_KEYS         = {"limit", "wait"}
-      TRANSFER_KEYS     = {"mode"}
-      ACCESSORY_KEYS    = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on"}
-      HOOKS_KEYS        = {"pre_deploy", "post_deploy", "remote"}
-      REMOTE_HOOKS_KEYS = {"before_transfer", "after_transfer", "after_upload", "before_start", "after_start", "before_switch", "after_switch", "after_deploy"}
-      REMOTE_HOOK_KEYS  = {"command", "roles"}
-      FILE_SYNC_KEYS    = {"source", "destination", "template", "roles"}
-      ASSETS_KEYS       = {"host", "command", "output_dir", "retain_releases"}
+      ROOT_KEYS           = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
+      BUILD_KEYS          = {"dockerfile", "context", "args", "platform", "builder"}
+      SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units"}
+      SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path"}
+      HEALTHCHECK_KEYS    = {"path", "interval", "timeout", "retries", "probe_image", "required_successes"}
+      PROXY_KEYS          = {"image", "http_port", "https_port", "data_dir"}
+      REGISTRY_KEYS       = {"server", "username", "password"}
+      ENV_KEYS            = {"clear", "secret"}
+      SSH_KEYS            = {"user", "port", "keys", "proxy_jump", "connect_timeout", "keepalive", "keepalive_interval"}
+      BOOT_KEYS           = {"limit", "wait"}
+      TRANSFER_KEYS       = {"mode"}
+      ACCESSORY_KEYS      = {"image", "host", "port", "volumes", "env", "cmd", "network", "secrets", "depends_on", "ready"}
+      READINESS_KEYS      = {"tcp", "cmd", "http", "timeout", "interval", "retries"}
+      READINESS_HTTP_KEYS = {"path", "port"}
+      HOOKS_KEYS          = {"pre_deploy", "post_deploy", "remote"}
+      REMOTE_HOOKS_KEYS   = {"before_transfer", "after_transfer", "after_upload", "before_start", "after_start", "before_switch", "after_switch", "after_deploy"}
+      REMOTE_HOOK_KEYS    = {"command", "roles"}
+      FILE_SYNC_KEYS      = {"source", "destination", "template", "roles"}
+      ASSETS_KEYS         = {"host", "command", "output_dir", "retain_releases"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))
@@ -440,6 +553,22 @@ module Meridian
                 if accessory_env_mapping = mapping(accessory_env)
                   if key = unknown_key(accessory_env_mapping, ENV_KEYS, "accessories.#{name}.env.")
                     return key
+                  end
+                end
+              end
+
+              if ready = mapping_value(accessory_mapping, "ready")
+                if ready_mapping = mapping(ready)
+                  if key = unknown_key(ready_mapping, READINESS_KEYS, "accessories.#{name}.ready.")
+                    return key
+                  end
+
+                  if http = mapping_value(ready_mapping, "http")
+                    if http_mapping = mapping(http)
+                      if key = unknown_key(http_mapping, READINESS_HTTP_KEYS, "accessories.#{name}.ready.http.")
+                        return key
+                      end
+                    end
                   end
                 end
               end

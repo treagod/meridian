@@ -7,6 +7,7 @@ def build_orchestrator(
   stream_transfer : Meridian::Transfer::Stream? = nil,
   incremental_transfer : Meridian::Transfer::Incremental? = nil,
   batch_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
+  health_sleeper : Proc(Time::Span, Nil) = ->(_duration : Time::Span) { nil },
   hook_runner : Proc(String, Hash(String, String), Int32) = ->(_script : String, _env : Hash(String, String)) { 0 },
   file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
   lock_manager : Meridian::Lock::Manager? = nil,
@@ -23,6 +24,7 @@ def build_orchestrator(
     incremental_transfer: incremental_transfer,
     output: output,
     batch_sleeper: batch_sleeper,
+    health_sleeper: health_sleeper,
     hook_runner: hook_runner,
     file_reader: file_reader,
     lock_manager: lock_manager || FakeLockManager.new(config),
@@ -83,6 +85,10 @@ def enqueue_zero_downtime_success(
   green_active : Bool = false,
   old_active : Bool? = nil,
   health_status : String = "200",
+  health_successes : Int32 = 3,
+  health_results : Array(Meridian::SSH::Result)? = nil,
+  accessory_probes : Int32 = 0,
+  accessory_probe_result : Meridian::SSH::Result = ssh_ok,
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
@@ -125,9 +131,14 @@ def enqueue_zero_downtime_success(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok(health_status),
-    ssh_ok,
   ])
+  accessory_probes.times { results << accessory_probe_result }
+  if custom_health = health_results
+    custom_health.each { |health| results << health }
+  else
+    health_successes.times { results << ssh_ok(health_status) }
+  end
+  results << ssh_ok
 
   results << ssh_ok if resolved_old_active
 
@@ -158,6 +169,10 @@ def enqueue_zero_downtime_success_for_host(
   green_active : Bool = false,
   old_active : Bool? = nil,
   health_status : String = "200",
+  health_successes : Int32 = 3,
+  health_results : Array(Meridian::SSH::Result)? = nil,
+  accessory_probes : Int32 = 0,
+  accessory_probe_result : Meridian::SSH::Result = ssh_ok,
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
@@ -200,9 +215,14 @@ def enqueue_zero_downtime_success_for_host(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok(health_status),
-    ssh_ok,
   ])
+  accessory_probes.times { results << accessory_probe_result }
+  if custom_health = health_results
+    custom_health.each { |health| results << health }
+  else
+    health_successes.times { results << ssh_ok(health_status) }
+  end
+  results << ssh_ok
 
   results << ssh_ok if resolved_old_active
 
@@ -392,6 +412,37 @@ def fast_health_config(content : String = FULL_CONFIG) : String
     .sub("retries: 10", "retries: 1")
 end
 
+# A web (proxied) service with a single accessory on the service network, so
+# the orchestrator's accessory-readiness gate fires. required_successes: 1 keeps
+# the health step a single probe.
+def accessory_gate_config : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+          ssl: true
+          healthcheck:
+            required_successes: 1
+
+    proxy:
+      image: ghcr.io/basecamp/kamal-proxy:latest
+
+    accessories:
+      cache:
+        image: docker.io/library/redis:7
+        host: 192.168.1.10
+        network: myapp.network
+        ready:
+          tcp: 6379
+    YAML
+end
+
 def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
   runner.enqueue_results_for_host(
     "192.168.1.10",
@@ -417,7 +468,9 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
     ssh_ok,                            # kamal-proxy deploy for assets
     ssh_ok,                            # prune old asset releases
     ssh_ok,                            # start new service
-    ssh_ok("200"),                     # health check
+    ssh_ok("200"),                     # health check (consecutive success 1/3)
+    ssh_ok("200"),                     # health check (consecutive success 2/3)
+    ssh_ok("200"),                     # health check (consecutive success 3/3)
     ssh_ok,                            # kamal-proxy deploy for app
     ssh_ok,                            # rm old container
     ssh_ok,                            # daemon-reload
@@ -1362,6 +1415,68 @@ describe "Meridian::Deploy::Orchestrator" do
       remote_commands_for(runner).should contain("podman image prune -f")
     end
 
+    it "waits for co-network accessories before starting the new color" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true, health_successes: 1, accessory_probes: 1)
+      orchestrator = build_orchestrator(content: accessory_gate_config, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner)
+      probe_index = commands.index(&.includes?("nc -z cache 6379")) || raise "Expected accessory readiness probe"
+      start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected new color start"
+
+      probe_index.should be < start_index
+
+      # A single sidecar with the retry loop inside the container, not one
+      # `podman run` per attempt.
+      probe = commands[probe_index]
+      probe.should contain("podman run --rm --network=myapp")
+      probe.should contain("until nc -z cache 6379; do sleep")
+      probe.should_not contain("until podman run")
+    end
+
+    it "fails fast naming an accessory that never becomes ready" do
+      runner = FakeSSHRunner.new
+      # The accessory readiness gate runs right before the new color starts; the
+      # probe is the first `sh -c timeout` command and must fail to abort the deploy.
+      runner.enqueue_results(
+        ssh_fail(1, "", "No such file\n"), # cat service active-color
+        ssh_fail(1, "", "No such file\n"), # cat legacy .meridian-color
+        ssh_fail(3, "inactive\n"),         # is-active blue
+        ssh_ok("active\n"),                # is-active green (green_active)
+        ssh_ok("active\n"),                # old_active confirm
+        ssh_ok,                            # mkdir quadlet dir
+        ssh_ok,                            # mkdir service state dir
+        ssh_ok,                            # upload service network Quadlet
+        ssh_ok,                            # upload shared proxy network Quadlet
+        ssh_ok,                            # upload container Quadlet
+        ssh_ok,                            # upload file syncs / setup
+        ssh_ok,                            # daemon-reload
+        ssh_fail(124, "", "timed out\n")   # accessory readiness probe
+      )
+      orchestrator = build_orchestrator(content: accessory_gate_config, runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Accessory 'cache' not ready/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner)
+      commands.any?(&.includes?("nc -z cache 6379")).should be_true
+      commands.should_not contain("systemctl --user start myapp-blue.service")
+    end
+
+    it "requires the configured number of consecutive health successes" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true, health_results: [ssh_ok, ssh_fail(1, "", "flap\n"), ssh_ok, ssh_ok, ssh_ok])
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      health_calls = remote_commands_for(runner).count { |command| health_command?(command, "myapp-blue") }
+      health_calls.should eq(5)
+    end
+
     it "uses the service-scoped stored marker when present" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, marker: "green")
@@ -1666,7 +1781,7 @@ describe "Meridian::Deploy::Orchestrator" do
       log_output = output.to_s
       log_output.should contain("[192.168.1.10] Pulling image registry.example.com/myorg/myapp")
       log_output.should contain("[192.168.1.10] Health check attempt 1/10: myapp-green -> http://myapp-green:3000/health (Host: myapp.example.com)")
-      log_output.should contain("[192.168.1.10] Health check passed: myapp-green -> http://myapp-green:3000/health")
+      log_output.should contain("[192.168.1.10] Health check passed (3/3): myapp-green -> http://myapp-green:3000/health")
     end
 
     it "sleeps between successful batches but not after the final batch" do

@@ -177,6 +177,37 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Description=myapp (green)")
     end
 
+    it "declares systemd dependencies on accessories that share the service network" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.20
+              network: myapp.network
+              ready:
+                tcp: 6379
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Wants=cache.service")
+      output.should contain("After=cache.service")
+    end
+
+    it "omits accessory dependencies when no accessory shares the service network" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should_not contain("Wants=db.service")
+    end
+
     it "emits Volume= lines when volumes are configured" do
       config = load_config(<<-YAML)
           service: myapp
@@ -418,6 +449,41 @@ describe "Meridian::Quadlet::Generator" do
 
       output.should contain("Secret=REDIS_PASSWORD")
       output.should contain("Secret=REDIS_TLS_CERT")
+    end
+
+    it "renders a Podman healthcheck from an inferred cmd readiness probe" do
+      config = load_config(FULL_CONFIG)
+      accessory = value!(config.accessories)["db"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
+
+      output.should contain("HealthCmd=pg_isready -U postgres")
+      output.should contain("HealthInterval=1s")
+      output.should contain("HealthRetries=30")
+      output.should contain("HealthStartPeriod=5s")
+    end
+
+    it "omits HealthCmd for a tcp readiness probe" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.20
+              network: myapp.network
+              ready:
+                tcp: 6379
+        YAML
+      accessory = value!(config.accessories)["cache"]
+      output = Meridian::Quadlet::Generator.new(config).accessory_container_file("cache", accessory)
+
+      output.should_not contain("HealthCmd=")
     end
 
     it "raises when the accessory image is missing" do

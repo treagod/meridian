@@ -32,8 +32,20 @@ module Meridian
           secrets: secrets,
           volumes: @config.volumes,
           ports: @config.ports,
-          command: server.cmd
+          command: server.cmd,
+          accessory_units: co_network_accessory_units
         ).to_s
+      end
+
+      # Service units of accessories that share this service's network, so the
+      # app Quadlet can declare a systemd dependency (Wants=/After=) on them.
+      private def co_network_accessory_units : Array(String)
+        ref = "#{@config.service}.network"
+        (@config.accessories || EMPTY_ACCESSORIES)
+          .select { |_, accessory| accessory.network == ref }
+          .keys
+          .sort!
+          .map { |name| "#{name}.service" }
       end
 
       def network_file : String
@@ -62,6 +74,7 @@ module Meridian
         environment = accessory.env.try(&.clear) || EMPTY_ENV
         env_secrets = (accessory.env.try(&.secret) || EMPTY_SECRETS).map { |secret_name| "#{secret_name},type=env,target=#{secret_name}" }
         secrets = env_secrets + accessory.secrets
+        ready = accessory.effective_ready(name)
 
         AccessoryContainerTemplate.new(
           name: name,
@@ -72,7 +85,11 @@ module Meridian
           secrets: secrets,
           network: accessory.network,
           depends_on: accessory.depends_on,
-          command: accessory.cmd
+          command: accessory.cmd,
+          health_cmd: ready.cmd.try(&.join(" ")),
+          health_interval: ready.interval,
+          health_retries: ready.retries,
+          health_start_period: ready.timeout
         ).to_s
       end
 
@@ -183,6 +200,7 @@ module Meridian
           @volumes : Array(String),
           @ports : Array(String),
           @command : String?,
+          @accessory_units : Array(String) = [] of String,
         )
         end
 
@@ -220,6 +238,10 @@ module Meridian
           @network : String?,
           @depends_on : String?,
           @command : String?,
+          @health_cmd : String? = nil,
+          @health_interval : Int32 = 1,
+          @health_retries : Int32 = 30,
+          @health_start_period : Int32 = 5,
         )
         end
 

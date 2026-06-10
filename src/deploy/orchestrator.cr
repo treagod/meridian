@@ -4,6 +4,7 @@ module Meridian
       DEFAULT_COLOR            = Quadlet::Color::Green
       LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
       DEPLOY_LOCK_MESSAGE      = "meridian deploy"
+      EMPTY_ACCESSORIES        = {} of String => Config::AccessoryConfig
 
       private record HostDeployResult,
         role : String,
@@ -59,6 +60,7 @@ module Meridian
         incremental_transfer : Transfer::Incremental? = nil,
         @output : IO = STDOUT,
         @batch_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
+        @health_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
         @hook_runner : Proc(String, Hash(String, String), Int32) = ->(script : String, env : Hash(String, String)) { Process.run(script, env: env, shell: true).exit_code },
         @file_reader : Proc(String, String) = ->(path : String) { File.read(path) },
         lock_manager : Lock::Manager? = nil,
@@ -135,6 +137,8 @@ module Meridian
 
         run_remote_hooks(host, role, "before_start")
 
+        wait_for_accessories(host)
+
         active_service = run_ssh(host, ["systemctl", "--user", "is-active", service_unit])
         if active_service.exit_code.zero?
           log(host, "Stopping existing service #{service_unit}")
@@ -196,6 +200,8 @@ module Meridian
         if @config.assets
           run_asset_build_on_host(host)
         end
+
+        wait_for_accessories(host)
 
         log(host, "Starting service #{service_unit(new_color)}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
@@ -444,8 +450,10 @@ module Meridian
         retries = proxy.healthcheck.retries
         interval = proxy.healthcheck.interval
         probe_image = proxy.healthcheck.probe_image
+        required = proxy.healthcheck.required_successes
         host_header = proxy.host || container_name
 
+        consecutive = 0
         retries.times do |attempt|
           attempt_number = attempt + 1
           @output.puts "[#{host}] Health check attempt #{attempt_number}/#{retries}: #{container_name} -> #{url} (Host: #{host_header})"
@@ -463,14 +471,75 @@ module Meridian
           )
 
           if result.exit_code.zero?
-            @output.puts "[#{host}] Health check passed: #{container_name} -> #{url}"
-            return
+            consecutive += 1
+            @output.puts "[#{host}] Health check passed (#{consecutive}/#{required}): #{container_name} -> #{url}"
+            return if consecutive >= required
+          else
+            consecutive = 0
           end
 
-          sleep interval.seconds if attempt < retries - 1
+          @health_sleeper.call(interval.seconds) if attempt < retries - 1
         end
 
-        raise Health::CheckFailed.new("Health check failed for #{container_name} -> #{url} after #{retries} attempts")
+        raise Health::CheckFailed.new("Health check failed for #{container_name} -> #{url}: needed #{required} consecutive successes within #{retries} attempts")
+      end
+
+      # Blocks until every accessory sharing this service's network answers its
+      # readiness probe, so the app container does not start before aardvark-dns
+      # can resolve its dependencies. Probes run from a pinned sidecar on the
+      # service network (tcp/http) or via `podman exec` against the accessory (cmd).
+      private def wait_for_accessories(host : String) : Nil
+        ref = "#{@config.service}.network"
+        accessories = (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
+        return if accessories.empty?
+
+        @output.puts "[#{host}] Waiting for accessories: #{accessories.keys.join(", ")}"
+        accessories.each do |name, accessory|
+          wait_for_accessory(host, name, accessory)
+        end
+      end
+
+      private def wait_for_accessory(host : String, name : String, accessory : Config::AccessoryConfig) : Nil
+        ready = accessory.effective_ready(name)
+        budget = {ready.retries * ready.interval, 1}.max
+        @output.puts "[#{host}] Waiting for #{name} on #{ready.summary}…"
+
+        started = Time.instant
+        result = run_ssh(host, accessory_wait_command(name, ready, budget))
+        elapsed = (Time.instant - started).total_seconds.round(1)
+
+        unless result.exit_code.zero?
+          detail = result.stderr.presence || result.stdout.presence || "timed out after #{budget}s"
+          raise DeployFailed.new(
+            "Accessory '#{name}' not ready after #{budget}s: #{detail.strip}. Run `meridian accessory start #{name}` if it is not running."
+          )
+        end
+
+        @output.puts "[#{host}] #{name} ready (#{elapsed}s)"
+      end
+
+      # Remote command that blocks until the accessory's readiness probe passes,
+      # bounded by `timeout`. tcp/http run a single sidecar with the retry loop
+      # inside the container (one `podman run`, not one per attempt); cmd loops a
+      # host-side `podman exec` against the already-running accessory.
+      private def accessory_wait_command(name : String, ready : Config::AccessoryReadinessConfig, budget : Int32) : Array(String)
+        interval = ready.interval
+        image = Config::HealthcheckConfig::DEFAULT_PROBE_IMAGE
+        network = @config.service
+        guard = ["timeout", "-k", "5", budget.to_s]
+
+        if ports = ready.tcp
+          inner = ports.map { |port| "nc -z #{name} #{port}" }.join(" && ")
+          guard + ["podman", "run", "--rm", "--network=#{network}", image, "sh", "-c", "until #{inner}; do sleep #{interval}; done"]
+        elsif endpoint = ready.http
+          inner = "wget -q -O- http://#{name}:#{endpoint.port}#{endpoint.path} >/dev/null 2>&1"
+          guard + ["podman", "run", "--rm", "--network=#{network}", image, "sh", "-c", "until #{inner}; do sleep #{interval}; done"]
+        elsif command = ready.cmd
+          inner = "podman exec #{name} #{command.map { |part| Process.quote_posix(part) }.join(" ")} >/dev/null 2>&1"
+          guard + ["sh", "-c", "until #{inner}; do sleep #{interval}; done"]
+        else
+          raise DeployFailed.new("accessory '#{name}' has no readiness probe")
+        end
       end
 
       private def proxy_deploy_command(

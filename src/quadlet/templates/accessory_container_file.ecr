@@ -26,6 +26,12 @@ Secret=<%= secret %>
 <% if command = @command %>
 Exec=<%= command %>
 <% end %>
+<% if health_cmd = @health_cmd %>
+HealthCmd=<%= health_cmd %>
+HealthInterval=<%= @health_interval %>s
+HealthRetries=<%= @health_retries %>
+HealthStartPeriod=<%= @health_start_period %>s
+<% end %>
 
 [Service]
 Restart=always

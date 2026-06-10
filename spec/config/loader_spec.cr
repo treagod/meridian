@@ -1,5 +1,51 @@
 require "../spec_helper"
 
+def readiness_config(ready_block : String) : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    accessories:
+      cache:
+        image: docker.io/library/redis:7
+        host: 192.168.1.20
+        network: myapp.network
+        ready:
+    #{ready_block}
+    YAML
+end
+
+def cache_ready(yaml : String) : Meridian::Config::AccessoryReadinessConfig
+  config = Meridian::Config::Loader.load(write_config(yaml))
+  accessories = config.accessories || raise "Expected accessories config"
+  accessories["cache"].ready || raise "Expected ready config"
+end
+
+def readiness_accessory(image : String, *, port : String? = nil) : Meridian::Config::AccessoryConfig
+  port_yaml = port ? %(\n    port: "#{port}") : ""
+  yaml = <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    accessories:
+      dep:
+        image: #{image}
+        host: 192.168.1.20#{port_yaml}
+    YAML
+  config = Meridian::Config::Loader.load(write_config(yaml))
+  (config.accessories || raise "Expected accessories")["dep"]
+end
+
 describe "Meridian::Config::Loader" do
   describe ".parse" do
     it "parses config content without reading from disk" do
@@ -704,6 +750,122 @@ describe "Meridian::Config::Loader" do
 
       config = Meridian::Config::Loader.load(write_config(yaml))
       config.assets.should_not be_nil
+    end
+  end
+
+  describe "accessory readiness" do
+    it "parses a scalar tcp port" do
+      cache_ready(readiness_config("        tcp: 6379")).tcp.should eq([6379])
+    end
+
+    it "parses a tcp port list" do
+      cache_ready(readiness_config("        tcp: [6379, 6380]")).tcp.should eq([6379, 6380])
+    end
+
+    it "parses a cmd probe" do
+      cache_ready(readiness_config("        cmd: [redis-cli, ping]")).cmd.should eq(["redis-cli", "ping"])
+    end
+
+    it "parses an http probe with defaults and overrides" do
+      ready = cache_ready(readiness_config("        http:\n          path: /health\n          port: 8080"))
+      http = ready.http || raise "Expected http config"
+      http.path.should eq("/health")
+      http.port.should eq(8080)
+    end
+
+    it "parses readiness timing overrides" do
+      ready = cache_ready(readiness_config("        tcp: 6379\n        timeout: 9\n        interval: 2\n        retries: 12"))
+      ready.timeout.should eq(9)
+      ready.interval.should eq(2)
+      ready.retries.should eq(12)
+    end
+
+    it "rejects a readiness block with no probe shape" do
+      expect_raises(Meridian::Config::ValidationError, /exactly one of tcp, cmd, http/) do
+        Meridian::Config::Loader.load(write_config(readiness_config("        timeout: 5")))
+      end
+    end
+
+    it "rejects a readiness block with multiple probe shapes" do
+      expect_raises(Meridian::Config::ValidationError, /exactly one of tcp, cmd, http/) do
+        Meridian::Config::Loader.load(write_config(readiness_config("        tcp: 6379\n        cmd: [redis-cli, ping]")))
+      end
+    end
+
+    it "rejects an unknown key inside the readiness block" do
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(readiness_config("        tcp: 6379\n        bogus: true")))
+      end
+      (ex.message || "").should contain("accessories.cache.ready.bogus")
+    end
+
+    it "rejects an unknown key inside the readiness http block" do
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(readiness_config("        http:\n          port: 80\n          bogus: true")))
+      end
+      (ex.message || "").should contain("accessories.cache.ready.http.bogus")
+    end
+
+    it "summarizes a tcp probe" do
+      cache_ready(readiness_config("        tcp: 6379")).summary.should eq("tcp:6379")
+      cache_ready(readiness_config("        tcp: [6379, 6380]")).summary.should eq("tcp:6379,6380")
+    end
+
+    it "summarizes an http probe" do
+      cache_ready(readiness_config("        http:\n          path: /health\n          port: 8080")).summary.should eq("http:/health:8080")
+    end
+
+    it "summarizes a cmd probe" do
+      cache_ready(readiness_config("        cmd: [redis-cli, ping]")).summary.should eq("cmd:redis-cli ping")
+    end
+  end
+
+  describe "AccessoryConfig#effective_ready" do
+    it "infers pg_isready for postgres images" do
+      readiness_accessory("docker.io/library/postgres:18-alpine").effective_ready("dep").cmd.should eq(["pg_isready", "-U", "postgres"])
+    end
+
+    it "infers tcp 6379 for redis-family images" do
+      readiness_accessory("ghcr.io/dragonflydb/dragonfly:latest").effective_ready("dep").tcp.should eq([6379])
+    end
+
+    it "infers mysqladmin ping for mysql images" do
+      readiness_accessory("docker.io/library/mysql:8").effective_ready("dep").cmd.should eq(["mysqladmin", "ping", "--silent"])
+    end
+
+    it "falls back to a tcp probe on the declared port for unknown images" do
+      readiness_accessory("registry.example.com/acme/widget:1", port: "9000:9000").effective_ready("dep").tcp.should eq([9000])
+    end
+
+    it "raises for an unknown image with no declared port" do
+      expect_raises(Meridian::Config::ValidationError, /cannot infer readiness/) do
+        readiness_accessory("registry.example.com/acme/widget:1").effective_ready("dep")
+      end
+    end
+  end
+
+  describe "healthcheck.required_successes" do
+    it "defaults to 3" do
+      config = Meridian::Config::Loader.load(write_config(FULL_CONFIG))
+      config.servers["web"].proxy.try(&.healthcheck.required_successes).should eq(3)
+    end
+
+    it "parses an override" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              healthcheck:
+                required_successes: 1
+        YAML
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      config.servers["web"].proxy.try(&.healthcheck.required_successes).should eq(1)
     end
   end
 end

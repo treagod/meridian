@@ -1,5 +1,9 @@
 [Unit]
 Description=<%= @service %> (<%= @color.slug %>)
+<% unless @accessory_units.empty? %>
+Wants=<%= @accessory_units.join(" ") %>
+After=<%= @accessory_units.join(" ") %>
+<% end %>
 
 [Container]
 Image=<%= @image %>

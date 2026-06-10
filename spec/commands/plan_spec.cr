@@ -44,8 +44,27 @@ describe "Meridian::Commands::Plan" do
 
       output.should contain("accessories:")
       output.should contain("db  image=docker.io/library/postgres:16 host=192.168.1.20 port=5432:5432")
+      output.should contain("readiness:  cmd:pg_isready -U postgres")
       output.should contain("volumes:  pgdata:/var/lib/postgresql/data")
       output.should contain("secrets:  POSTGRES_PASSWORD")
+    end
+
+    it "surfaces an unresolved readiness contract for an unknown image with no port" do
+      content = <<-YAML
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+        accessories:
+          widget:
+            image: registry.example.com/acme/widget:1
+            host: 192.168.1.20
+        YAML
+
+      output = run_plan(content)
+      output.should contain("readiness:  UNRESOLVED")
     end
 
     it "deduplicates and sorts secret names" do
