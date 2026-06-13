@@ -67,6 +67,9 @@ env:
     - DATABASE_URL
 ```
 
+For every available field, default, and validation rule, see the
+[`deploy.yml` reference](/reference/deploy-yml).
+
 Set any remote secrets listed in `env.secret` before checking or deploying:
 
 ```bash

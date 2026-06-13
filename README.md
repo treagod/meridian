@@ -185,7 +185,7 @@ boot:
   wait: 10
 ```
 
-That's a working config. Everything else is opt-in: `volumes`, `ports`, `accessories`, `transfer`, `files` (upload supporting config to hosts, optionally template-rendered with ECR), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static asset hosting via a Caddy sidecar on a separate subdomain). Run `meridian init` and read the comments in the generated file. They're the closest thing this project has to reference docs right now.
+That's a working config. Everything else is opt-in: `volumes`, `ports`, `accessories`, `transfer`, `files` (upload supporting config to hosts, optionally template-rendered with ECR), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static asset hosting via a Caddy sidecar on a separate subdomain). See the [`deploy.yml` reference](docs/reference/deploy-yml.md) for the complete schema, defaults, and validation rules.
 
 Two things worth knowing: per-role `image:` overrides the global one (useful when your worker image differs from your web image), and unknown config keys fail fast rather than getting silently ignored. `build:` is reserved but not implemented. There's no `meridian build` yet, so bring your own image.
 
@@ -208,7 +208,7 @@ If you're already happy on Kamal, stay on Kamal. The interesting reason to look 
 
 ## What's next
 
-The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and probably a hosted docs site so the README can stop being a reference manual.
+The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and fuller CLI/recipe docs so the README can stop being a reference manual.
 
 Issues and PRs welcome. For anything non-trivial, please open an issue first. Better to have the design conversation before code gets written.
 

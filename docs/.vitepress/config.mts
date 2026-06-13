@@ -16,7 +16,6 @@ export default defineConfig({
   title: 'Meridian',
   description: 'Ship web apps without a hassle',
   cleanUrls: true,
-  ignoreDeadLinks: ['/reference/deploy-yml'],
 
   base: '/',
   appearance: 'force-dark',
@@ -79,7 +78,8 @@ export default defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Overview', link: '/reference/' }
+            { text: 'Overview', link: '/reference/' },
+            { text: 'deploy.yml', link: '/reference/deploy-yml' }
           ]
         }
       ]

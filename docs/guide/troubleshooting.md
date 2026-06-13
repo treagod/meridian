@@ -31,7 +31,7 @@ meridian check
 meridian deploy
 ```
 
-See the planned [`deploy.yml` healthcheck reference](/reference/deploy-yml#healthcheck) for field details.
+See the [`deploy.yml` healthcheck reference](/reference/deploy-yml#healthcheck) for field details.
 
 ## `manifest-collisions: fail`
 
@@ -83,7 +83,7 @@ meridian check
 meridian deploy
 ```
 
-If you want hosts to pull from a registry instead, remove `transfer.mode` or set it to `registry`; see the planned [`transfer` reference](/reference/deploy-yml#transfer).
+If you want hosts to pull from a registry instead, remove `transfer.mode` or set it to `registry`; see the [`transfer` reference](/reference/deploy-yml#transfer).
 
 ## `Hostname Lookup ... Try Again` In App Logs
 
