@@ -18,6 +18,7 @@ For the technical details, see the [Reference](/reference/).
 ## Pages
 
 - [Quickstart](/guide/quickstart) - install Meridian, initialize a project, run the preflight check, and deploy.
+- [Pre-Flight Checklist](/guide/preflight) - verify DNS, images, app ports, secrets, and accessories before deploy.
 - [Troubleshooting](/guide/troubleshooting) - diagnose common first-deploy failures with copy-paste commands.
 
 More is coming soon.

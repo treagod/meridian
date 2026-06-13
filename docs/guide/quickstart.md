@@ -82,6 +82,10 @@ Inspect the resolved deploy intent locally first - no SSH, no registry calls:
 meridian plan
 ```
 
+Before the first deploy for a new project or host, run through the
+[Pre-Flight Checklist](/guide/preflight). It catches DNS, image, app-port,
+and accessory issues that `meridian check` cannot fully infer.
+
 Then probe the remote hosts, including same-host route collisions with any other Meridian service manifests, then deploy:
 
 ```bash
@@ -118,5 +122,6 @@ kamal-proxy switches traffic back without rebuilding any container.
 ## Where To Go Next
 
 - [Guide overview](/guide/) - concepts and architecture
+- [Pre-Flight Checklist](/guide/preflight) - what to verify before deploy
 - [Troubleshooting](/guide/troubleshooting) - common deploy failures and fixes
 - [Reference](/reference/) - all `deploy.yml` options and CLI commands

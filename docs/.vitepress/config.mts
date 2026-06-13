@@ -70,6 +70,7 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/guide/' },
             { text: 'Quickstart', link: '/guide/quickstart' },
+            { text: 'Pre-Flight Checklist', link: '/guide/preflight' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' }
           ]
         }
