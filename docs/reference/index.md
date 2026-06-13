@@ -45,6 +45,9 @@ accessories:
 
 For a fast introduction, see the [Guide](/guide/).
 
+If a deploy fails, use the [Troubleshooting guide](/guide/troubleshooting) for
+copy-paste diagnostics before digging into the full reference.
+
 ## Accessory readiness
 
 When an accessory joins the service network (`network: <service>.network`), Meridian treats it as a hard dependency of the app: during `deploy` it will not start the new app color until every co-network accessory passes a readiness probe, so the first requests after a rollout do not fail while rootless Podman's aardvark-dns warms up.
@@ -82,3 +85,6 @@ Under `servers.<role>.proxy.healthcheck`:
 | `retries` | `10` | Maximum probe attempts before failing the rollout. |
 | `probe_image` | `docker.io/library/alpine:3.21` | Pinned image the sidecar probe runs (must provide `wget`/`nc`). |
 | `required_successes` | `3` | Consecutive successful probes required before switching traffic. |
+
+For failed probes, see [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout)
+and [Distroless or scratch image has no curl or wget](/guide/troubleshooting#distroless-or-scratch-image-has-no-curl-or-wget).

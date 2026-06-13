@@ -15,12 +15,9 @@ This guide is meant to take you from the first install to a production deploymen
 
 For the technical details, see the [Reference](/reference/).
 
-## Quickstart
+## Pages
 
-```bash
-curl -fsSL meridian-deploy.dev/install.sh | sh
-meridian init
-meridian deploy
-```
+- [Quickstart](/guide/quickstart) - install Meridian, initialize a project, run the preflight check, and deploy.
+- [Troubleshooting](/guide/troubleshooting) - diagnose common first-deploy failures with copy-paste commands.
 
 More is coming soon.

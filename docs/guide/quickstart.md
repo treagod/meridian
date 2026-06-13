@@ -89,6 +89,12 @@ meridian check
 meridian deploy
 ```
 
+If `check` or `deploy` fails here, start with [Troubleshooting](/guide/troubleshooting):
+[local image missing](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer),
+[manifest collisions](/guide/troubleshooting#manifest-collisions-fail),
+[healthcheck timeouts](/guide/troubleshooting#healthcheck-timeout), and
+[stale locks](/guide/troubleshooting#stale-deploy-lock) are the most common first-deploy failures.
+
 What happens during deploy:
 
 1. **You've already built the image locally** (`podman build` / `docker build`). Meridian does not build the image for you.
@@ -112,4 +118,5 @@ kamal-proxy switches traffic back without rebuilding any container.
 ## Where To Go Next
 
 - [Guide overview](/guide/) - concepts and architecture
+- [Troubleshooting](/guide/troubleshooting) - common deploy failures and fixes
 - [Reference](/reference/) - all `deploy.yml` options and CLI commands

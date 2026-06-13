@@ -16,6 +16,7 @@ export default defineConfig({
   title: 'Meridian',
   description: 'Ship web apps without a hassle',
   cleanUrls: true,
+  ignoreDeadLinks: ['/reference/deploy-yml'],
 
   base: '/',
   appearance: 'force-dark',
@@ -68,7 +69,8 @@ export default defineConfig({
           text: 'Guide',
           items: [
             { text: 'Overview', link: '/guide/' },
-            { text: 'Quickstart', link: '/guide/quickstart' }
+            { text: 'Quickstart', link: '/guide/quickstart' },
+            { text: 'Troubleshooting', link: '/guide/troubleshooting' }
           ]
         }
       ],
