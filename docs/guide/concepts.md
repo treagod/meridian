@@ -123,6 +123,8 @@ unless you explicitly configure something else. `manifest.json` collision
 checks make `meridian check` fail if two services claim the same proxy host/path,
 asset host, published host port, accessory name, generated file, or state path.
 
+For a worked setup, see [Multi-App Hosting](/guide/multi-app).
+
 ## Blue/Green
 
 Meridian keeps one active color and one candidate color for proxied managed

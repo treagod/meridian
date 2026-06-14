@@ -19,6 +19,7 @@ For the technical details, see the [Reference](/reference/).
 
 - [Quickstart](/guide/quickstart) - install Meridian, initialize a project, run the preflight check, and deploy.
 - [Concepts](/guide/concepts) - understand deploy flow, Quadlets, runtime state, same-host topology, and blue/green.
+- [Multi-App Hosting](/guide/multi-app) - add a second app to a VPS that already runs one Meridian service.
 - [Pre-Flight Checklist](/guide/preflight) - verify DNS, images, app ports, secrets, and accessories before deploy.
 - [Troubleshooting](/guide/troubleshooting) - diagnose common first-deploy failures with copy-paste commands.
 

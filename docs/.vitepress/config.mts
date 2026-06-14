@@ -70,6 +70,7 @@ export default defineConfig({
             { text: 'Overview', link: '/guide/' },
             { text: 'Quickstart', link: '/guide/quickstart' },
             { text: 'Concepts', link: '/guide/concepts' },
+            { text: 'Multi-App Hosting', link: '/guide/multi-app' },
             { text: 'Pre-Flight Checklist', link: '/guide/preflight' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' }
           ]
