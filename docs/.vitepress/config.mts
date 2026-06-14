@@ -80,7 +80,8 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'Overview', link: '/reference/' },
-            { text: 'deploy.yml', link: '/reference/deploy-yml' }
+            { text: 'deploy.yml', link: '/reference/deploy-yml' },
+            { text: 'CLI', link: '/reference/cli' }
           ]
         }
       ]

@@ -6,11 +6,12 @@ The technical reference for Meridian.
 
 - [`deploy.yml`](/reference/deploy-yml) - the configuration format, defaults,
   validation rules, health checks, accessory readiness, hooks, files, and assets.
+- [`CLI`](/reference/cli) - command usage, flags, side effects, exit codes,
+  examples, failure links, and related `deploy.yml` fields.
 
 ## Planned Sections
 
 - Framework detection - which defaults `init` sets for Marten, Rails, Elixir, Node, and Go
-- CLI commands - `init`, `server bootstrap`, `setup`, `proxy remove`, `check`, `deploy`, `rollback`, `status`, `logs`, `exec`, `run`, `quadlet`, `accessory`, `secret`
 - Quadlet templates - what Meridian generates for you
 - Same-host hosting - service-scoped runtime state, shared proxy network, and manifest collision checks
 - Hooks and extension points
@@ -47,7 +48,8 @@ accessories:
       cmd: ["pg_isready", "-U", "app"]
 ```
 
-For the complete schema, see [`deploy.yml`](/reference/deploy-yml). For a fast
+For the complete schema, see [`deploy.yml`](/reference/deploy-yml). For command
+usage and flags, see the [`CLI` reference](/reference/cli). For a fast
 introduction, see the [Guide](/guide/).
 
 If a deploy fails, use the [Troubleshooting guide](/guide/troubleshooting) for

@@ -47,7 +47,7 @@ meridian deploy
 
 ## The interesting commands
 
-Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. Run `meridian COMMAND --help` for flags. A few are worth explaining.
+Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. See the [CLI reference](docs/reference/cli.md) for exact usage, flags, side effects, exit codes, and troubleshooting links. A few are worth explaining.
 
 ### `deploy`
 
@@ -208,7 +208,7 @@ If you're already happy on Kamal, stay on Kamal. The interesting reason to look 
 
 ## What's next
 
-The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and fuller CLI/recipe docs so the README can stop being a reference manual.
+The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and fuller recipe docs so the README can stop being a reference manual.
 
 Issues and PRs welcome. For anything non-trivial, please open an issue first. Better to have the design conversation before code gets written.
 
