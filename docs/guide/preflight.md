@@ -31,7 +31,7 @@ podman system df
 | --- | --- | --- |
 | Health route exists and returns 200 without a database call | `curl -i http://localhost:8000/health` | Deploy reaches the healthcheck phase and times out. |
 | Production settings read every required environment variable | `rg -n 'ENV\.(fetch|\[)' config src` | The container crashloops because a required env var is absent from `deploy.yml`. |
-| App listens on every interface, not only localhost | `podman run --rm -p 127.0.0.1:8000:8000 ghcr.io/acme/my-app:latest` then `curl -i http://127.0.0.1:8000/health` | Meridian's sidecar probe cannot reach the app container. |
+| App listens on every interface, not only localhost | `podman run --rm -p 127.0.0.1:8000:8000 ghcr.io/acme/my-app:latest` then `curl -i http://127.0.0.1:8000/health` | Meridian's temporary probe container cannot reach the app container. |
 | App port matches `servers.web.proxy.app_port` | `rg -n 'app_port|PORT|port' .meridian/deploy.yml config src` | kamal-proxy routes to the wrong port and the healthcheck fails. |
 
 For Marten apps, define a cheap `/health` route yourself and make production

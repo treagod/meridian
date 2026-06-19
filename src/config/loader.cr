@@ -325,8 +325,9 @@ module Meridian
 
         case base
         when "postgres"
-          user = env.try(&.clear["POSTGRES_USER"]?) || "postgres"
-          AccessoryReadinessConfig.new(cmd: ["pg_isready", "-U", user])
+          # pg_isready answers "is the server accepting connections" before auth,
+          # so the connecting user does not change the readiness signal.
+          AccessoryReadinessConfig.new(cmd: ["pg_isready", "-q"])
         when "redis", "valkey", "dragonfly", "keydb"
           AccessoryReadinessConfig.new(tcp: [6379])
         when "mysql", "mariadb"

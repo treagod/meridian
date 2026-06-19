@@ -44,7 +44,7 @@ describe "Meridian::Commands::Plan" do
 
       output.should contain("accessories:")
       output.should contain("db  image=docker.io/library/postgres:16 host=192.168.1.20 port=5432:5432")
-      output.should contain("readiness:  cmd:pg_isready -U postgres")
+      output.should contain("readiness:  cmd:pg_isready -q")
       output.should contain("volumes:  pgdata:/var/lib/postgresql/data")
       output.should contain("secrets:  POSTGRES_PASSWORD")
     end

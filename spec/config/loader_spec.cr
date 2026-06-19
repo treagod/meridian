@@ -822,7 +822,7 @@ describe "Meridian::Config::Loader" do
 
   describe "AccessoryConfig#effective_ready" do
     it "infers pg_isready for postgres images" do
-      readiness_accessory("docker.io/library/postgres:18-alpine").effective_ready("dep").cmd.should eq(["pg_isready", "-U", "postgres"])
+      readiness_accessory("docker.io/library/postgres:18-alpine").effective_ready("dep").cmd.should eq(["pg_isready", "-q"])
     end
 
     it "infers tcp 6379 for redis-family images" do

@@ -15,8 +15,8 @@ operator
   | meridian deploy
   v
 lock -> transfer image -> upload Quadlets/files/assets -> daemon-reload
-  -> before_start hooks -> asset build -> wait_for_accessories
-  -> start new color -> sidecar health probe
+  -> wait_for_accessories -> before_start hooks -> asset build
+  -> start new color -> temporary health probe
   -> before_switch hooks -> kamal-proxy deploy
   -> after_switch hooks -> stop old color
   -> record active color + release + manifest -> after_deploy hooks
@@ -27,11 +27,11 @@ lock -> transfer image -> upload Quadlets/files/assets -> daemon-reload
 2. Transfer the selected image by registry pull, `stream`, or `incremental`.
 3. Upload service networks, the new color `.container`, file syncs, and asset units.
 4. Run `systemctl --user daemon-reload`.
-5. Run remote `before_start` hooks.
-6. Run the asset builder when `assets:` is configured.
-7. Wait for co-network accessories to pass readiness probes.
+5. Wait for co-network accessories to pass readiness probes.
+6. Run remote `before_start` hooks.
+7. Run the asset builder when `assets:` is configured.
 8. Start the inactive color, for example `my-app-green.service`.
-9. Poll the new container from a sidecar on `meridian-proxy` until `healthcheck.required_successes` consecutive HTTP successes pass.
+9. Poll the new container from a temporary probe container on `meridian-proxy` until `healthcheck.required_successes` consecutive HTTP successes pass.
 10. Run remote `before_switch` hooks.
 11. Run `kamal-proxy deploy` to atomically switch traffic to the new color.
 12. Run remote `after_switch` hooks.
@@ -55,7 +55,7 @@ through systemd.
   my-app.network
   my-app-blue.container
   my-app-green.container
-  postgres.container
+  my-app-postgres.container
   my-app-assets.volume
   my-app-assets-builder.container
   my-app-assets-server.container

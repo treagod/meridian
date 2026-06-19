@@ -272,6 +272,8 @@ module Meridian
         ]
 
         if host = proxy.host
+          command << "--health-check-host"
+          command << host
           command << "--host"
           command << host
         end

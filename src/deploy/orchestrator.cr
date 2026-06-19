@@ -135,9 +135,9 @@ module Meridian
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
-        run_remote_hooks(host, role, "before_start")
-
         wait_for_accessories(host)
+
+        run_remote_hooks(host, role, "before_start")
 
         active_service = run_ssh(host, ["systemctl", "--user", "is-active", service_unit])
         if active_service.exit_code.zero?
@@ -195,13 +195,13 @@ module Meridian
         log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
+        wait_for_accessories(host)
+
         run_remote_hooks(host, role, "before_start")
 
         if @config.assets
           run_asset_build_on_host(host)
         end
-
-        wait_for_accessories(host)
 
         log(host, "Starting service #{service_unit(new_color)}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
@@ -564,6 +564,8 @@ module Meridian
         ]
 
         if host = proxy.host
+          command << "--health-check-host"
+          command << host
           command << "--host"
           command << host
         end
@@ -1003,7 +1005,7 @@ module Meridian
         run_ssh!(host, register_cmd)
 
         log(host, "Pruning old asset releases (keeping #{assets.retain_releases})")
-        prune_cmd = "v=$(podman volume inspect #{@config.service}-assets --format '{{.Mountpoint}}') && " \
+        prune_cmd = "v=$(podman volume inspect systemd-#{@config.service}-assets --format '{{.Mountpoint}}') && " \
                     "find \"$v\" -maxdepth 1 -mindepth 1 -type d | sort | head -n -#{assets.retain_releases} | xargs -r rm -rf"
         prune_result = run_ssh(host, ["bash", "-c", prune_cmd])
         unless prune_result.exit_code.zero?

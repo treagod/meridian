@@ -89,6 +89,7 @@ def enqueue_zero_downtime_success(
   health_results : Array(Meridian::SSH::Result)? = nil,
   accessory_probes : Int32 = 0,
   accessory_probe_result : Meridian::SSH::Result = ssh_ok,
+  before_start_hooks : Int32 = 0,
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
@@ -130,9 +131,10 @@ def enqueue_zero_downtime_success(
     ssh_ok,
     ssh_ok,
     ssh_ok,
-    ssh_ok,
   ])
   accessory_probes.times { results << accessory_probe_result }
+  before_start_hooks.times { results << ssh_ok }
+  results << ssh_ok
   if custom_health = health_results
     custom_health.each { |health| results << health }
   else
@@ -443,9 +445,8 @@ def accessory_gate_config : String
     YAML
 end
 
-def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
-  runner.enqueue_results_for_host(
-    "192.168.1.10",
+def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probes : Int32 = 0)
+  results = [
     ssh_fail(1, "", "No such file\n"), # cat service active-color
     ssh_fail(1, "", "No such file\n"), # cat legacy .meridian-color
     ssh_fail(3, "inactive\n"),         # is-active blue
@@ -463,6 +464,9 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
     ssh_ok,                            # upload assets-builder.container Quadlet
     ssh_ok,                            # upload assets-server.container Quadlet
     ssh_ok,                            # daemon-reload
+  ]
+  accessory_probes.times { results << ssh_ok }
+  results.concat([
     ssh_ok,                            # restart assets-builder.service
     ssh_ok,                            # start assets-server.service
     ssh_ok,                            # kamal-proxy deploy for assets
@@ -480,6 +484,11 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner)
     ssh_ok,                            # upload release-state
     ssh_ok,                            # upload service manifest
     ssh_ok,                            # podman image prune
+  ])
+
+  runner.enqueue_results_for_host(
+    "192.168.1.10",
+    results
   )
 end
 
@@ -1217,7 +1226,7 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls") || raise "Expected proxy deploy command"
+      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls") || raise "Expected proxy deploy command"
       stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old service stop"
 
       deploy_index.should be < stop_index
@@ -1235,7 +1244,7 @@ describe "Meridian::Deploy::Orchestrator" do
       end || raise "Expected proxy deploy invocation"
 
       invocation.host.should eq("192.168.1.10")
-      invocation.remote_command.should eq("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      invocation.remote_command.should eq("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
     end
 
     it "probes the new container from a sidecar on the shared proxy network" do
@@ -1301,7 +1310,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       health_index = commands.index { |command| health_command?(command) } || raise "Expected health check invocation"
-      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls") || raise "Expected proxy deploy invocation"
+      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls") || raise "Expected proxy deploy invocation"
 
       health_index.should be < deploy_index
     end
@@ -1434,6 +1443,37 @@ describe "Meridian::Deploy::Orchestrator" do
       probe.should contain("podman run --rm --network=myapp")
       probe.should contain("until nc -z cache 6379; do sleep")
       probe.should_not contain("until podman run")
+    end
+
+    it "waits for co-network accessories before running before_start hooks" do
+      runner = FakeSSHRunner.new
+      config = accessory_gate_config.sub(
+        "accessories:",
+        <<-YAML
+          hooks:
+            remote:
+              before_start:
+                - command: bin/manage migrate
+
+          accessories:
+          YAML
+      )
+      enqueue_zero_downtime_success(
+        runner,
+        green_active: true,
+        health_successes: 1,
+        accessory_probes: 1,
+        before_start_hooks: 1
+      )
+      orchestrator = build_orchestrator(content: config, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner)
+      probe_index = commands.index(&.includes?("nc -z cache 6379")) || raise "Expected accessory readiness probe"
+      hook_index = commands.index("sh -lc 'bin/manage migrate'") || raise "Expected migration hook"
+
+      probe_index.should be < hook_index
     end
 
     it "fails fast naming an accessory that never becomes ready" do
@@ -1612,7 +1652,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy
 
-      remote_commands_for(runner, "192.168.1.10").should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      remote_commands_for(runner, "192.168.1.10").should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
     end
 
     it "falls back to the downtime path when proxy config is absent" do
@@ -1634,7 +1674,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-green.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
     end
 
     it "deploys to all hosts in the web role" do
@@ -1664,7 +1704,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       worker_commands = remote_commands_for(runner, "192.168.1.12")
       worker_commands.should contain("systemctl --user start myapp-green.service")
-      worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --host myapp.example.com --tls")
+      worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
     end
 
     it "limits deployment to the selected role and skips others" do
@@ -2110,6 +2150,30 @@ describe "Meridian::Deploy::Orchestrator" do
       builder_index.should be < start_index
     end
 
+    it "waits for co-network accessories before running the asset builder" do
+      runner = FakeSSHRunner.new
+      config = ASSETS_CONFIG + <<-YAML
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.10
+              network: myapp.network
+              ready:
+                tcp: 6379
+        YAML
+      enqueue_zero_downtime_assets_success(runner, accessory_probes: 1)
+      orchestrator = build_orchestrator(content: config, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      probe_index = commands.index(&.includes?("nc -z cache 6379")) || raise "Expected accessory readiness probe"
+      builder_index = commands.index("systemctl --user restart myapp-assets-builder.service") || raise "Expected assets builder"
+
+      probe_index.should be < builder_index
+    end
+
     it "starts the asset server after the builder" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_assets_success(runner)
@@ -2133,6 +2197,18 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner, "192.168.1.10")
       commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com")
+    end
+
+    it "prunes releases from the physical Quadlet volume name" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      prune_command = commands.find(&.includes?("podman volume inspect")) || raise "Expected asset prune command"
+      prune_command.should contain("podman volume inspect systemd-myapp-assets")
     end
 
     it "registers the asset server with TLS when the web proxy uses SSL" do

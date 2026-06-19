@@ -103,6 +103,7 @@ describe "Meridian::Commands::Rollback" do
       deploy_invocation = value!(deploy_invocation)
       remote_command = value!(deploy_invocation.remote_command)
       remote_command.should contain("--target myapp-green:3000")
+      remote_command.should contain("--health-check-host myapp.example.com")
       remote_command.should contain("--host myapp.example.com")
       remote_command.should contain("--tls")
 

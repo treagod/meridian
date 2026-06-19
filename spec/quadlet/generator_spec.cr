@@ -456,7 +456,7 @@ describe "Meridian::Quadlet::Generator" do
       accessory = value!(config.accessories)["db"]
       output = Meridian::Quadlet::Generator.new(config).accessory_container_file("db", accessory)
 
-      output.should contain("HealthCmd=pg_isready -U postgres")
+      output.should contain("HealthCmd=pg_isready -q")
       output.should contain("HealthInterval=1s")
       output.should contain("HealthRetries=30")
       output.should contain("HealthStartPeriod=5s")
@@ -629,6 +629,12 @@ describe "Meridian::Quadlet::Generator" do
       output = build_quadlet_generator(assets_config).assets_caddy_config
 
       output.should contain("respond /up 200")
+    end
+
+    it "sets a permissive Access-Control-Allow-Origin header for cross-origin asset loads" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain(%(header Access-Control-Allow-Origin "*"))
     end
   end
 

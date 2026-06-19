@@ -5,6 +5,8 @@
 :80 {
 	respond /up 200
 
+	header Access-Control-Allow-Origin "*"
+
 	root * /srv/assets/current
 	file_server
 }
