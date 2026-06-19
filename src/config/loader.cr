@@ -23,6 +23,10 @@ module Meridian
       getter files : Array(FileSyncConfig) = [] of FileSyncConfig
       getter assets : AssetsConfig?
 
+      def resolved_proxy : ProxyConfig
+        proxy || ProxyConfig.new
+      end
+
       protected def after_initialize
         raise ValidationError.new("Config key build is not yet supported") if build
         raise ValidationError.new("Missing required config key: servers") if servers.empty?
@@ -105,6 +109,14 @@ module Meridian
       getter http_port : Int32 = 80
       getter https_port : Int32 = 443
       getter data_dir : String = "/var/lib/kamal-proxy"
+
+      def initialize(
+        @image : String? = nil,
+        @http_port : Int32 = 80,
+        @https_port : Int32 = 443,
+        @data_dir : String = "/var/lib/kamal-proxy",
+      )
+      end
     end
 
     struct HealthcheckConfig

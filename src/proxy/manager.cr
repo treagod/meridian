@@ -17,7 +17,7 @@ module Meridian
       end
 
       def setup : Nil
-        proxy = proxy_config(SetupFailed)
+        proxy = @config.resolved_proxy
         hosts = web_hosts(SetupFailed)
         network_quadlet = @quadlet_generator.network_file
         proxy_network_quadlet = @quadlet_generator.proxy_network_file
@@ -130,10 +130,6 @@ module Meridian
         raise error_klass.new("No hosts configured for role: web") if hosts.empty?
 
         hosts
-      end
-
-      private def proxy_config(error_klass : T.class) : Config::ProxyConfig forall T
-        @config.proxy || raise error_klass.new("Missing proxy configuration")
       end
 
       private def log(host : String, message : String) : Nil

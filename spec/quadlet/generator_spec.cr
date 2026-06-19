@@ -4,6 +4,20 @@ def build_quadlet_generator(content : String = FULL_CONFIG)
   Meridian::Quadlet::Generator.new(load_config(content))
 end
 
+def proxied_config_without_root_proxy : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+    YAML
+end
+
 def assets_config : String
   <<-YAML
     service: myapp
@@ -303,6 +317,15 @@ describe "Meridian::Quadlet::Generator" do
       output = Meridian::Quadlet::Generator.new(config).proxy_container_file
 
       output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
+    end
+
+    it "falls back to a complete default proxy when the root proxy block is omitted" do
+      output = build_quadlet_generator(proxied_config_without_root_proxy).proxy_container_file
+
+      output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
+      output.should contain("PublishPort=80:80")
+      output.should contain("PublishPort=443:443")
+      output.should contain("Volume=/var/lib/kamal-proxy:/var/lib/kamal-proxy")
     end
 
     it "publishes port 80" do
@@ -660,6 +683,16 @@ describe "Meridian::Quadlet::Generator" do
         build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
 
         File.exists?(File.join(path, "kamal-proxy.container")).should be_true
+      end
+    end
+
+    it "creates a proxy .container file when a role is proxied and the root proxy block is omitted" do
+      with_tempdir do |path|
+        build_quadlet_generator(proxied_config_without_root_proxy).write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        proxy_path = File.join(path, "kamal-proxy.container")
+        File.exists?(proxy_path).should be_true
+        File.read(proxy_path).should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
       end
     end
 

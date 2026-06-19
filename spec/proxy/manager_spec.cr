@@ -181,6 +181,33 @@ describe "Meridian::Proxy::Manager" do
       commands.index!("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy").should be < commands.index!("systemctl --user start kamal-proxy.service")
     end
 
+    it "uses default proxy settings when the root proxy block is omitted" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+          YAML
+        runner: runner
+      )
+
+      manager.setup
+
+      upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container")) || raise "Expected proxy upload"
+      upload_input = upload.input || raise "Expected upload input"
+      upload_input.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
+      upload_input.should contain("PublishPort=80:80")
+      upload_input.should contain("PublishPort=443:443")
+      runner.invocations.compact_map(&.remote_command).should contain("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy")
+    end
+
     it "uses a custom data_dir in the uploaded Quadlet when configured" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(

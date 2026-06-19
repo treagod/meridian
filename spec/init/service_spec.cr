@@ -44,7 +44,7 @@ describe "Meridian::Init::Service" do
 
       config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
       config.image.should eq("ghcr.io/acme/myapp")
-      config.proxy.try(&.image).should eq("docker.io/basecamp/kamal-proxy:v0.9.2")
+      config.proxy.should be_nil
       config.registry.try(&.server).should eq("ghcr.io")
       config.registry.try(&.username).should eq("acme")
       output.should contain("Git remote: git@github.com:acme/myapp.git")

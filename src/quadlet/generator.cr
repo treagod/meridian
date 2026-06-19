@@ -57,7 +57,7 @@ module Meridian
       end
 
       def proxy_container_file : String
-        proxy = @config.proxy || raise ArgumentError.new("Missing proxy configuration")
+        proxy = @config.resolved_proxy
         image = proxy.image || Defaults::PROXY_IMAGE
 
         ProxyContainerTemplate.new(
@@ -151,7 +151,7 @@ module Meridian
           File.write(File.join(output_dir, Runtime::Paths::SHARED_PROXY_NETWORK_FILE), proxy_network_file)
         end
 
-        if @config.proxy
+        if proxied_service?
           File.write(File.join(output_dir, "kamal-proxy.container"), proxy_container_file)
         end
 

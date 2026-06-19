@@ -253,11 +253,6 @@ module Meridian
               end
             end
 
-            yaml.scalar "proxy"
-            yaml.mapping do
-              write_scalar_field(yaml, "image", Defaults::PROXY_IMAGE)
-            end
-
             case answers.transfer_mode
             when .registry?
               yaml.scalar "registry"
