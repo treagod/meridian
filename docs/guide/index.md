@@ -13,7 +13,8 @@ This guide is meant to take you from the first install to a production deploymen
 - Deploying to your own server
 - Rollbacks, accessories, and troubleshooting
 
-For the technical details, see the [Reference](/reference/).
+For the technical details, see the [Reference](/reference/). For complete
+starter configs, see the [Recipes](/recipes/).
 
 ## Pages
 
@@ -23,4 +24,7 @@ For the technical details, see the [Reference](/reference/).
 - [Pre-Flight Checklist](/guide/preflight) - verify DNS, images, app ports, secrets, and accessories before deploy.
 - [Troubleshooting](/guide/troubleshooting) - diagnose common first-deploy failures with copy-paste commands.
 
-More is coming soon.
+## Where To Go Next
+
+- [Recipes](/recipes/) - copy-pasteable `deploy.yml` and `Containerfile` starters.
+- [Reference](/reference/) - schema and command details.

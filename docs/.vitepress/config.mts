@@ -43,6 +43,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Guide', link: '/guide/', activeMatch: '/guide/' },
+      { text: 'Recipes', link: '/recipes/', activeMatch: '/recipes/' },
       { text: 'Reference', link: '/reference/', activeMatch: '/reference/' },
       { text: 'GitHub', link: 'https://github.com/treagod/meridian', target: '_blank', rel: 'noreferrer' }
     ],
@@ -73,6 +74,22 @@ export default defineConfig({
             { text: 'Multi-App Hosting', link: '/guide/multi-app' },
             { text: 'Pre-Flight Checklist', link: '/guide/preflight' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' }
+          ]
+        }
+      ],
+      '/recipes/': [
+        {
+          text: 'Recipes',
+          items: [
+            { text: 'Overview', link: '/recipes/' },
+            { text: 'Marten + Postgres + Dragonfly + Assets', link: '/recipes/marten-postgres-dragonfly-assets' },
+            { text: 'Marten + SQLite + Assets', link: '/recipes/marten-sqlite-assets' },
+            { text: 'Rails + Postgres', link: '/recipes/rails-postgres' },
+            { text: 'Go Static Binary', link: '/recipes/go-static-binary' },
+            { text: 'Simple Kemal App', link: '/recipes/kemal-simple' },
+            { text: 'Third-Party Distroless Image', link: '/recipes/vikunja-distroless' },
+            { text: 'Static Site', link: '/recipes/static-site' },
+            { text: 'Multi-App On One Host', link: '/recipes/multi-app-one-host' }
           ]
         }
       ],
