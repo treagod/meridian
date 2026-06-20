@@ -1,0 +1,53 @@
+minimumLimaVersion: 2.0.0
+
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 4
+memory: 6GiB
+disk: 30GiB
+
+mounts: []
+
+containerd:
+  system: false
+  user: false
+
+networks:
+  - vzNAT: true
+
+ssh:
+  loadDotSSHPubKeys: false
+
+provision:
+  - mode: system
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      echo "root:meridian-e2e" | chpasswd
+
+      cat >/etc/ssh/sshd_config.d/00-meridian-e2e.conf <<'EOF'
+      PermitRootLogin yes
+      PasswordAuthentication yes
+      KbdInteractiveAuthentication yes
+      EOF
+
+      cat >/etc/systemd/system/meridian-e2e-remove-root-password-ssh.service <<'EOF'
+      [Unit]
+      Description=Remove temporary Meridian E2E root password SSH access
+      After=ssh.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'until test -s /home/deploy/.ssh/authorized_keys; do sleep 1; done; rm -f /etc/ssh/sshd_config.d/00-meridian-e2e.conf; systemctl reload ssh'
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+
+      systemctl daemon-reload
+      systemctl enable meridian-e2e-remove-root-password-ssh.service
+      systemctl start --no-block meridian-e2e-remove-root-password-ssh.service
+      systemctl restart ssh

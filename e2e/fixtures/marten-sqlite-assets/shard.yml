@@ -1,0 +1,10 @@
+name: meridian_e2e_marten
+version: 0.1.0
+
+dependencies:
+  marten:
+    github: martenframework/marten
+    version: 0.6.3
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+    version: 0.22.0

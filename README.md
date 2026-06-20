@@ -206,9 +206,27 @@ The zero-downtime readiness check runs a small one-shot container (`healthcheck.
 
 If you're already happy on Kamal, stay on Kamal. The interesting reason to look at Meridian is if Docker or the registry requirement is actively in your way.
 
+## Testing recipes locally
+
+Recipe YAML is covered by `crystal spec`: every documented `deploy.yml` block is
+strictly loaded and used to generate its Quadlets. The verified Marten + SQLite
++ Assets recipe also has a full local deployment test:
+
+```bash
+make e2e-marten
+```
+
+The E2E test creates an ephemeral Ubuntu 24.04 VM with
+[Lima](https://lima-vm.io/), then runs the real `server bootstrap`, secret,
+proxy setup, check, deploy, asset, migration, and redeploy paths. It verifies
+that a SQLite record survives the color switch and removes the VM after a
+successful run. It requires macOS, Lima 2+, Podman, Crystal, `curl`, and
+`expect`, plus the standard `ssh-keygen` and `nc` command-line tools. Set
+`KEEP_VM=1` to retain the VM and temporary logs for inspection.
+
 ## What's next
 
-The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and fuller recipe docs so the README can stop being a reference manual.
+The current focus is shaking out config-format mistakes before tagging anything as stable. After that, in rough priority order: a `build:` section, better error messages on the failure paths in `check`, and more verified recipes as real deployments are exercised.
 
 Issues and PRs welcome. For anything non-trivial, please open an issue first. Better to have the design conversation before code gets written.
 

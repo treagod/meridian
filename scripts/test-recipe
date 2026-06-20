@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RECIPE="${1:-}"
+if [[ "$RECIPE" != "marten-sqlite-assets" ]]; then
+  echo "Usage: scripts/test-recipe marten-sqlite-assets" >&2
+  exit 64
+fi
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURE_DIR="$ROOT_DIR/e2e/fixtures/marten-sqlite-assets"
+LIMA_TEMPLATE="$ROOT_DIR/e2e/lima/ubuntu-24.04.yaml"
+VM_NAME="${MERIDIAN_E2E_VM_NAME:-meridian-e2e-marten-$$}"
+ROOT_PASSWORD="meridian-e2e"
+KEEP_VM="${KEEP_VM:-0}"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/meridian-e2e.XXXXXX")"
+APP_DIR="$WORK_DIR/app"
+LOG_DIR="$WORK_DIR/logs"
+KEY_FILE="$WORK_DIR/id_ed25519"
+KNOWN_HOSTS_FILE="$WORK_DIR/known_hosts"
+WRAPPER_DIR="$WORK_DIR/bin"
+MERIDIAN_BIN="$ROOT_DIR/bin/meridian"
+IMAGE="localhost/meridian-e2e-marten:latest"
+APP_HOST="e2e-app.test"
+ASSET_HOST="e2e-assets.test"
+VM_CREATED=0
+VM_IP=""
+
+mkdir -p "$LOG_DIR" "$WRAPPER_DIR"
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 69
+  fi
+}
+
+for command in crystal curl expect limactl nc podman ssh-keygen; do
+  require_command "$command"
+done
+
+REAL_SSH="$(command -v ssh)"
+REAL_SCP="$(command -v scp)"
+
+cat >"$WRAPPER_DIR/ssh" <<EOF
+#!/usr/bin/env bash
+exec "$REAL_SSH" -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" "\$@"
+EOF
+
+cat >"$WRAPPER_DIR/scp" <<EOF
+#!/usr/bin/env bash
+exec "$REAL_SCP" -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" "\$@"
+EOF
+
+chmod +x "$WRAPPER_DIR/ssh" "$WRAPPER_DIR/scp"
+
+log_step() {
+  printf '\n==> %s\n' "$1"
+}
+
+run_logged() {
+  local name="$1"
+  shift
+  "$@" 2>&1 | tee "$LOG_DIR/$name.log"
+}
+
+ssh_deploy() {
+  PATH="$WRAPPER_DIR:$PATH" ssh \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -i "$KEY_FILE" \
+    "deploy@$VM_IP" \
+    "$@"
+}
+
+collect_diagnostics() {
+  [[ -n "$VM_IP" && -f "$KEY_FILE" ]] || return 0
+
+  {
+    echo "== systemd units =="
+    ssh_deploy "systemctl --user --no-pager --full status 'meridian-e2e-*' kamal-proxy.service" || true
+    echo
+    echo "== containers =="
+    ssh_deploy "podman ps -a" || true
+    echo
+    echo "== recent user journal =="
+    ssh_deploy "journalctl --user --no-pager -n 400" || true
+  } >"$LOG_DIR/diagnostics.log" 2>&1
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+
+  if [[ $status -ne 0 ]]; then
+    collect_diagnostics
+    echo
+    echo "E2E test failed. Logs: $LOG_DIR" >&2
+  fi
+
+  if [[ $VM_CREATED -eq 1 && "$KEEP_VM" != "1" ]]; then
+    limactl delete --force "$VM_NAME" >/dev/null 2>&1 || true
+  elif [[ $VM_CREATED -eq 1 ]]; then
+    echo "Keeping Lima VM: $VM_NAME"
+  fi
+
+  if [[ $status -eq 0 && "$KEEP_VM" != "1" ]]; then
+    rm -rf "$WORK_DIR"
+  else
+    echo "Keeping work directory: $WORK_DIR"
+  fi
+
+  exit "$status"
+}
+trap cleanup EXIT
+
+log_step "Preparing Marten fixture"
+cp -R "$FIXTURE_DIR" "$APP_DIR"
+ssh-keygen -q -t ed25519 -N "" -f "$KEY_FILE"
+
+log_step "Starting Ubuntu 24.04 Lima VM"
+run_logged lima-start limactl start --name "$VM_NAME" --tty=false "$LIMA_TEMPLATE"
+VM_CREATED=1
+
+VM_IP_CANDIDATES="$(
+  limactl shell "$VM_NAME" -- sh -lc \
+    "ip -4 -o address show scope global | awk '{split(\$4, address, \"/\"); print address[1]}'"
+)"
+
+while IFS= read -r candidate; do
+  if nc -z -w 2 "$candidate" 22 >/dev/null 2>&1; then
+    VM_IP="$candidate"
+    break
+  fi
+done <<<"$VM_IP_CANDIDATES"
+
+if [[ -z "$VM_IP" ]]; then
+  echo "Could not find a host-reachable Lima VM address" >&2
+  exit 70
+fi
+
+sed \
+  -e "s|__HOST__|$VM_IP|g" \
+  -e "s|__SSH_KEY__|$KEY_FILE|g" \
+  "$APP_DIR/.meridian/deploy.yml.template" >"$APP_DIR/.meridian/deploy.yml"
+
+log_step "Building Meridian"
+run_logged meridian-build crystal build "$ROOT_DIR/src/meridian_cli.cr" -o "$MERIDIAN_BIN"
+
+log_step "Building Marten image"
+run_logged image-build podman build -t "$IMAGE" "$APP_DIR"
+
+log_step "Bootstrapping the VM"
+PATH="$WRAPPER_DIR:$PATH" expect <<EOF 2>&1 | tee "$LOG_DIR/bootstrap.log"
+set timeout 2400
+spawn "$MERIDIAN_BIN" server bootstrap \
+  --host "$VM_IP" \
+  --root-user root \
+  --deploy-user deploy \
+  --enable-auto-updates no \
+  --config "$APP_DIR/.meridian/deploy.yml"
+expect {
+  -re "(?i)password:" {
+    send "$ROOT_PASSWORD\r"
+    exp_continue
+  }
+  eof
+}
+set result [wait]
+exit [lindex \$result 3]
+EOF
+
+log_step "Creating runtime secret"
+run_logged secret \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" secret set MARTEN_SECRET_KEY \
+  --value "e2e-secret-key-that-is-long-enough-for-marten" \
+  --config "$APP_DIR/.meridian/deploy.yml"
+
+log_step "Installing the shared proxy"
+run_logged setup \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" setup --config "$APP_DIR/.meridian/deploy.yml"
+
+log_step "Pre-pulling the pinned health probe image"
+run_logged probe-image \
+  ssh_deploy "podman pull docker.io/library/alpine:3.21"
+
+log_step "Checking the resolved plan and host"
+run_logged plan "$MERIDIAN_BIN" plan --config "$APP_DIR/.meridian/deploy.yml"
+run_logged check \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" check --config "$APP_DIR/.meridian/deploy.yml"
+
+log_step "Running first deploy"
+run_logged deploy-first \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
+
+FIRST_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/meridian-e2e/active-color")"
+
+log_step "Verifying application and fingerprinted asset"
+HOME_HTML="$(
+  curl --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/"
+)"
+grep -q "Meridian recipe E2E" <<<"$HOME_HTML"
+
+ASSET_URL="$(
+  sed -n 's/.*href="\([^"]*css\/app[^"]*\.css\)".*/\1/p' <<<"$HOME_HTML" | head -n 1
+)"
+if [[ -z "$ASSET_URL" ]]; then
+  echo "Application HTML did not contain a fingerprinted CSS URL" >&2
+  exit 71
+fi
+
+ASSET_PATH="${ASSET_URL#http://$ASSET_HOST}"
+ASSET_BODY="$(
+  curl --fail --silent --show-error \
+    --resolve "$ASSET_HOST:80:$VM_IP" \
+    "http://$ASSET_HOST$ASSET_PATH"
+)"
+grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
+
+log_step "Writing persistent SQLite data"
+RECORD_BODY="$(
+  curl --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/records?value=survives-redeploy"
+)"
+grep -q "survives-redeploy" <<<"$RECORD_BODY"
+
+sleep 2
+
+log_step "Running second deploy"
+run_logged deploy-second \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
+
+SECOND_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/meridian-e2e/active-color")"
+if [[ "$FIRST_COLOR" == "$SECOND_COLOR" ]]; then
+  echo "Expected the second deploy to switch color, but both used $FIRST_COLOR" >&2
+  exit 72
+fi
+
+log_step "Verifying health, persistence, and assets after redeploy"
+curl --fail --silent --show-error \
+  --resolve "$APP_HOST:80:$VM_IP" \
+  "http://$APP_HOST/health" | grep -q "^ok$"
+
+curl --fail --silent --show-error \
+  --resolve "$APP_HOST:80:$VM_IP" \
+  "http://$APP_HOST/records" | grep -q "survives-redeploy"
+
+curl --fail --silent --show-error \
+  --resolve "$ASSET_HOST:80:$VM_IP" \
+  "http://$ASSET_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+
+echo
+echo "Marten SQLite recipe E2E passed: $FIRST_COLOR -> $SECOND_COLOR"

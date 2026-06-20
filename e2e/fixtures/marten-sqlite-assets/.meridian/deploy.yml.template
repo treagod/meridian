@@ -1,0 +1,50 @@
+service: meridian-e2e
+image: localhost/meridian-e2e-marten:latest
+
+servers:
+  web:
+    hosts:
+      - __HOST__
+    proxy:
+      host: e2e-app.test
+      ssl: false
+      app_port: 8000
+      healthcheck:
+        path: /health
+        interval: 1
+        timeout: 5
+        retries: 30
+
+env:
+  clear:
+    MARTEN_ENV: production
+    MARTEN_ALLOWED_HOSTS: e2e-app.test
+  secret:
+    - MARTEN_SECRET_KEY
+ssh:
+  user: deploy
+  keys:
+    - __SSH_KEY__
+
+transfer:
+  mode: stream
+
+volumes:
+  - meridian-e2e-data:/app/data
+
+assets:
+  host: e2e-assets.test
+  command: /app/manage collectassets --fingerprint --no-input
+  output_dir: /app/assets
+  retain_releases: 2
+
+hooks:
+  remote:
+    before_start:
+      - command: >-
+          podman run --rm
+          -v meridian-e2e-data:/app/data
+          -e MARTEN_ENV=production
+          -e MARTEN_ALLOWED_HOSTS=e2e-app.test
+          --secret MARTEN_SECRET_KEY,type=env,target=MARTEN_SECRET_KEY
+          localhost/meridian-e2e-marten:latest /app/manage migrate

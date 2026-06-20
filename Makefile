@@ -1,13 +1,16 @@
 APP := meridian
 ENTRYPOINT := src/meridian_cli.cr
 
-.PHONY: build test lint release
+.PHONY: build test lint release e2e-marten
 
 build:
 	crystal build $(ENTRYPOINT) -o bin/$(APP)
 
 test:
 	crystal spec
+
+e2e-marten:
+	./scripts/test-recipe marten-sqlite-assets
 
 .PHONY: format
 ## Perform and apply crystal formatting.
