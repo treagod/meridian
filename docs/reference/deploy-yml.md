@@ -131,8 +131,9 @@ servers:
 
 ### `servers.<role>.proxy.healthcheck` {#healthcheck}
 
-The healthcheck runs from a sidecar probe image on the `meridian-proxy` network,
-not from inside your app image.
+The healthcheck runs from a temporary probe container on the `meridian-proxy`
+network, not from inside your app image. Configure one app healthcheck path per
+proxied role.
 
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
@@ -140,7 +141,7 @@ not from inside your app image.
 | `interval` | `Int32` | Optional, default `2` | `2` | Seconds between attempts. |
 | `timeout` | `Int32` | Optional, default `5` | `5` | Per-attempt timeout in seconds. |
 | `retries` | `Int32` | Optional, default `10` | `20` | Maximum attempts before failing rollout. |
-| `probe_image` | `String` | Optional, default `docker.io/library/alpine:3.21` | `registry.local/probe:3.21` | Must provide `wget`/`nc`; useful for mirrors or air-gapped hosts. |
+| `probe_image` | `String` | Optional, default `docker.io/library/alpine:3.21` | `registry.local/probe:3.21` | Should ship `wget`/`nc` (the probe fails at deploy time otherwise — Meridian does not validate this); useful for mirrors or air-gapped hosts. |
 | `required_successes` | `Int32` | Optional, default `3` | `3` | Consecutive successful probes needed before traffic switches. |
 
 For failures, see [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout).
@@ -148,7 +149,9 @@ For failures, see [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeo
 ## `proxy`
 
 Top-level proxy settings configure the shared kamal-proxy Quadlet installed by
-`meridian setup`.
+`meridian setup`. This block is optional; omit it to use Meridian's built-in
+kamal-proxy defaults. Role-level `servers.<role>.proxy` is what enables proxied
+deploys and route registration.
 
 ```yaml
 proxy:
@@ -274,26 +277,31 @@ accessories:
   postgres:
     image: docker.io/library/postgres:18-alpine
     host: prod-01.example.com
-    port: "5432:5432"
+    network: my-app.network          # reachable by container name on this network; no host port
     volumes:
-      - my-app-pgdata:/var/lib/postgresql/data
+      - my-app-pgdata:/var/lib/postgresql
     env:
       clear:
+        POSTGRES_DB: app
         POSTGRES_USER: app
-      secret:
-        - MY_APP_POSTGRES_PASSWORD
-    network: my-app.network
-    ready:
-      cmd: ["pg_isready", "-U", "app"]
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_POSTGRES_PASSWORD
+    secrets:
+      - MY_APP_POSTGRES_PASSWORD
+    # readiness inferred from the postgres image (pg_isready); override with `ready:` if needed
 ```
+
+The official Postgres image supports the `_FILE` convention used above, so a
+Podman secret can remain mounted at `/run/secrets/...` instead of being exposed
+as a Postgres environment variable. See the
+[Postgres image documentation](https://hub.docker.com/_/postgres).
 
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `image` | `String` | Optional in YAML, required at runtime | `docker.io/library/postgres:18-alpine` | Missing image fails when readiness inference or generation needs it. |
 | `host` | `String` | Optional in schema | `prod-01.example.com` | Accessory commands need a target host; declare it explicitly. |
 | `port` | `String` | Optional | `"5432:5432"` | Used as published port and for default readiness inference. |
-| `volumes` | `Array(String)` | Optional, default `[]` | `["pgdata:/var/lib/postgresql/data"]` | Accessory `Volume=` entries. |
-| `env` | `EnvConfig` | Optional | `clear: { POSTGRES_USER: app }` | Same shape as top-level `env`. |
+| `volumes` | `Array(String)` | Optional, default `[]` | `["pgdata:/var/lib/postgresql"]` | Accessory `Volume=` entries. |
+| `env` | `EnvConfig` | Optional | `clear: { POSTGRES_USER: app }` | Same shape as top-level `env`; official images can consume file-mounted secrets through variables such as `POSTGRES_PASSWORD_FILE`. |
 | `cmd` | `String` | Optional | `postgres -c max_connections=200` | Container command for the accessory. |
 | `network` | `String` | Optional | `my-app.network` | Put co-dependent accessories on the app service network. |
 | `secrets` | `Array(String)` | Optional, default `[]` | `[MY_APP_POSTGRES_PASSWORD]` | Extra Podman secrets for the accessory. |
@@ -324,7 +332,7 @@ If `ready:` is omitted, Meridian infers defaults for common images:
 
 | Image base name | Inferred readiness |
 | --- | --- |
-| `postgres` | `cmd: ["pg_isready", "-U", POSTGRES_USER or "postgres"]` |
+| `postgres` | `cmd: ["pg_isready", "-q"]` |
 | `redis`, `valkey`, `dragonfly`, `keydb` | `tcp: 6379` |
 | `mysql`, `mariadb` | `cmd: ["mysqladmin", "ping", "--silent"]` |
 | anything else | `tcp` on the first declared `port`; if no port exists, validation asks for explicit `ready:`. |
@@ -387,7 +395,7 @@ Remote phases under `hooks.remote`:
 | `before_transfer` | `Array(RemoteHookConfig)` | `[]` | Before image transfer. |
 | `after_transfer` | `Array(RemoteHookConfig)` | `[]` | After image transfer. |
 | `after_upload` | `Array(RemoteHookConfig)` | `[]` | After Quadlets/files/assets upload. |
-| `before_start` | `Array(RemoteHookConfig)` | `[]` | Before starting the new unit. |
+| `before_start` | `Array(RemoteHookConfig)` | `[]` | After co-network accessories are ready and before asset build/app start. |
 | `after_start` | `Array(RemoteHookConfig)` | `[]` | After starting the new unit. |
 | `before_switch` | `Array(RemoteHookConfig)` | `[]` | Before kamal-proxy switches traffic. |
 | `after_switch` | `Array(RemoteHookConfig)` | `[]` | After kamal-proxy switches traffic. |

@@ -64,9 +64,11 @@ servers:
 env:
   clear:
     MARTEN_ENV: production
-    DATABASE_HOST: my-app-postgres
+    MY_APP_DATABASE_HOST: my-app-postgres
+    MY_APP_DATABASE_NAME: my_app
+    MY_APP_DATABASE_USER: my_app
   secret:
-    - MY_APP_DATABASE_URL
+    - MY_APP_DATABASE_PASSWORD
     - MY_APP_SECRET_KEY_BASE
 
 ssh:
@@ -78,17 +80,17 @@ accessories:
   my-app-postgres:
     image: docker.io/library/postgres:18-alpine
     host: prod-01.example.com
-    port: "5432:5432"
+    network: my-app.network
     volumes:
-      - my-app-pgdata:/var/lib/postgresql/data
+      - my-app-pgdata:/var/lib/postgresql
     env:
       clear:
+        POSTGRES_DB: my_app
         POSTGRES_USER: my_app
-      secret:
-        - MY_APP_DATABASE_PASSWORD
-    network: my-app.network
-    ready:
-      cmd: ["pg_isready", "-U", "my_app"]
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_DATABASE_PASSWORD
+    secrets:
+      - MY_APP_DATABASE_PASSWORD
+    # readiness inferred from the postgres image (pg_isready)
 ```
 
 Notice the names:
@@ -122,9 +124,11 @@ servers:
 env:
   clear:
     NODE_ENV: production
-    DATABASE_HOST: my-blog-postgres
+    MY_BLOG_DATABASE_HOST: my-blog-postgres
+    MY_BLOG_DATABASE_NAME: my_blog
+    MY_BLOG_DATABASE_USER: my_blog
   secret:
-    - MY_BLOG_DATABASE_URL
+    - MY_BLOG_DATABASE_PASSWORD
     - MY_BLOG_SESSION_SECRET
 
 ssh:
@@ -136,26 +140,27 @@ accessories:
   my-blog-postgres:
     image: docker.io/library/postgres:18-alpine
     host: prod-01.example.com
-    port: "15432:5432"
+    network: my-blog.network
     volumes:
-      - my-blog-pgdata:/var/lib/postgresql/data
+      - my-blog-pgdata:/var/lib/postgresql
     env:
       clear:
+        POSTGRES_DB: my_blog
         POSTGRES_USER: my_blog
-      secret:
-        - MY_BLOG_DATABASE_PASSWORD
-    network: my-blog.network
-    ready:
-      cmd: ["pg_isready", "-U", "my_blog"]
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_BLOG_DATABASE_PASSWORD
+    secrets:
+      - MY_BLOG_DATABASE_PASSWORD
+    # readiness inferred from the postgres image (pg_isready)
 ```
 
 The second app follows the same convention with `MY_BLOG_*`,
 `my-blog-postgres`, and `my-blog.network`.
 
-The published accessory port is different: `my-app-postgres` uses
-`5432:5432`, while `my-blog-postgres` uses `15432:5432`. If the database is
-only used by containers on the private service network, you can omit `port:`
-entirely and avoid host-port collisions.
+Neither database publishes a host port: each app reaches its own Postgres by
+container name on its private `<service>.network`, so there's nothing to
+collide on. Only add `port:` if you genuinely need to reach a database from the
+host (e.g. an external admin tool) — and then give each service a distinct host
+port (`5432:5432` for one, `15432:5432` for another) to avoid clashes.
 
 ## Point DNS First
 
@@ -169,32 +174,32 @@ dig +short blog.example.com
 Both should resolve to `prod-01.example.com` or its public IP. If you also
 configure `assets.host`, point that hostname before deploying with `ssl: true`.
 
-## Prepare Secrets And Accessories
+## Prepare Secrets And Setup
 
 Run these commands from the `my-blog` project directory.
 
 ```bash
-meridian secret set MY_BLOG_DATABASE_URL
 meridian secret gen MY_BLOG_SESSION_SECRET
 meridian secret gen MY_BLOG_DATABASE_PASSWORD
-meridian accessory start my-blog-postgres
+meridian setup
 ```
 
 `secret gen` and `secret set` default to the `web` role, which is enough here
 because the example accessory and web app are on the same host. For a different
 role, pass `--role ROLE`.
 
-## Refresh Shared Proxy Setup
+This does not create a second proxy. It uploads or refreshes the shared
+`meridian-proxy.network`, the service's private `my-blog.network`, and
+`kamal-proxy.container`, ensures the proxy is running, and lets this service
+register routes during deploy.
 
-Run `setup` for the second service too.
+## Start Accessories
+
+Start the database after `setup` has uploaded `my-blog.network`.
 
 ```bash
-meridian setup
+meridian accessory start my-blog-postgres
 ```
-
-This does not create a second proxy. It uploads or refreshes the shared
-`meridian-proxy.network` and `kamal-proxy.container`, ensures the proxy is
-running, and lets this service register routes during deploy.
 
 ## Check For Collisions
 

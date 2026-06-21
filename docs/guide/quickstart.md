@@ -4,17 +4,14 @@ From repo to running app with a read-only preflight check. No Kubernetes, no CI 
 
 ## 1. Install
 
-For the official Linux releases, Meridian is a single executable:
+Grab the prebuilt Linux binary (x86_64 or ARM64) from the [releases page](https://github.com/treagod/meridian/releases) and put it on your `PATH`:
 
 ```bash
-curl -fsSL meridian-deploy.dev/install.sh | sh
-```
-
-Check the installation:
-
-```bash
+sudo mv meridian /usr/local/bin/
 meridian --version
 ```
+
+(A one-line `curl … | sh` installer will be available once the landing site is live.)
 
 If you build Meridian yourself with Crystal, the result is still a native binary, but it is not automatically fully standalone. Depending on your toolchain, additional shared libraries may be required.
 
@@ -52,10 +49,6 @@ servers:
       host: my-app.example.com
       ssl: true
       app_port: 8000
-
-proxy:
-  image: docker.io/basecamp/kamal-proxy:latest
-
 transfer:
   mode: stream   # or 'incremental', or omit to pull from a registry
 

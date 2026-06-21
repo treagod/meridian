@@ -154,10 +154,18 @@ accessories:
     image: docker.io/library/postgres:18-alpine
     host: 192.168.1.10
     network: myapp.network
-    ready:
-      cmd: ["pg_isready", "-U", "app"]   # or `tcp: 5432`, or `http: { path: /health, port: 8080 }`
+    volumes:
+      - myapp-pgdata:/var/lib/postgresql
+    env:
+      clear:
+        POSTGRES_DB: app
+        POSTGRES_USER: app
+        POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_PASSWORD
+    secrets:
+      - POSTGRES_PASSWORD
+    # readiness inferred from the postgres image (pg_isready -q)
   dragonfly:
-    image: ghcr.io/dragonflydb/dragonfly:latest
+    image: ghcr.io/dragonflydb/dragonfly:v1.39.0
     host: 192.168.1.10
     network: myapp.network
     ready:
@@ -189,9 +197,9 @@ That's a working config. Everything else is opt-in: `volumes`, `ports`, `accesso
 
 Two things worth knowing: per-role `image:` overrides the global one (useful when your worker image differs from your web image), and unknown config keys fail fast rather than getting silently ignored. `build:` is reserved but not implemented. There's no `meridian build` yet, so bring your own image.
 
-The zero-downtime readiness check runs a small one-shot container (`healthcheck.probe_image`, default `docker.io/library/alpine:3.21`) on the proxy network to poll the new container before switching traffic. The image is pinned, not floating, so a rollout can't drift or stall on a `:latest` pull mid-deploy. On registry-free or air-gapped hosts, pre-pull it once (`podman pull docker.io/library/alpine:3.21`) — `meridian check` verifies its presence on each proxied host and fails preflight if it's missing, rather than failing mid-rollout. Override `probe_image` to use a host-local or mirrored image. `healthcheck.required_successes` (default 3) is how many *consecutive* successful probes the new container must answer before traffic switches — it absorbs the brief window where rootless Podman's aardvark-dns flips between fresh and stale just after a container starts.
+The zero-downtime readiness check runs a small one-shot probe container (`healthcheck.probe_image`, default `docker.io/library/alpine:3.21`) on the proxy network to poll the new container before switching traffic. The image is pinned, not floating, so a rollout can't drift or stall on a `:latest` pull mid-deploy. On registry-free or air-gapped hosts, pre-pull it once (`podman pull docker.io/library/alpine:3.21`) — `meridian check` verifies its presence on each proxied host and fails preflight if it's missing, rather than failing mid-rollout. Override `probe_image` to use a host-local or mirrored image. `healthcheck.required_successes` (default 3) is how many *consecutive* successful probes the new container must answer before traffic switches — it absorbs the brief window where rootless Podman's aardvark-dns flips between fresh and stale just after a container starts.
 
-**Accessory readiness gate.** Any accessory you put on the service network (`network: <service>.network`) becomes a hard dependency of the app: Meridian will not start the new app color until every co-network accessory answers a readiness probe, so the first requests after a deploy don't 5xx with DNS/connection failures while aardvark-dns warms up. Declare the probe per accessory under `ready:` — `tcp: <port>` (or a list), `cmd: [...]` (run inside the accessory), or `http: { path:, port: }`, with optional `timeout`/`interval`/`retries`. If you omit `ready:`, Meridian infers a default from the image (`postgres` → `pg_isready`, `redis`/`valkey`/`dragonfly`/`keydb` → TCP 6379, `mysql`/`mariadb` → `mysqladmin ping`, otherwise a TCP probe on the first declared port); an unknown image with no port fails at `meridian plan`/`deploy` asking you to declare `ready:` explicitly. The gate probes from the same pinned sidecar image as the health check, so accessories built `FROM scratch` don't need their own shell. The generated app Quadlet also gains `Wants=`/`After=` on each co-network accessory unit (systemd ordering on reboot/manual start), and `cmd:` accessories get a Podman `HealthCmd=` so `podman inspect` reflects their health. Accessories must already be running (`meridian accessory start <name>`); the gate fails fast naming any that aren't ready.
+**Accessory readiness gate.** Any accessory you put on the service network (`network: <service>.network`) becomes a hard dependency of the app: Meridian will not start the new app color until every co-network accessory answers a readiness probe, so the first requests after a deploy don't 5xx with DNS/connection failures while aardvark-dns warms up. Declare the probe per accessory under `ready:` — `tcp: <port>` (or a list), `cmd: [...]` (run inside the accessory), or `http: { path:, port: }`, with optional `timeout`/`interval`/`retries`. If you omit `ready:`, Meridian infers a default from the image (`postgres` → `pg_isready`, `redis`/`valkey`/`dragonfly`/`keydb` → TCP 6379, `mysql`/`mariadb` → `mysqladmin ping`, otherwise a TCP probe on the first declared port); an unknown image with no port fails at `meridian plan`/`deploy` asking you to declare `ready:` explicitly. HTTP/TCP probes use the same pinned temporary probe image as the app health check, so accessories built `FROM scratch` don't need their own shell. The generated app Quadlet also gains `Wants=`/`After=` on each co-network accessory unit (systemd ordering on reboot/manual start), and `cmd:` accessories get a Podman `HealthCmd=` so `podman inspect` reflects their health. Accessories must already be running (`meridian accessory start <name>`); the gate fails fast naming any that aren't ready.
 
 ## Meridian vs. Kamal 2.0
 
