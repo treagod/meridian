@@ -1,0 +1,9 @@
+name: meridian_e2e_marten_pg
+version: 0.1.0
+
+dependencies:
+  marten:
+    github: martenframework/marten
+    version: 0.6.3
+  pg:
+    github: will/crystal-pg

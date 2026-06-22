@@ -217,20 +217,23 @@ If you're already happy on Kamal, stay on Kamal. The interesting reason to look 
 ## Testing recipes locally
 
 Recipe YAML is covered by `crystal spec`: every documented `deploy.yml` block is
-strictly loaded and used to generate its Quadlets. The verified Marten + SQLite
-+ Assets recipe also has a full local deployment test:
+strictly loaded and used to generate its Quadlets. The verified Marten recipes
+also have full local deployment tests:
 
 ```bash
 make e2e-marten
+make e2e-marten-postgres
 ```
 
-The E2E test creates an ephemeral Ubuntu 24.04 VM with
+Each E2E test creates an ephemeral Ubuntu 24.04 VM with
 [Lima](https://lima-vm.io/), then runs the real `server bootstrap`, secret,
-proxy setup, check, deploy, asset, migration, and redeploy paths. It verifies
-that a SQLite record survives the color switch and removes the VM after a
-successful run. It requires macOS, Lima 2+, Podman, Crystal, `curl`, and
-`expect`, plus the standard `ssh-keygen` and `nc` command-line tools. Set
-`KEEP_VM=1` to retain the VM and temporary logs for inspection.
+proxy setup, check, deploy, asset, migration, and redeploy paths. The SQLite
+test verifies volume-backed persistence; the Postgres/Dragonfly test also
+starts both accessories and verifies database and Dragonfly access through the
+deployed app. A successful run removes the VM. Requirements are macOS, Lima 2+,
+Podman, Crystal, `curl`, and `expect`, plus the standard `ssh-keygen` and `nc`
+command-line tools. Set `KEEP_VM=1` to retain the VM and temporary logs for
+inspection.
 
 ## What's next
 

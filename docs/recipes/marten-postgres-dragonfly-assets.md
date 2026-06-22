@@ -1,6 +1,6 @@
 # Marten + Postgres + Dragonfly + Assets CDN
 
-Status: draft example awaiting maintainer verification.
+Status: verified example based on an anonymized production deployment.
 
 Full [Marten](https://martenframework.com/) production stack: one web
 container, [Postgres](https://www.postgresql.org/), [Dragonfly](https://www.dragonflydb.io/),
@@ -34,6 +34,7 @@ env:
     MY_APP_DATABASE_HOST: my-app-postgres
     MY_APP_DATABASE_NAME: my_app
     MY_APP_DATABASE_USER: my_app
+    MY_APP_DRAGONFLY_URL: my-app-dragonfly:6379
   secret:
     - MARTEN_SECRET_KEY
     - MY_APP_DATABASE_PASSWORD
@@ -64,6 +65,8 @@ accessories:
         POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_DATABASE_PASSWORD
     secrets:
       - MY_APP_DATABASE_PASSWORD
+    ready:
+      cmd: ["pg_isready", "-q", "-U", "my_app"]
 
   my-app-dragonfly:
     image: ghcr.io/dragonflydb/dragonfly:v1.39.0
@@ -89,6 +92,7 @@ hooks:
           -e MY_APP_DATABASE_HOST=my-app-postgres
           -e MY_APP_DATABASE_NAME=my_app
           -e MY_APP_DATABASE_USER=my_app
+          -e MY_APP_DRAGONFLY_URL=my-app-dragonfly:6379
           --secret MARTEN_SECRET_KEY,type=env,target=MARTEN_SECRET_KEY
           --secret MY_APP_DATABASE_PASSWORD,type=env,target=MY_APP_DATABASE_PASSWORD
           localhost/my-app:latest /app/manage migrate
@@ -137,10 +141,10 @@ RUN MARTEN_SECRET_KEY=build-only \
     bin/manage collectassets --fingerprint --no-input
 
 # --- Stage 2: Runtime ---
-FROM alpine:latest
+FROM alpine:3.21
 
 WORKDIR /app
-RUN apk add --no-cache ca-certificates tzdata openssl yaml libpq libgcc
+RUN apk add --no-cache ca-certificates tzdata openssl yaml libpq libgcc gc pcre2
 
 COPY --from=build /app/bin/server /app/server
 COPY --from=build /app/bin/manage /app/manage
@@ -164,8 +168,6 @@ dependencies:
     github: martenframework/marten
   pg:
     github: will/crystal-pg
-  marten_redis_session:
-    github: martenframework/marten-redis-session
 ```
 
 ```crystal
@@ -188,10 +190,6 @@ Marten.configure :production do |config|
     db.password = ENV.fetch("MY_APP_DATABASE_PASSWORD", "")
   end
 
-  config.sessions.store = :redis
-  config.redis_session.namespace = "my_app_sessions"
-  config.redis_session.uri = "redis://my-app-dragonfly:6379"
-
   config.assets.url = "https://assets.my-app.example.com/"
   config.assets.manifests = ["src/manifest.json"]
 
@@ -206,6 +204,10 @@ Marten.configure :production do |config|
   config.use_x_forwarded_proto = true
 end
 ```
+
+Dragonfly speaks the Redis protocol. The local E2E fixture verifies this through
+a small app endpoint using `MY_APP_DRAGONFLY_URL`; production apps can use the
+same hostname with any Redis-compatible Crystal client or session store.
 
 ```crystal
 class HealthzHandler < Marten::Handler
@@ -234,3 +236,22 @@ meridian plan
 meridian check
 meridian deploy
 ```
+
+## Local E2E Test
+
+Meridian's repository includes an executable version of this recipe:
+
+```bash
+make e2e-marten-postgres
+```
+
+The test creates a temporary Ubuntu 24.04 Lima VM and exercises the real
+fresh-host path: bootstrap, secret creation, proxy setup, Postgres and
+Dragonfly accessories, migration, asset publication, first deploy, and a second
+blue/green deploy. It writes a Postgres record through the application, writes
+and reads a value through Dragonfly, and verifies that the database record and
+fingerprinted CSS remain available after the color switch.
+
+Requirements are macOS, Lima 2+, Podman, Crystal, `curl`, `expect`,
+`ssh-keygen`, and `nc`. `KEEP_VM=1 make e2e-marten-postgres` retains the VM and
+work directory when debugging.

@@ -6,10 +6,10 @@ show complete files first, then link to the reference for field details.
 ## Verified Examples
 
 - [Marten](https://martenframework.com/) + [SQLite](https://sqlite.org/) + Assets CDN - [the smallest production Marten deployment](/recipes/marten-sqlite-assets).
+- [Marten](https://martenframework.com/) + [Postgres](https://www.postgresql.org/) + [Dragonfly](https://www.dragonflydb.io/) + Assets CDN - [full production stack](/recipes/marten-postgres-dragonfly-assets) with deploy-managed static assets.
 
 ## Draft Examples Awaiting Maintainer Verification
 
-- [Marten](https://martenframework.com/) + [Postgres](https://www.postgresql.org/) + [Dragonfly](https://www.dragonflydb.io/) + Assets CDN - [full production stack](/recipes/marten-postgres-dragonfly-assets) with deploy-managed static assets.
 - [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/) - [recipe](/recipes/rails-postgres)
 - [Go](https://go.dev/) Static Binary - [recipe](/recipes/go-static-binary)
 - [Kemal](https://kemalcr.com/) - [simple app recipe](/recipes/kemal-simple)

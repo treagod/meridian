@@ -1,0 +1,82 @@
+service: meridian-e2e-marten-pg
+image: localhost/meridian-e2e-marten-pg:latest
+
+servers:
+  web:
+    hosts:
+      - __HOST__
+    proxy:
+      host: e2e-pg-app.test
+      ssl: false
+      app_port: 8000
+      healthcheck:
+        path: /healthz
+        interval: 1
+        timeout: 5
+        retries: 30
+
+env:
+  clear:
+    MARTEN_ENV: production
+    MARTEN_ALLOWED_HOSTS: e2e-pg-app.test
+    MY_APP_DATABASE_HOST: meridian-e2e-marten-pg-postgres
+    MY_APP_DATABASE_NAME: meridian_e2e
+    MY_APP_DATABASE_USER: meridian_e2e
+    MY_APP_DRAGONFLY_URL: meridian-e2e-marten-pg-dragonfly:6379
+  secret:
+    - MARTEN_SECRET_KEY
+    - MY_APP_DATABASE_PASSWORD
+
+ssh:
+  user: deploy
+  keys:
+    - __SSH_KEY__
+
+transfer:
+  mode: stream
+
+accessories:
+  meridian-e2e-marten-pg-postgres:
+    image: docker.io/library/postgres:18-alpine
+    host: __HOST__
+    network: meridian-e2e-marten-pg.network
+    volumes:
+      - meridian-e2e-marten-pg-pgdata:/var/lib/postgresql
+    env:
+      clear:
+        POSTGRES_DB: meridian_e2e
+        POSTGRES_USER: meridian_e2e
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_DATABASE_PASSWORD
+    secrets:
+      - MY_APP_DATABASE_PASSWORD
+    ready:
+      cmd: ["pg_isready", "-q", "-U", "meridian_e2e"]
+
+  meridian-e2e-marten-pg-dragonfly:
+    image: ghcr.io/dragonflydb/dragonfly:v1.39.0
+    host: __HOST__
+    network: meridian-e2e-marten-pg.network
+    volumes:
+      - meridian-e2e-marten-pg-dragonfly:/data
+    cmd: dragonfly --logtostderr --cache_mode=true
+
+assets:
+  host: e2e-pg-assets.test
+  command: /app/manage collectassets --fingerprint --no-input
+  output_dir: /app/assets
+  retain_releases: 2
+
+hooks:
+  remote:
+    before_start:
+      - command: >-
+          podman run --rm --network=meridian-e2e-marten-pg
+          -e MARTEN_ENV=production
+          -e MARTEN_ALLOWED_HOSTS=e2e-pg-app.test
+          -e MY_APP_DATABASE_HOST=meridian-e2e-marten-pg-postgres
+          -e MY_APP_DATABASE_NAME=meridian_e2e
+          -e MY_APP_DATABASE_USER=meridian_e2e
+          -e MY_APP_DRAGONFLY_URL=meridian-e2e-marten-pg-dragonfly:6379
+          --secret MARTEN_SECRET_KEY,type=env,target=MARTEN_SECRET_KEY
+          --secret MY_APP_DATABASE_PASSWORD,type=env,target=MY_APP_DATABASE_PASSWORD
+          localhost/meridian-e2e-marten-pg:latest /app/manage migrate

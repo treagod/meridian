@@ -2,15 +2,44 @@
 set -euo pipefail
 
 RECIPE="${1:-}"
-if [[ "$RECIPE" != "marten-sqlite-assets" ]]; then
-  echo "Usage: scripts/test-recipe marten-sqlite-assets" >&2
+
+case "$RECIPE" in
+  marten-sqlite-assets)
+    SERVICE="meridian-e2e"
+    FIXTURE_NAME="marten-sqlite-assets"
+    VM_SUFFIX="marten"
+    IMAGE="localhost/meridian-e2e-marten:latest"
+    APP_HOST="e2e-app.test"
+    ASSET_HOST="e2e-assets.test"
+    HEALTH_PATH="/health"
+    DATA_STORE_LABEL="SQLite"
+    SUCCESS_LABEL="Marten SQLite recipe E2E"
+    ACCESSORIES=()
+    EXTRA_SECRETS=()
+    ;;
+  marten-postgres-dragonfly-assets)
+    SERVICE="meridian-e2e-marten-pg"
+    FIXTURE_NAME="marten-postgres-dragonfly-assets"
+    VM_SUFFIX="marten-pg"
+    IMAGE="localhost/meridian-e2e-marten-pg:latest"
+    APP_HOST="e2e-pg-app.test"
+    ASSET_HOST="e2e-pg-assets.test"
+    HEALTH_PATH="/healthz"
+    DATA_STORE_LABEL="Postgres"
+    SUCCESS_LABEL="Marten Postgres Dragonfly recipe E2E"
+    ACCESSORIES=("${SERVICE}-postgres" "${SERVICE}-dragonfly")
+    EXTRA_SECRETS=("MY_APP_DATABASE_PASSWORD=e2e-postgres-password")
+    ;;
+  *)
+    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets" >&2
   exit 64
-fi
+    ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIXTURE_DIR="$ROOT_DIR/e2e/fixtures/marten-sqlite-assets"
+FIXTURE_DIR="$ROOT_DIR/e2e/fixtures/$FIXTURE_NAME"
 LIMA_TEMPLATE="$ROOT_DIR/e2e/lima/ubuntu-24.04.yaml"
-VM_NAME="${MERIDIAN_E2E_VM_NAME:-meridian-e2e-marten-$$}"
+VM_NAME="${MERIDIAN_E2E_VM_NAME:-meridian-e2e-${VM_SUFFIX}-$$}"
 ROOT_PASSWORD="meridian-e2e"
 KEEP_VM="${KEEP_VM:-0}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/meridian-e2e.XXXXXX")"
@@ -20,9 +49,6 @@ KEY_FILE="$WORK_DIR/id_ed25519"
 KNOWN_HOSTS_FILE="$WORK_DIR/known_hosts"
 WRAPPER_DIR="$WORK_DIR/bin"
 MERIDIAN_BIN="$ROOT_DIR/bin/meridian"
-IMAGE="localhost/meridian-e2e-marten:latest"
-APP_HOST="e2e-app.test"
-ASSET_HOST="e2e-assets.test"
 VM_CREATED=0
 VM_IP=""
 
@@ -73,6 +99,19 @@ ssh_deploy() {
     "$@"
 }
 
+wait_for_accessory_ready() {
+  local accessory="$1"
+
+  case "$accessory" in
+    *-postgres)
+      ssh_deploy "for i in \$(seq 1 60); do podman exec '$accessory' pg_isready -q && exit 0; sleep 1; done; exit 1"
+      ;;
+    *-dragonfly)
+      ssh_deploy "podman run --rm --network='$SERVICE' docker.io/library/alpine:3.21 sh -c 'for i in \$(seq 1 60); do nc -z \"$accessory\" 6379 && exit 0; sleep 1; done; exit 1'"
+      ;;
+  esac
+}
+
 collect_diagnostics() {
   [[ -n "$VM_IP" && -f "$KEY_FILE" ]] || return 0
 
@@ -114,7 +153,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log_step "Preparing Marten fixture"
+log_step "Preparing $RECIPE fixture"
 cp -R "$FIXTURE_DIR" "$APP_DIR"
 ssh-keygen -q -t ed25519 -N "" -f "$KEY_FILE"
 
@@ -122,10 +161,26 @@ log_step "Starting Ubuntu 24.04 Lima VM"
 run_logged lima-start limactl start --name "$VM_NAME" --tty=false "$LIMA_TEMPLATE"
 VM_CREATED=1
 
-VM_IP_CANDIDATES="$(
-  limactl shell "$VM_NAME" -- sh -lc \
-    "ip -4 -o address show scope global | awk '{split(\$4, address, \"/\"); print address[1]}'"
-)"
+log_step "Discovering VM IP"
+VM_IP_FILE="$WORK_DIR/vm-ip-candidates"
+limactl shell "$VM_NAME" -- sh -lc \
+  "ip -4 -o address show scope global | awk '{split(\$4, address, \"/\"); print address[1]}'" \
+  >"$VM_IP_FILE" &
+VM_IP_PID=$!
+for _ in {1..60}; do
+  if ! kill -0 "$VM_IP_PID" >/dev/null 2>&1; then
+    wait "$VM_IP_PID"
+    break
+  fi
+  sleep 1
+done
+if kill -0 "$VM_IP_PID" >/dev/null 2>&1; then
+  kill "$VM_IP_PID" >/dev/null 2>&1 || true
+  wait "$VM_IP_PID" >/dev/null 2>&1 || true
+  echo "Timed out while discovering the Lima VM IP" >&2
+  exit 70
+fi
+VM_IP_CANDIDATES="$(cat "$VM_IP_FILE")"
 
 while IFS= read -r candidate; do
   if nc -z -w 2 "$candidate" 22 >/dev/null 2>&1; then
@@ -147,7 +202,7 @@ sed \
 log_step "Building Meridian"
 run_logged meridian-build crystal build "$ROOT_DIR/src/meridian_cli.cr" -o "$MERIDIAN_BIN"
 
-log_step "Building Marten image"
+log_step "Building $RECIPE image"
 run_logged image-build podman build -t "$IMAGE" "$APP_DIR"
 
 log_step "Bootstrapping the VM"
@@ -177,6 +232,18 @@ run_logged secret \
   --value "e2e-secret-key-that-is-long-enough-for-marten" \
   --config "$APP_DIR/.meridian/deploy.yml"
 
+if ((${#EXTRA_SECRETS[@]} > 0)); then
+  for secret_pair in "${EXTRA_SECRETS[@]}"; do
+    secret_name="${secret_pair%%=*}"
+    secret_value="${secret_pair#*=}"
+    run_logged "secret-${secret_name}" \
+      env PATH="$WRAPPER_DIR:$PATH" \
+      "$MERIDIAN_BIN" secret set "$secret_name" \
+      --value "$secret_value" \
+      --config "$APP_DIR/.meridian/deploy.yml"
+  done
+fi
+
 log_step "Installing the shared proxy"
 run_logged setup \
   env PATH="$WRAPPER_DIR:$PATH" \
@@ -185,6 +252,19 @@ run_logged setup \
 log_step "Pre-pulling the pinned health probe image"
 run_logged probe-image \
   ssh_deploy "podman pull docker.io/library/alpine:3.21"
+
+if ((${#ACCESSORIES[@]} > 0)); then
+  for accessory in "${ACCESSORIES[@]}"; do
+    log_step "Starting accessory $accessory"
+    run_logged "accessory-${accessory}" \
+      env PATH="$WRAPPER_DIR:$PATH" \
+      "$MERIDIAN_BIN" accessory start "$accessory" \
+      --config "$APP_DIR/.meridian/deploy.yml"
+
+    log_step "Waiting for accessory $accessory"
+    run_logged "accessory-ready-${accessory}" wait_for_accessory_ready "$accessory"
+  done
+fi
 
 log_step "Checking the resolved plan and host"
 run_logged plan "$MERIDIAN_BIN" plan --config "$APP_DIR/.meridian/deploy.yml"
@@ -197,7 +277,7 @@ run_logged deploy-first \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
 
-FIRST_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/meridian-e2e/active-color")"
+FIRST_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/$SERVICE/active-color")"
 
 log_step "Verifying application and fingerprinted asset"
 HOME_HTML="$(
@@ -223,13 +303,20 @@ ASSET_BODY="$(
 )"
 grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
 
-log_step "Writing persistent SQLite data"
+log_step "Writing persistent $DATA_STORE_LABEL data"
 RECORD_BODY="$(
   curl --fail --silent --show-error \
     --resolve "$APP_HOST:80:$VM_IP" \
     "http://$APP_HOST/records?value=survives-redeploy"
 )"
 grep -q "survives-redeploy" <<<"$RECORD_BODY"
+
+if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
+  log_step "Writing persistent Dragonfly data"
+  curl --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/dragonfly?value=dragonfly-survives" | grep -q "dragonfly-survives"
+fi
 
 sleep 2
 
@@ -238,7 +325,7 @@ run_logged deploy-second \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
 
-SECOND_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/meridian-e2e/active-color")"
+SECOND_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/$SERVICE/active-color")"
 if [[ "$FIRST_COLOR" == "$SECOND_COLOR" ]]; then
   echo "Expected the second deploy to switch color, but both used $FIRST_COLOR" >&2
   exit 72
@@ -247,15 +334,21 @@ fi
 log_step "Verifying health, persistence, and assets after redeploy"
 curl --fail --silent --show-error \
   --resolve "$APP_HOST:80:$VM_IP" \
-  "http://$APP_HOST/health" | grep -q "^ok$"
+  "http://$APP_HOST$HEALTH_PATH" | grep -q "^ok$"
 
 curl --fail --silent --show-error \
   --resolve "$APP_HOST:80:$VM_IP" \
   "http://$APP_HOST/records" | grep -q "survives-redeploy"
+
+if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
+  curl --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/dragonfly" | grep -q "dragonfly-survives"
+fi
 
 curl --fail --silent --show-error \
   --resolve "$ASSET_HOST:80:$VM_IP" \
   "http://$ASSET_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
 
 echo
-echo "Marten SQLite recipe E2E passed: $FIRST_COLOR -> $SECOND_COLOR"
+echo "$SUCCESS_LABEL passed: $FIRST_COLOR -> $SECOND_COLOR"

@@ -1,0 +1,45 @@
+FROM crystallang/crystal:1.20-alpine AS build
+
+RUN apk --no-cache add sqlite-dev openssl-dev yaml-dev zlib-dev \
+    libpq-dev openssl-libs-static yaml-static zlib-static sqlite-static
+
+ENV MARTEN_ENV=production
+ENV SKIP_MARTEN_CLI_PRECOMPILATION=true
+
+WORKDIR /app
+
+COPY shard.yml shard.lock ./
+RUN shards install --production --skip-postinstall
+
+COPY . .
+
+RUN mkdir -p bin && \
+    crystal build src/server.cr -o bin/server && \
+    crystal build manage.cr -o bin/manage
+
+RUN MARTEN_SECRET_KEY=build-only-secret \
+    MARTEN_ALLOWED_HOSTS=e2e-pg-app.test \
+    MY_APP_DATABASE_HOST=localhost \
+    MY_APP_DATABASE_NAME=build \
+    MY_APP_DATABASE_USER=build \
+    MY_APP_DATABASE_PASSWORD=build \
+    MY_APP_DRAGONFLY_URL=localhost:6379 \
+    bin/manage collectassets --fingerprint --no-input
+
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata openssl yaml libpq libgcc gc pcre2
+
+ENV MARTEN_ENV=production
+
+WORKDIR /app
+
+COPY --from=build /app/bin/server /app/server
+COPY --from=build /app/bin/manage /app/manage
+COPY --from=build /app/src/ /app/src/
+COPY --from=build /app/assets/ /app/assets/
+COPY --from=build /app/lib/ /app/lib/
+
+EXPOSE 8000
+
+CMD ["/app/server"]
