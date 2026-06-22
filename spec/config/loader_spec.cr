@@ -604,6 +604,81 @@ describe "Meridian::Config::Loader" do
       assets.retain_releases.should eq(2)
     end
 
+    it "defaults compression to true when omitted" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 3000
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+        YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      assets = config.assets || raise "Expected assets config"
+
+      assets.compression?.should be_true
+    end
+
+    it "parses an explicit compression: false" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 3000
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+          compression: false
+        YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      assets = config.assets || raise "Expected assets config"
+
+      assets.compression?.should be_false
+    end
+
+    it "raises a validation error for an unknown compression-adjacent key in the assets block" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+
+        assets:
+          host: static.example.com
+          command: bin/build
+          output_dir: /app/public
+          compression_level: 9
+        YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("assets.compression_level")
+    end
+
     it "returns nil for assets when not present" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
 

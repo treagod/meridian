@@ -125,6 +125,7 @@ module Meridian
         @output.puts "  command:         #{assets.command}"
         @output.puts "  output_dir:      #{assets.output_dir}"
         @output.puts "  retain_releases: #{assets.retain_releases}"
+        @output.puts "  compression:     #{assets.compression}"
       end
 
       private def write_accessories(plan : Deploy::Plan) : Nil

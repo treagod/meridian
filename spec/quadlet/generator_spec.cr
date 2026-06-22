@@ -44,6 +44,27 @@ def assets_config : String
     YAML
 end
 
+def assets_config_without_compression : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+
+    assets:
+      host: static.example.com
+      command: bin/build-assets
+      output_dir: /app/public/assets
+      retain_releases: 2
+      compression: false
+    YAML
+end
+
 def accessory_generator_config : String
   <<-YAML
     service: myapp
@@ -658,6 +679,25 @@ describe "Meridian::Quadlet::Generator" do
       output = build_quadlet_generator(assets_config).assets_caddy_config
 
       output.should contain(%(header Access-Control-Allow-Origin "*"))
+    end
+
+    it "compresses responses with zstd and gzip by default" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain("encode zstd gzip")
+    end
+
+    it "ships a long-lived immutable Cache-Control header" do
+      output = build_quadlet_generator(assets_config).assets_caddy_config
+
+      output.should contain(%(header Cache-Control "public, max-age=31536000, immutable"))
+    end
+
+    it "omits the encode directive when compression is disabled but keeps Cache-Control" do
+      output = build_quadlet_generator(assets_config_without_compression).assets_caddy_config
+
+      output.should_not contain("encode zstd gzip")
+      output.should contain(%(header Cache-Control "public, max-age=31536000, immutable"))
     end
   end
 

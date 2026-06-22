@@ -30,6 +30,49 @@ describe "Meridian::Commands::Plan" do
       output.should contain("accessories: (none)")
     end
 
+    it "renders the assets block and reflects the compression flag" do
+      content = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+        YAML
+
+      output = run_plan(content)
+      output.should contain("assets:")
+      output.should contain("host:            static.example.com")
+      output.should match(/compression:\s+true/)
+    end
+
+    it "reflects an explicit compression: false in the plan output" do
+      content = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+          compression: false
+        YAML
+
+      output = run_plan(content)
+      output.should match(/compression:\s+false/)
+    end
+
     it "renders every role, proxy line, sorted secrets, and accessory summary for a full config" do
       output = run_plan(FULL_CONFIG)
 

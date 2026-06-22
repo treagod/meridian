@@ -6,6 +6,10 @@
 	respond /up 200
 
 	header Access-Control-Allow-Origin "*"
+	header Cache-Control "public, max-age=31536000, immutable"
+<% if @compression -%>
+	encode zstd gzip
+<% end -%>
 
 	root * /srv/assets/current
 	file_server

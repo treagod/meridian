@@ -123,7 +123,8 @@ module Meridian
       end
 
       def assets_caddy_config : String
-        AssetsCaddyConfigTemplate.new.to_s
+        assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
+        AssetsCaddyConfigTemplate.new(assets.compression?).to_s
       end
 
       def render_file_sync_template(source : String) : String
@@ -275,6 +276,9 @@ module Meridian
       end
 
       private class AssetsCaddyConfigTemplate
+        def initialize(@compression : Bool)
+        end
+
         ECR.def_to_s "src/quadlet/templates/assets_caddy_config_file.ecr"
       end
     end

@@ -374,6 +374,7 @@ module Meridian
       getter command : String
       getter output_dir : String
       getter retain_releases : Int32 = 2
+      getter? compression : Bool = true
     end
 
     struct HooksConfig
@@ -426,7 +427,7 @@ module Meridian
       REMOTE_HOOKS_KEYS   = {"before_transfer", "after_transfer", "after_upload", "before_start", "after_start", "before_switch", "after_switch", "after_deploy"}
       REMOTE_HOOK_KEYS    = {"command", "roles"}
       FILE_SYNC_KEYS      = {"source", "destination", "template", "roles"}
-      ASSETS_KEYS         = {"host", "command", "output_dir", "retain_releases"}
+      ASSETS_KEYS         = {"host", "command", "output_dir", "retain_releases", "compression"}
 
       def self.load(path : String) : DeployConfig
         parse(File.read(path))

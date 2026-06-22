@@ -29,7 +29,8 @@ module Meridian
       host : String,
       command : String,
       output_dir : String,
-      retain_releases : Int32
+      retain_releases : Int32,
+      compression : Bool
 
     record HooksPlan,
       pre_deploy : String?,
@@ -159,6 +160,7 @@ module Meridian
           command: assets.command,
           output_dir: assets.output_dir,
           retain_releases: assets.retain_releases,
+          compression: assets.compression?,
         )
       end
 

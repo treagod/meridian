@@ -437,6 +437,7 @@ assets:
   command: bin/manage collectassets --fingerprint --no-input
   output_dir: /app/assets
   retain_releases: 2
+  compression: true
 ```
 
 | Key | Type | Required / default | Example | Rules |
@@ -445,6 +446,11 @@ assets:
 | `command` | `String` | Required | `bin/manage collectassets --fingerprint --no-input` | Runs in an app-image one-shot unit. |
 | `output_dir` | `String` | Required | `/app/assets` | Directory copied into the asset release volume. |
 | `retain_releases` | `Int32` | Optional, default `2` | `2` | Number of old asset releases kept. |
+| `compression` | `Bool` | Optional, default `true` | `true` | Emits `encode zstd gzip` in the asset Caddyfile. Set `false` to disable compression. |
 
 Validation: `assets:` requires `servers.web.proxy` because the asset server is
 published through the proxied web host.
+
+The asset server always sends fingerprinted files with a long-lived
+`Cache-Control: public, max-age=31536000, immutable` header, and — unless
+`compression: false` — negotiates `zstd`/`gzip` compression per request.
