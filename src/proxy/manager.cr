@@ -24,12 +24,13 @@ module Meridian
         proxy_quadlet = @quadlet_generator.proxy_container_file
         proxy_url = "http://127.0.0.1:#{proxy.http_port}/"
 
+        service_network_hosts.each do |host|
+          setup_service_network(host, network_quadlet)
+        end
+
         hosts.each do |host|
           log(host, "Ensuring Quadlet directory exists")
           run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
-
-          log(host, "Uploading service network Quadlet")
-          upload_ssh(host, network_path, network_quadlet)
 
           log(host, "Uploading shared proxy network Quadlet")
           upload_ssh(host, proxy_network_path, proxy_network_quadlet)
@@ -96,11 +97,39 @@ module Meridian
       end
 
       private def network_path : String
-        File.join(Quadlet::DIRECTORY, "#{@config.service}.network")
+        File.join(Quadlet::DIRECTORY, Runtime::ServiceNetwork.file(@config.service))
       end
 
       private def proxy_network_path : String
         File.join(Quadlet::DIRECTORY, Runtime::Paths::SHARED_PROXY_NETWORK_FILE)
+      end
+
+      private def service_network_hosts : Array(String)
+        hosts = @config.servers.values.flat_map(&.hosts)
+        ref = Runtime::ServiceNetwork.file(@config.service)
+
+        (@config.accessories || {} of String => Config::AccessoryConfig).each_value do |accessory|
+          host = accessory.host.to_s.strip
+          hosts << host if accessory.network == ref && !host.empty?
+        end
+
+        hosts.uniq!
+        hosts.sort!
+        hosts
+      end
+
+      private def setup_service_network(host : String, network_quadlet : String) : Nil
+        log(host, "Ensuring Quadlet directory exists")
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+
+        log(host, "Uploading service network Quadlet")
+        upload_ssh(host, network_path, network_quadlet)
+
+        log(host, "Reloading user systemd")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        log(host, "Starting #{Runtime::ServiceNetwork.unit(@config.service)}")
+        run_ssh!(host, Runtime::ServiceNetwork.start_command(@config.service))
       end
 
       private def ensure_shared_proxy_network(host : String) : Nil

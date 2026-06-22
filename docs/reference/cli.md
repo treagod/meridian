@@ -109,10 +109,12 @@ Usage: meridian setup [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: uploads the service network, `meridian-proxy.network`, and
-`kamal-proxy.container`; creates `proxy.data_dir`; runs `systemctl --user
-daemon-reload`; starts kamal-proxy; connects an already-running legacy proxy to
-the shared network when needed. It does not write per-service release state.
+Side effects: uploads and starts the service network on configured service
+hosts and service-networked accessory hosts; uploads `meridian-proxy.network`
+and `kamal-proxy.container` to web hosts; creates `proxy.data_dir`; runs
+`systemctl --user daemon-reload`; starts kamal-proxy; connects an
+already-running legacy proxy to the shared network when needed. It does not
+write per-service release state.
 
 Exit codes: `0` when proxy setup completes; non-zero on config, SSH, Podman, or
 systemd failure.
@@ -217,16 +219,17 @@ Usage: meridian deploy [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: acquires the remote deploy lock; runs hooks; transfers images;
-uploads Quadlets, networks, files, and asset units; starts new units; switches
-kamal-proxy for proxied roles; stops old units; writes `active-color`,
-`release-state.json`, and `manifest.json`; appends audit entries; releases the
-lock in an `ensure` block.
+Side effects: acquires the remote deploy lock; verifies the setup-created
+service network; runs hooks; transfers images; uploads app Quadlets, files, and
+asset units; starts new units; switches kamal-proxy for proxied roles; stops old
+units; writes `active-color`, `release-state.json`, and `manifest.json`; appends
+audit entries; releases the lock in an `ensure` block.
 
 Exit codes: `0` when the selected rollout completes; non-zero on config,
-registry validation, image transfer, hook, healthcheck, accessory-readiness,
-proxy, SSH, or lock-contention failure. Lock contention is reported as a normal
-failed deploy, not a separate numeric code.
+registry validation, missing setup-created service network, image transfer,
+hook, healthcheck, accessory-readiness, proxy, SSH, or lock-contention failure.
+Lock contention is reported as a normal failed deploy, not a separate numeric
+code.
 
 Examples:
 
@@ -238,7 +241,9 @@ meridian deploy --role web --host prod-01.example.com
 Common failures: see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock),
 [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout),
 [`image not known`](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer),
-and [`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs).
+[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs),
+and missing setup-created networks. Run `meridian setup` before the first
+deploy for a service.
 Relevant fields: [`servers.<role>`](/reference/deploy-yml#serversrole),
 [`boot`](/reference/deploy-yml#boot), [`transfer`](/reference/deploy-yml#transfer),
 [`registry`](/reference/deploy-yml#registry), [`files`](/reference/deploy-yml#files),
@@ -390,11 +395,12 @@ Usage: meridian run ROLE [options] -- COMMAND [ARGS...]
 | `-h`, `--help` | n/a | Print help. |
 
 Side effects: no Meridian runtime-state changes. The one-off container is
-removed after exit and joins `<service>.network`; the command may mutate
-application data or connected services.
+removed after exit and joins the setup-created `<service>` Podman network; the
+command may mutate application data or connected services.
 
 Exit codes: returns the remote `podman run` exit code; non-zero on missing role,
-invalid host, SSH, image, network, or command failure.
+invalid host, SSH, image, missing setup-created service network, or command
+failure.
 
 Examples:
 
@@ -405,6 +411,7 @@ meridian run workers --host prod-02.example.com -- crystal eval 'puts 1'
 
 Common failures: network or dependency startup problems are covered in
 [`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs).
+Run `meridian setup` first if the service network is missing.
 Relevant fields: [`image`](/reference/deploy-yml#image),
 [`env`](/reference/deploy-yml#env), and [`accessories`](/reference/deploy-yml#accessories).
 
@@ -454,12 +461,14 @@ Usage: meridian accessory start NAME [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: uploads the accessory Quadlet to the accessory host, reloads user
-systemd, starts `<name>.service`, and appends an audit entry. It does not update
-app `active-color` or `release-state.json`.
+Side effects: for accessories that reference `network: <service>.network`,
+first verifies that `meridian setup` has materialized the service network. Then
+uploads the accessory Quadlet to the accessory host, reloads user systemd,
+starts `<name>.service`, and appends an audit entry. It does not update app
+`active-color` or `release-state.json`.
 
 Exit codes: `0` when the accessory starts; non-zero on unknown accessory, SSH,
-Podman, systemd, or config failure.
+Podman, missing setup-created service network, systemd, or config failure.
 
 Examples:
 

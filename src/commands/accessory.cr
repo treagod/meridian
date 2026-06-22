@@ -18,6 +18,8 @@ module Meridian
         host = accessory_host(name, accessory)
         container_file = @quadlet_generator.accessory_container_file(name, accessory)
 
+        require_service_network!(host, "meridian accessory start") if accessory.network == service_network_file
+
         log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
 

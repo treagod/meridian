@@ -227,6 +227,23 @@ module Meridian
         "#{name}.service"
       end
 
+      protected def service_network_name : String
+        Runtime::ServiceNetwork.name(@config.service)
+      end
+
+      protected def service_network_file : String
+        Runtime::ServiceNetwork.file(@config.service)
+      end
+
+      protected def require_service_network!(host : String, command : String) : Nil
+        result = run_ssh(host, Runtime::ServiceNetwork.exists_command(@config.service))
+        return if result.exit_code.zero?
+
+        raise ArgumentError.new(Runtime::ServiceNetwork.missing_message(@config.service, host, command))
+      rescue ex : SSH::ConnectionError
+        raise ArgumentError.new(ex.message || "Failed to inspect service network on #{host}")
+      end
+
       protected def container_exists?(host : String, container_name : String) : Bool
         run_ssh(host, ["podman", "container", "exists", container_name]).exit_code.zero?
       rescue ex : SSH::ConnectionError

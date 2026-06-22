@@ -38,7 +38,7 @@ You'll need Crystal 1.17+ to build. Target servers need Podman 4.4+ and systemd.
 meridian init                              # generates .meridian/deploy.yml from your project
 # edit .meridian/deploy.yml: set hosts, ssh.keys, image, and transfer mode
 meridian server bootstrap --host 1.2.3.4   # provisions a fresh Debian/Ubuntu box
-meridian setup                             # installs the shared proxy network and kamal-proxy
+meridian setup                             # installs the service network, shared proxy network, and kamal-proxy
 meridian check                             # preflight: SSH, Podman, secrets, proxy
 meridian deploy
 ```
@@ -51,7 +51,7 @@ Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. See th
 
 ### `deploy`
 
-Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host finishes, secondary roles (workers, etc.) start releasing in parallel: they don't wait for every web batch to complete. If you've configured a proxy block, each host gets a blue/green swap through the shared host-level kamal-proxy and the active colour is recorded under `~/.local/state/meridian/services/<service>/active-color` (with a temporary legacy `.meridian-color` write for older CLIs). Without a proxy block, you get a stop/start with brief downtime, which is fine for some things.
+Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host finishes, secondary roles (workers, etc.) start releasing in parallel: they don't wait for every web batch to complete. If you've configured a proxy block, each host gets a blue/green swap through the shared host-level kamal-proxy and the active colour is recorded under `~/.local/state/meridian/services/<service>/active-color` (with a temporary legacy `.meridian-color` write for older CLIs). Without a proxy block, you get a stop/start with brief downtime, which is fine for some things. `deploy` verifies that `meridian setup` has already materialized the service network before it transfers an image.
 
 Before touching any host, `deploy` acquires a remote deploy lock (an atomic `mkdir` on the first web host) and releases it at the end. A second deploy started while the first is running exits non-zero and prints who holds the lock. See `lock` and `audit` below.
 

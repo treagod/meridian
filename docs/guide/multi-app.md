@@ -190,12 +190,12 @@ role, pass `--role ROLE`.
 
 This does not create a second proxy. It uploads or refreshes the shared
 `meridian-proxy.network`, the service's private `my-blog.network`, and
-`kamal-proxy.container`, ensures the proxy is running, and lets this service
-register routes during deploy.
+`kamal-proxy.container`, starts the service network, ensures the proxy is
+running, and lets this service register routes during deploy.
 
 ## Start Accessories
 
-Start the database after `setup` has uploaded `my-blog.network`.
+Start the database after `setup` has uploaded and started `my-blog.network`.
 
 ```bash
 meridian accessory start my-blog-postgres

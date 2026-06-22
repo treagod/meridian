@@ -4,8 +4,9 @@ module Meridian
       def run(role : String, command : Array(String), host : String? = nil) : Int32
         role_hosts = hosts_for_role(role)
         target_host = resolve_host(role, role_hosts, host)
+        require_service_network!(target_host, "meridian run")
 
-        cmd = ["podman", "run", "--rm", "--network", "#{@config.service}.network"]
+        cmd = ["podman", "run", "--rm", "--network", service_network_name]
 
         if env = @config.env
           env.clear.each { |k, v| cmd << "--env" << "#{k}=#{v}" }

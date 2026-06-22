@@ -14,7 +14,7 @@ operator
   |
   | meridian deploy
   v
-lock -> transfer image -> upload Quadlets/files/assets -> daemon-reload
+lock -> verify service network -> transfer image -> upload Quadlets/files/assets -> daemon-reload
   -> wait_for_accessories -> before_start hooks -> asset build
   -> start new color -> temporary health probe
   -> before_switch hooks -> kamal-proxy deploy
@@ -24,18 +24,19 @@ lock -> transfer image -> upload Quadlets/files/assets -> daemon-reload
 ```
 
 1. Acquire the deploy lock before remote mutation starts.
-2. Transfer the selected image by registry pull, `stream`, or `incremental`.
-3. Upload service networks, the new color `.container`, file syncs, and asset units.
-4. Run `systemctl --user daemon-reload`.
-5. Wait for co-network accessories to pass readiness probes.
-6. Run remote `before_start` hooks.
-7. Run the asset builder when `assets:` is configured.
-8. Start the inactive color, for example `my-app-green.service`.
-9. Poll the new container from a temporary probe container on `meridian-proxy` until `healthcheck.required_successes` consecutive HTTP successes pass.
-10. Run remote `before_switch` hooks.
-11. Run `kamal-proxy deploy` to atomically switch traffic to the new color.
-12. Run remote `after_switch` hooks.
-13. Stop the old color and remove its inactive Quadlet file.
+2. Verify the setup-created service network.
+3. Transfer the selected image by registry pull, `stream`, or `incremental`.
+4. Upload the new color `.container`, file syncs, and asset units.
+5. Run `systemctl --user daemon-reload`.
+6. Wait for co-network accessories to pass readiness probes.
+7. Run remote `before_start` hooks.
+8. Run the asset builder when `assets:` is configured.
+9. Start the inactive color, for example `my-app-green.service`.
+10. Poll the new container from a temporary probe container on `meridian-proxy` until `healthcheck.required_successes` consecutive HTTP successes pass.
+11. Run remote `before_switch` hooks.
+12. Run `kamal-proxy deploy` to atomically switch traffic to the new color.
+13. Run remote `after_switch` hooks.
+14. Stop the old color and remove its inactive Quadlet file.
 14. Record `active-color`, `release-state.json`, and `manifest.json`.
 15. Run remote `after_deploy` hooks and release the deploy lock.
 
@@ -73,6 +74,10 @@ through systemd.
 | `meridian-proxy.network` | Shared network kamal-proxy and proxied app containers join. |
 
 Use `meridian quadlet` to preview generated files locally.
+`meridian setup` owns uploading and starting `<service>.network` on every host
+that needs the private service network; deploys, one-off runs, and
+service-networked accessories verify that the materialized Podman network
+`<service>` exists before they use it.
 
 ## Per-Service Runtime State
 

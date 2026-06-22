@@ -58,6 +58,24 @@ def accessory_missing_host_config : String
     YAML
 end
 
+def co_network_accessory_config : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    accessories:
+      db:
+        image: docker.io/library/postgres:16
+        host: 192.168.1.20
+        network: myapp.network
+    YAML
+end
+
 def accessory_commands_for(runner : FakeSSHRunner, host : String) : Array(String)
   runner.invocations.compact_map do |invocation|
     next unless invocation.host == host
@@ -126,6 +144,18 @@ describe "Meridian::Commands::Accessory" do
       upload.should_not be_nil
       input = value!(upload).input || raise "Expected uploaded Quadlet content"
       input.should contain("Volume=pgdata:/var/lib/postgresql/data")
+    end
+
+    it "fails before uploading when setup has not created a referenced service network" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(ssh_fail(1))
+      command = build_accessory_command(content: co_network_accessory_config, runner: runner)
+
+      expect_raises(ArgumentError, /Run `meridian setup` before `meridian accessory start`/) do
+        command.start("db")
+      end
+
+      accessory_commands_for(runner, "192.168.1.20").should eq(["podman network exists myapp"])
     end
 
     it "raises UnknownAccessory when the named accessory does not exist in the config" do

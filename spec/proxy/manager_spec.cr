@@ -33,18 +33,48 @@ describe "Meridian::Proxy::Manager" do
       end
     end
 
-    it "uploads the service network Quadlet to each web host" do
+    it "uploads the service network Quadlet to every service host" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(runner: runner)
 
       manager.setup
 
       uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/myapp.network"))
-      uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+      uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
       uploads.each do |upload|
         upload_input = upload.input || raise "Expected upload input"
         upload_input.should contain("NetworkName=myapp")
       end
+    end
+
+    it "uploads the service network Quadlet to co-network accessory hosts" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            db:
+              image: docker.io/library/postgres:16
+              host: 192.168.1.20
+              network: myapp.network
+          YAML
+        runner: runner
+      )
+
+      manager.setup
+
+      service_uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/myapp.network"))
+      proxy_uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
+
+      service_uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.20"])
+      proxy_uploads.map(&.host).should eq(["192.168.1.10"])
     end
 
     it "uploads the shared proxy network Quadlet to each web host" do
@@ -61,14 +91,29 @@ describe "Meridian::Proxy::Manager" do
       end
     end
 
-    it "runs daemon-reload on each web host after uploading" do
+    it "reloads systemd after network and proxy uploads" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(runner: runner)
 
       manager.setup
 
       reloads = runner.invocations.select(&.remote_command.==("systemctl --user daemon-reload"))
-      reloads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+      reloads.map(&.host).should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12", "192.168.1.10", "192.168.1.11"])
+    end
+
+    it "starts the service network unit after reloading systemd" do
+      runner = FakeSSHRunner.new
+      manager = build_proxy_manager(runner: runner)
+
+      manager.setup
+
+      starts = runner.invocations.select(&.remote_command.==("systemctl --user start myapp-network.service"))
+      starts.map(&.host).should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      reload_index = commands.index!("systemctl --user daemon-reload")
+      start_index = commands.index!("systemctl --user start myapp-network.service")
+      start_index.should be > reload_index
     end
 
     it "starts kamal-proxy via systemctl on each web host" do
@@ -111,16 +156,17 @@ describe "Meridian::Proxy::Manager" do
       end.should be_true
     end
 
-    it "does not touch worker hosts during proxy setup" do
+    it "does not install kamal-proxy on worker hosts" do
       runner = FakeSSHRunner.new
       manager = build_proxy_manager(runner: runner)
 
       manager.setup
 
-      touched_hosts = runner.invocations.compact_map(&.host)
-      touched_hosts.uniq!
-      touched_hosts.sort!
-      touched_hosts.should eq(["192.168.1.10", "192.168.1.11"])
+      proxy_uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
+      proxy_starts = runner.invocations.select(&.remote_command.==("systemctl --user start kamal-proxy.service"))
+
+      proxy_uploads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
+      proxy_starts.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
     it "raises SetupFailed when uploading the Quadlet fails" do

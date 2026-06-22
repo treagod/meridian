@@ -97,7 +97,7 @@ Diagnose:
 meridian logs --host prod-01.example.com
 meridian accessory logs postgres
 ssh deploy@prod-01.example.com 'podman ps --format "{{.Names}}\t{{.Networks}}"'
-ssh deploy@prod-01.example.com 'podman network inspect my-app.network'
+ssh deploy@prod-01.example.com 'podman network inspect my-app'
 ```
 
 Fix:

@@ -33,7 +33,21 @@ describe "Meridian::Commands::Run" do
       command.run("web", ["printenv"])
 
       invocation = streaming_runner.invocations.last
-      value!(invocation.remote_command).should contain("--network myapp.network")
+      value!(invocation.remote_command).should contain("--network myapp")
+    end
+
+    it "fails before streaming when setup has not created the service network" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(ssh_fail(1))
+      streaming_runner = FakeSSHStreamingRunner.new
+      command = build_run_command(runner: runner, streaming_runner: streaming_runner)
+
+      expect_raises(ArgumentError, /Run `meridian setup` before `meridian run`/) do
+        command.run("web", ["printenv"])
+      end
+
+      remote_commands_for(runner, "192.168.1.10").should eq(["podman network exists myapp"])
+      streaming_runner.invocations.should be_empty
     end
 
     it "passes env.clear variables as --env flags" do

@@ -108,6 +108,7 @@ module Meridian
       ) : Nil
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
+        require_service_network!(host, "meridian deploy")
 
         deployed_service_name = service_name(color)
         service_unit = service_unit(color)
@@ -123,8 +124,10 @@ module Meridian
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
         ensure_service_state_dir(host)
 
-        log(host, "Uploading network Quadlet")
-        upload_network_quadlets(host, include_proxy_network: !server.proxy.nil?)
+        if server.proxy
+          log(host, "Uploading shared proxy network Quadlet")
+          upload_proxy_network_quadlet(host)
+        end
 
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(color), container_file)
@@ -160,6 +163,7 @@ module Meridian
       def zero_downtime_deploy_to_host(host : String, role : String) : Nil
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
+        require_service_network!(host, "meridian deploy")
 
         proxy = server.proxy || raise DeployFailed.new("Missing proxy configuration for role: #{role}")
         stored_color = stored_active_color_entry(host)
@@ -179,8 +183,8 @@ module Meridian
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
         ensure_service_state_dir(host)
 
-        log(host, "Uploading network Quadlet")
-        upload_network_quadlets(host, include_proxy_network: true)
+        log(host, "Uploading shared proxy network Quadlet")
+        upload_proxy_network_quadlet(host)
 
         log(host, "Uploading service Quadlet")
         upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
@@ -361,10 +365,6 @@ module Meridian
 
       private def container_path(color : Quadlet::Color) : String
         File.join(Quadlet::DIRECTORY, "#{service_name(color)}.container")
-      end
-
-      private def network_path : String
-        File.join(Quadlet::DIRECTORY, "#{@config.service}.network")
       end
 
       private def proxy_network_path : String
@@ -864,9 +864,17 @@ module Meridian
         )
       end
 
-      private def upload_network_quadlets(host : String, *, include_proxy_network : Bool) : Nil
-        upload_ssh(host, network_path, @quadlet_generator.network_file)
-        upload_ssh(host, proxy_network_path, @quadlet_generator.proxy_network_file) if include_proxy_network
+      private def upload_proxy_network_quadlet(host : String) : Nil
+        upload_ssh(host, proxy_network_path, @quadlet_generator.proxy_network_file)
+      end
+
+      private def require_service_network!(host : String, command : String) : Nil
+        result = run_ssh(host, Runtime::ServiceNetwork.exists_command(@config.service))
+        return if result.exit_code.zero?
+
+        raise DeployFailed.new(Runtime::ServiceNetwork.missing_message(@config.service, host, command))
+      rescue ex : SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Failed to inspect service network on #{host}")
       end
 
       private def ensure_service_state_dir(host : String) : Nil
