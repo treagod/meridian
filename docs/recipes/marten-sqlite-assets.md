@@ -64,7 +64,11 @@ See [`volumes`](/reference/deploy-yml#volumes), [`assets`](/reference/deploy-yml
 and [`hooks`](/reference/deploy-yml#hooks). The binary and asset workflow follows
 Marten's [deployment](https://martenframework.com/docs/deployment/introduction/)
 and [asset handling](https://martenframework.com/docs/assets/introduction/)
-guidance.
+guidance. Marten's `config.assets.url` (in the production settings below) must
+point at the same host as `assets.host` so fingerprinted URLs resolve to the
+generated asset server; see
+[CSS `url()` 404s](/guide/troubleshooting#css-url-assets-404-against-the-asset-cdn)
+if CSS-referenced files 404.
 
 ## `Containerfile`
 

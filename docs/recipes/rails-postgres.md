@@ -78,6 +78,11 @@ See [`env`](/reference/deploy-yml#env), [`transfer`](/reference/deploy-yml#trans
 while Postgres reads its Podman secret through the official image's
 [`POSTGRES_PASSWORD_FILE`](https://hub.docker.com/_/postgres) convention.
 
+This recipe serves precompiled assets from the app container. To publish
+fingerprinted assets on a separate host during the deploy instead, add an
+[`assets`](/reference/deploy-yml#assets) block and point Rails's `config.asset_host`
+at the same host as `assets.host`.
+
 ## `Containerfile`
 
 ```dockerfile

@@ -2,7 +2,7 @@
 
 Deploy containers to Linux servers over SSH. No Docker, no Kubernetes, no registry required.
 
-Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they're regular systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Zero-downtime deploys go through [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH.
+Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they're regular systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Zero-downtime deploys go through [kamal-proxy](https://github.com/basecamp/kamal-proxy). Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH. Fingerprinted static assets can be built during the deploy and served on a separate host as part of the same stack.
 
 > **Don't run this in production yet.** It works and runs real deploys, but the config format isn't frozen, and breaking changes will land whenever a better shape turns up.
 
@@ -18,7 +18,7 @@ It is explicitly not a Kubernetes replacement. If you need that, you need that.
 
 ## Install
 
-Pre-built binaries for Linux x86_64 and ARM64 are on the [releases page](https://github.com/treagod/meridian/releases).
+Pre-built binaries for Linux and macOS (x86_64 and ARM64) are on the [releases page](https://github.com/treagod/meridian/releases).
 
 From source:
 

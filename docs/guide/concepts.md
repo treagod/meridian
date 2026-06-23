@@ -79,6 +79,24 @@ that needs the private service network; deploys, one-off runs, and
 service-networked accessories verify that the materialized Podman network
 `<service>` exists before they use it.
 
+## Deploy-Managed Static Assets
+
+When `deploy.yml` declares an `assets:` block, Meridian publishes your built
+front-end bundle as part of the deploy:
+
+1. A one-shot builder container runs `assets.command` in the app image.
+2. Its `assets.output_dir` output is copied into a timestamped release directory
+   on the `<service>-assets` volume.
+3. A `current` symlink is repointed to the new release.
+4. A generated Caddy static server serves `current` and is registered with
+   kamal-proxy under the `<service>-assets` route on `assets.host`.
+
+Old releases are retained (`assets.retain_releases`) so fingerprinted URLs from
+the previous version keep resolving during the rollout window. The framework's
+asset URL setting must point at `assets.host`; see
+[`assets`](/reference/deploy-yml#assets) and, for fingerprinted-URL mistakes,
+[CSS `url()` 404s](/guide/troubleshooting#css-url-assets-404-against-the-asset-cdn).
+
 ## Per-Service Runtime State
 
 Meridian stores runtime state per service, not globally:

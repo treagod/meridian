@@ -269,10 +269,10 @@ function copyInstall() {
       </div>
       <div class="feature">
         <div class="feature-icon">
-          <svg class="lucide lucide-webhook" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2" /><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" /><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" /></svg>
+          <svg class="lucide lucide-images" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16" /><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2" /><circle cx="13" cy="7" r="1" fill="currentColor" /><rect x="8" y="2" width="14" height="14" rx="2" /></svg>
         </div>
-        <h3>Remote deploy hooks</h3>
-        <p>Eight phases from <code class="inline-code">before_transfer</code> to <code class="inline-code">after_deploy</code> run arbitrary commands on each host. Migrations, cache warms, smoke tests - declare them in <code class="inline-code">deploy.yml</code> and Meridian fires them in order.</p>
+        <h3>Ship app and assets together</h3>
+        <p>Publish fingerprinted static assets from the same deploy, on a separate asset host, without adding object storage or hand-written reverse proxy config.</p>
       </div>
     </div>
   </div>
@@ -371,6 +371,8 @@ function copyInstall() {
       <span class="section-eyebrow">Questions</span>
       <h2 class="section-title">The honest answers.</h2>
     </div>
+    <div class="faq-columns">
+    <div class="faq-col">
     <details class="faq-item">
       <summary>Does this replace Kamal?</summary>
       <div class="answer">
@@ -380,7 +382,7 @@ function copyInstall() {
     <details class="faq-item">
       <summary>Is it really a single-file binary?</summary>
       <div class="answer">
-        For the official Linux release builds, yes: Crystal supports static linking, and Meridian builds cleanly as a static Alpine/musl binary. But that depends on how you build it. A default local build on macOS is still one executable file, but it links against shared libraries such as OpenSSL, libyaml, PCRE2, and Boehm GC.
+        For the official Linux release builds, yes: Crystal supports static linking, and Meridian builds cleanly as a static Alpine/musl binary. The official macOS release builds are one executable file too, but they are dynamically linked, so they can depend on Homebrew-provided libraries such as libyaml, PCRE2, and Boehm GC. Local builds follow the same rule: portability depends on how you build and link them.
       </div>
     </details>
     <details class="faq-item">
@@ -400,6 +402,8 @@ function copyInstall() {
         Two registry-free paths. <code>transfer.mode: stream</code> pipes <code>podman save | zstd</code> over SSH to <code>podman load</code> on the host - simple, no extra infrastructure. <code>transfer.mode: incremental</code> syncs an OCI layout via rsync, so repeat deploys typically send only the bytes that changed. If you already have SSH to the server, you have everything Meridian needs.
       </div>
     </details>
+    </div>
+    <div class="faq-col">
     <details class="faq-item">
       <summary>Is it production-ready?</summary>
       <div class="answer">
@@ -418,6 +422,8 @@ function copyInstall() {
         Accessory services are first-class - define them in <code>deploy.yml</code> and they deploy alongside your app. Meridian treats them as Quadlet units too, which means systemd handles their lifecycle consistently with everything else.
       </div>
     </details>
+    </div>
+    </div>
   </div>
 </section>
 

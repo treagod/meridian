@@ -1054,8 +1054,22 @@
 
 /* --- faq --- */
 .landing-root .faq-wrap {
-    max-width: 820px;
+    max-width: 1000px;
     margin: 0 auto;
+}
+.landing-root .faq-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 48px;
+    align-items: start;
+}
+@media (max-width: 768px) {
+    .landing-root .faq-wrap {
+        max-width: 820px;
+    }
+    .landing-root .faq-columns {
+        grid-template-columns: 1fr;
+    }
 }
 .landing-root .faq-item {
     border-bottom: 1px solid rgba(232, 184, 70, 0.1);
@@ -1083,7 +1097,7 @@
     font-size: 22px;
     color: var(--gold-500);
     font-weight: 300;
-    transition: transform 0.2s;
+    transition: transform 0.4s ease;
 }
 .landing-root .faq-item[open] summary::after {
     transform: rotate(45deg);
@@ -1120,6 +1134,43 @@
     border-radius: 3px;
     color: var(--gold-300);
     border: 1px solid rgba(232, 184, 70, 0.12);
+}
+/* Slide-in on open: the answer content eases in everywhere, and the
+   expanding height is animated where the browser can interpolate to
+   intrinsic size (::details-content + interpolate-size). */
+@keyframes faq-answer-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.landing-root .faq-item[open] .answer {
+    animation: faq-answer-in 0.4s ease;
+}
+@supports (interpolate-size: allow-keywords) {
+    .landing-root {
+        interpolate-size: allow-keywords;
+    }
+    .landing-root .faq-item::details-content {
+        block-size: 0;
+        overflow: hidden;
+        transition: block-size 0.4s ease, content-visibility 0.4s allow-discrete;
+    }
+    .landing-root .faq-item[open]::details-content {
+        block-size: auto;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .landing-root .faq-item[open] .answer {
+        animation: none;
+    }
+    .landing-root .faq-item::details-content {
+        transition: none;
+    }
 }
 
 /* --- closing cta --- */

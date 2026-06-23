@@ -4,7 +4,7 @@ From repo to running app with a read-only preflight check. No Kubernetes, no CI 
 
 ## 1. Install
 
-Grab the prebuilt Linux binary (x86_64 or ARM64) from the [releases page](https://github.com/treagod/meridian/releases) and put it on your `PATH`:
+Grab the prebuilt Linux or macOS binary (x86_64 or ARM64) from the [releases page](https://github.com/treagod/meridian/releases) and put it on your `PATH`:
 
 ```bash
 sudo mv meridian /usr/local/bin/
@@ -104,6 +104,16 @@ What happens during deploy:
 5. The old color is stopped, service-scoped runtime state is recorded under `~/.local/state/meridian/services/<service>/`, and unused images are pruned.
 
 This typically takes 10-20 seconds for a small app.
+
+### Static assets
+
+`assets:` is optional. When you declare it, the `assets.command` runs in your app
+image during the deploy, and the files it writes to `assets.output_dir` are copied
+into a deploy-managed volume as a fingerprinted release. Requests to `assets.host`
+are routed by kamal-proxy to a generated Caddy asset server that serves the current
+release. Typical small and medium Rails or Marten apps do not need separate asset
+infrastructure - object storage or a CDN - to reach production; see
+[`assets`](/reference/deploy-yml#assets).
 
 ## 4. Rollback
 

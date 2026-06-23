@@ -429,7 +429,11 @@ files:
 
 ## `assets`
 
-Deploy-managed static assets published on a separate host.
+Meridian's built-in path for publishing fingerprinted static assets as part of the
+deploy - distinct from your app's dynamic responses and from user media uploads.
+The `command` builds the front-end bundle inside the app image, its `output_dir`
+output is copied into a deploy-managed volume, and a generated Caddy server
+publishes the result on a separate `host` that kamal-proxy routes to.
 
 ```yaml
 assets:

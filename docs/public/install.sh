@@ -8,8 +8,8 @@ BINARY_NAME="meridian"
 # ── OS check ──────────────────────────────────────────────────────────────────
 OS="$(uname -s)"
 if [ "$OS" != "Linux" ]; then
-  echo "error: Meridian pre-built binaries are only available for Linux." >&2
-  echo "       Build from source: https://github.com/${REPO}#from-source" >&2
+  echo "error: This installer currently supports Linux only." >&2
+  echo "       macOS binaries are available from https://github.com/${REPO}/releases" >&2
   exit 1
 fi
 

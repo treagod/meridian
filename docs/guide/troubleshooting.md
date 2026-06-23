@@ -260,3 +260,35 @@ Fix: don't reference fingerprinted assets from inside CSS files. Resolve the URL
 
 The path is resolved through Marten's manifest in the template; the CSS just
 consumes the resulting URL.
+
+## Asset CDN Still Serves Old Headers After Meridian Update
+
+Problem: after updating Meridian (for example to pick up a Caddyfile template change), the asset CDN still returns the old headers — no `Content-Encoding: zstd` after the compression patch, or no `Access-Control-Allow-Origin: *` after the CORS patch — even though `meridian deploy` reported success.
+
+Root cause: `meridian deploy` regenerates the Caddyfile on the server and writes it to its mount path (`~/.config/containers/<service>-assets-caddy/Caddyfile`). The `<service>-assets-server` container is already running; Caddy reads its configuration only at process start, not when the underlying file changes. Nothing triggers a re-read automatically.
+
+Diagnose:
+
+```bash
+# 1. Confirm the new Caddyfile content is on the server:
+ssh deploy@prod-01.example.com \
+  'cat .config/containers/my-app-assets-caddy/Caddyfile'
+
+# 2. Confirm the running asset-server still serves old headers:
+curl -sI -H "Accept-Encoding: zstd, gzip" \
+  https://assets.my-app.example.com/css/app.<hash>.css \
+  | grep -iE "content-encoding|cache-control|access-control"
+```
+
+If the on-disk Caddyfile shows the new directives but the curl response does not, the asset-server has not picked up the new config yet.
+
+Fix:
+
+```bash
+ssh deploy@prod-01.example.com \
+  'systemctl --user restart my-app-assets-server.service'
+```
+
+Caddy starts up against the new Caddyfile (~500 ms of asset-server downtime; cached browser responses keep working through the gap because the asset CDN sets `Cache-Control: public, max-age=31536000, immutable`).
+
+This restart is **not** needed on a normal `meridian deploy` — only when the Caddyfile content itself has changed. That happens at most a couple of times per year, typically when picking up a Meridian release that touches `src/quadlet/templates/assets_caddy_config_file.ecr`.

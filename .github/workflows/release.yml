@@ -3,14 +3,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build and release
+  build-linux:
+    name: Build Linux binaries
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +29,7 @@ jobs:
           docker run --rm \
             -v "$PWD":/workspace \
             -w /workspace \
-            crystallang/crystal:1.19.1-alpine \
+            crystallang/crystal:1.20.2-alpine \
             sh -c "
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
@@ -43,7 +43,7 @@ jobs:
             --platform linux/arm64 \
             -v "$PWD":/workspace \
             -w /workspace \
-            crystallang/crystal:1.19.1-alpine \
+            crystallang/crystal:1.20.2-alpine \
             sh -c "
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
@@ -51,7 +51,7 @@ jobs:
               llvm-strip meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
             "
 
-      - name: Verify binary version matches tag
+      - name: Verify Linux binary version matches tag
         run: |
           built="$(./meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64 --version)"
           echo "Built binary reports version: $built"
@@ -60,18 +60,96 @@ jobs:
             exit 1
           fi
 
+      - name: Upload x86_64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64
+          path: meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64
+
+      - name: Upload arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
+          path: meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
+
+  build-macos:
+    name: Build macOS ${{ matrix.arch }} binary
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-15-intel
+            suffix: macos-x86_64
+          - arch: arm64
+            runner: macos-15
+            suffix: macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.20.2
+
+      - name: Install dependencies
+        run: shards install --without-development
+
+      - name: Build binary
+        run: |
+          artifact="meridian-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}"
+          crystal build src/meridian_cli.cr --release -o "$artifact"
+          strip -x "$artifact"
+
+      - name: Verify macOS binary version matches tag
+        run: |
+          artifact="meridian-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}"
+          built="$(./$artifact --version)"
+          echo "Built binary reports version: $built"
+          if [ "$built" != "${{ steps.version.outputs.VERSION }}" ]; then
+            echo "::error::Binary version '$built' does not match tag '${{ steps.version.outputs.VERSION }}' (check shard.yml version)" >&2
+            exit 1
+          fi
+
+      - name: Show linked libraries
+        run: |
+          otool -L "meridian-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meridian-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}
+          path: meridian-${{ steps.version.outputs.VERSION }}-${{ matrix.suffix }}
+
+  create-release:
+    name: Create GitHub Release
+    needs:
+      - build-linux
+      - build-macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Generate checksums
         run: |
-          sha256sum \
-            meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64 \
-            meridian-${{ steps.version.outputs.VERSION }}-linux-arm64 \
-            > checksums.txt
+          cd dist
+          sha256sum meridian-* | sort -k2 > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64
-            meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
-            checksums.txt
+            dist/meridian-*
+            dist/checksums.txt
           generate_release_notes: true
