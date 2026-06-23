@@ -11,7 +11,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.20.2
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -23,7 +23,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.20.2
     steps:
       - uses: actions/checkout@v4
       - name: Check formatting
@@ -33,7 +33,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.20.2
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -47,7 +47,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.20.2
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies

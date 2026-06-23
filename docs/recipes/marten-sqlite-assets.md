@@ -73,7 +73,7 @@ if CSS-referenced files 404.
 ## `Containerfile`
 
 ```dockerfile
-FROM crystallang/crystal:1.20-alpine AS build
+FROM crystallang/crystal:1.20.2-alpine AS build
 
 RUN apk --no-cache add sqlite-dev openssl-dev yaml-dev zlib-dev \
     openssl-libs-static yaml-static zlib-static sqlite-static

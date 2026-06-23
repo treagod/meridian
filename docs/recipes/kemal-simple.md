@@ -44,7 +44,7 @@ See [`servers.<role>`](/reference/deploy-yml#serversrole),
 ## `Containerfile`
 
 ```dockerfile
-FROM crystallang/crystal:1.19-alpine AS build
+FROM crystallang/crystal:1.20.2-alpine AS build
 
 WORKDIR /app
 RUN apk add --no-cache shards openssl-dev yaml-dev zlib-dev
