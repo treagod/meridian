@@ -39,8 +39,14 @@ describe "documentation recipes" do
         generator = Meridian::Quadlet::Generator.new(config)
 
         generator.network_file.should_not be_empty
-        config.servers.each_value do |server|
-          generator.container_file(server, Meridian::Quadlet::Color::Blue).should_not be_empty if server.managed?
+        config.servers.each do |role, server|
+          next unless server.managed?
+
+          if server.proxy
+            generator.container_file(server, Meridian::Quadlet::Color::Blue).should_not be_empty
+          else
+            generator.role_container_file(role, server).should_not be_empty
+          end
         end
         if config.servers.values.any?(&.proxy)
           generator.proxy_network_file.should_not be_empty

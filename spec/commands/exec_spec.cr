@@ -56,6 +56,36 @@ describe "Meridian::Commands::Exec" do
       streaming_runner.invocations.last.remote_command.should eq("podman exec -i myapp-green env")
     end
 
+    it "executes directly in the role-named container for a non-proxied role" do
+      streaming_runner = FakeSSHStreamingRunner.new
+      command = build_role_exec_command(streaming_runner: streaming_runner)
+
+      command.run("workers", ["env"])
+
+      invocation = streaming_runner.invocations.last
+      invocation.host.should eq("192.168.1.12")
+      invocation.remote_command.should eq("podman exec -i myapp-workers env")
+    end
+
+    it "rejects unmanaged roles whose container names Meridian does not own" do
+      command = build_role_exec_command(content: <<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          legacy:
+            hosts:
+              - 192.168.1.10
+            managed: false
+            units:
+              - legacy-app.service
+        YAML
+
+      expect_raises(ArgumentError, /exec is not supported for unmanaged role: legacy/) do
+        command.run("legacy", ["env"])
+      end
+    end
+
     it "raises an error when the role does not exist" do
       command = build_role_exec_command
 

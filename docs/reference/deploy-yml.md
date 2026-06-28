@@ -104,6 +104,14 @@ servers:
 Validation: unmanaged roles cannot define `proxy` or `cmd`, and must define at
 least one `units` entry.
 
+Managed roles use one of two unit models:
+
+- With `proxy:`, Meridian deploys colour-named `<service>-blue` and
+  `<service>-green` units and records proxy release state.
+- Without `proxy:`, Meridian deploys one stable `<service>-<role>` unit and
+  restarts it in place. This path has brief downtime and does not read or write
+  `active-color` or `release-state.json`.
+
 ## `servers.<role>.proxy`
 
 Role-local proxy configuration enables blue/green cutover through kamal-proxy.

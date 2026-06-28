@@ -42,12 +42,11 @@ describe "Meridian::Commands::Status" do
       command.run
 
       remote_commands_for(runner, "192.168.1.12").should eq([
-        "cat .local/state/meridian/services/myapp/release-state.json",
-        "systemctl --user status myapp-blue.service --no-pager --lines 0",
-        "systemctl --user status myapp-green.service --no-pager --lines 0",
+        "systemctl --user status myapp-workers.service --no-pager --lines 0",
       ])
       output.to_s.should contain("workers")
       output.to_s.should contain("192.168.1.12")
+      output.to_s.should contain("myapp-workers.service")
     end
 
     it "shows the recorded release id when present" do
@@ -62,6 +61,8 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
+              proxy:
+                host: myapp.example.com
           YAML
         runner: runner,
         output: output
@@ -103,6 +104,8 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
+              proxy:
+                host: myapp.example.com
           YAML
         runner: runner,
         output: output
@@ -147,6 +150,8 @@ describe "Meridian::Commands::Status" do
             web:
               hosts:
                 - 192.168.1.10
+              proxy:
+                host: myapp.example.com
           YAML
         runner: runner,
         output: output
@@ -162,6 +167,42 @@ describe "Meridian::Commands::Status" do
 
       output.to_s.should contain("active")
       output.to_s.should contain("inactive")
+    end
+
+    it "summarizes configured units for unmanaged roles" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_status_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            legacy:
+              hosts:
+                - 192.168.1.10
+              managed: false
+              units:
+                - legacy-app.service
+                - legacy-worker.service
+          YAML
+        runner: runner,
+        output: output
+      )
+      runner.enqueue_results(
+        ssh_ok("Active: active (running)\n"),
+        ssh_fail(3, "Active: inactive (dead)\n"),
+      )
+
+      command.run
+
+      remote_commands_for(runner).should eq([
+        "systemctl --user status legacy-app.service --no-pager --lines 0",
+        "systemctl --user status legacy-worker.service --no-pager --lines 0",
+      ])
+      output.to_s.should contain("existing")
+      output.to_s.should contain("legacy-app.service=active")
+      output.to_s.should contain("legacy-worker.service=inactive")
     end
   end
 end

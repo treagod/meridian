@@ -36,9 +36,8 @@ module Meridian
 
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
           config = Config::Loader.load(@file)
-          hosts = @selector.resolve(config).map(&.host)
-          hosts.uniq!
-          ::Meridian::Commands::Logs.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(hosts)
+          targets = @selector.resolve(config)
+          ::Meridian::Commands::Logs.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).run(targets)
         end
       end
     end

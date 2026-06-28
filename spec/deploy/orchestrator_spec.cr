@@ -367,17 +367,14 @@ def enqueue_deploy_success_for_host(
     ssh_ok, # mkdir quadlet dir
     ssh_ok, # mkdir service state dir
     ssh_ok, # upload container
+    ssh_ok, # clean up legacy color Quadlets
     ssh_ok, # daemon-reload
     active_service ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"),
   ]
   results << ssh_ok if active_service # stop active service
   results.concat([
-    ssh_ok,                            # start service
-    ssh_ok,                            # upload service active-color
-    ssh_ok,                            # upload legacy active-color
-    ssh_fail(1, "", "No such file\n"), # read prior release-state
-    ssh_ok,                            # upload release-state
-    ssh_ok,                            # upload service manifest
+    ssh_ok, # start service
+    ssh_ok, # upload service manifest
   ])
 
   runner.enqueue_results_for_host(host, results)
@@ -603,7 +600,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
-      remote_commands_for(runner).should contain("systemctl --user start myapp-green.service")
+      remote_commands_for(runner).should contain("systemctl --user start myapp-web.service")
     end
 
     it "stops the old service before starting the new one" do
@@ -613,32 +610,40 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected service stop"
-      start_index = commands.index("systemctl --user start myapp-green.service") || raise "Expected service start"
+      stop_index = commands.index("systemctl --user stop myapp-web.service") || raise "Expected service stop"
+      start_index = commands.index("systemctl --user start myapp-web.service") || raise "Expected service start"
       stop_index.should be < start_index
     end
 
-    it "writes the container Quadlet file without uploading the setup-owned service network" do
+    it "writes the role-named container Quadlet without uploading setup-owned networks" do
       runner = FakeSSHRunner.new
-      orchestrator = build_orchestrator(runner: runner)
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          YAML
+        runner: runner
+      )
 
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
       network_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/myapp.network" }
-      proxy_network_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/meridian-proxy.network" } || raise "Expected proxy network upload"
-      container_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/myapp-green.container" } || raise "Expected container upload"
-      proxy_network_input = proxy_network_upload.input || raise "Expected proxy network upload input"
+      proxy_network_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/meridian-proxy.network" }
+      container_upload = runner.invocations.find { |candidate| candidate.remote_command == "cat > .config/containers/systemd/myapp-web.container" } || raise "Expected container upload"
       container_input = container_upload.input || raise "Expected container upload input"
 
       network_upload.should be_nil
-      proxy_network_upload.host.should eq("192.168.1.10")
-      proxy_network_upload.remote_command.should eq("cat > .config/containers/systemd/meridian-proxy.network")
-      proxy_network_input.should contain("[Network]")
+      proxy_network_upload.should be_nil
 
       container_upload.host.should eq("192.168.1.10")
-      container_upload.remote_command.should eq("cat > .config/containers/systemd/myapp-green.container")
+      container_upload.remote_command.should eq("cat > .config/containers/systemd/myapp-web.container")
       container_input.should contain("[Container]")
-      container_input.should contain("ContainerName=myapp-green")
+      container_input.should contain("ContainerName=myapp-web")
     end
 
     it "raises DeployFailed when the pull command fails" do
@@ -758,6 +763,7 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
+        ssh_ok,
         ssh_fail(3, "inactive\n"),
         ssh_ok,
       )
@@ -840,6 +846,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       runner.enqueue_results_for_host(
         "192.168.1.10",
+        ssh_ok,
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -963,6 +970,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -1002,6 +1010,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -1039,6 +1048,7 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+          ssh_ok,
           ssh_fail(3, "inactive\n"),
           ssh_ok,
         )
@@ -1152,7 +1162,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner, "192.168.1.10")
       hook_index = commands.index("sh -lc 'systemctl --user start --wait myapp-migrate.service'") || raise "Expected remote hook"
-      start_index = commands.index("systemctl --user start myapp-green.service") || raise "Expected service start"
+      start_index = commands.index("systemctl --user start myapp-web.service") || raise "Expected service start"
 
       hook_index.should be < start_index
     end
@@ -1673,7 +1683,7 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.deploy
 
       commands = remote_commands_for(runner)
-      commands.should contain("systemctl --user start myapp-green.service")
+      commands.should contain("systemctl --user start myapp-web.service")
       commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
     end
 
@@ -1703,8 +1713,62 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.deploy
 
       worker_commands = remote_commands_for(runner, "192.168.1.12")
-      worker_commands.should contain("systemctl --user start myapp-green.service")
+      worker_commands.should contain("systemctl --user start myapp-workers.service")
       worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
+    end
+
+    it "keeps non-proxied workers out of blue/green runtime state" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      commands = remote_commands_for(runner, "192.168.1.12")
+      commands.should contain("cat > .config/containers/systemd/myapp-workers.container")
+      commands.should contain("systemctl --user start myapp-workers.service")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/active-color")
+      commands.should_not contain("cat > .config/containers/systemd/.meridian-color")
+      commands.should_not contain("cat .local/state/meridian/services/myapp/release-state.json")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/release-state.json")
+    end
+
+    it "cleans legacy color Quadlets on a host with no proxied role" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      cleanup = remote_commands_for(runner, "192.168.1.12").find(&.includes?("for entry in"))
+      value!(cleanup).should contain("myapp-blue.container:myapp-blue.service")
+      value!(cleanup).should contain("myapp-green.container:myapp-green.service")
+    end
+
+    it "preserves color Quadlets when a non-proxied role shares a proxied host" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+            workers:
+              hosts:
+                - 192.168.1.10
+              cmd: bin/sidekiq
+          YAML
+        runner: runner
+      )
+
+      orchestrator.deploy_to_host("192.168.1.10", "workers")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.any?(&.includes?("for entry in")).should be_false
+      commands.should contain("systemctl --user start myapp-workers.service")
     end
 
     it "limits deployment to the selected role and skips others" do

@@ -18,15 +18,23 @@ module Meridian
       end
 
       def container_file(server : Config::ServerConfig, color : Color) : String
+        app_container_file(server, color.slug)
+      end
+
+      def role_container_file(role : String, server : Config::ServerConfig) : String
+        app_container_file(server, role)
+      end
+
+      private def app_container_file(server : Config::ServerConfig, suffix : String) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
         secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
         networks = [@config.service]
         networks << Runtime::Paths::SHARED_PROXY_NETWORK if server.proxy
 
         ContainerTemplate.new(
-          service: @config.service,
+          name: "#{@config.service}-#{suffix}",
+          description: "#{@config.service} (#{suffix})",
           image: server.image || @config.image,
-          color: color,
           networks: networks,
           environment: environment,
           secrets: secrets,
@@ -138,14 +146,23 @@ module Meridian
       end
 
       def write_to_directory(output_dir : String, color : Color) : Nil
-        web_server = @config.servers["web"]? || raise Config::UnknownRole.new("Unknown role: web")
-
         Dir.mkdir_p(output_dir)
 
-        File.write(
-          File.join(output_dir, "#{@config.service}-#{color.slug}.container"),
-          container_file(web_server, color)
-        )
+        @config.servers.each do |role, server|
+          next unless server.managed?
+
+          if server.proxy
+            File.write(
+              File.join(output_dir, "#{@config.service}-#{color.slug}.container"),
+              container_file(server, color)
+            )
+          else
+            File.write(
+              File.join(output_dir, "#{@config.service}-#{role}.container"),
+              role_container_file(role, server)
+            )
+          end
+        end
         File.write(File.join(output_dir, "#{@config.service}.network"), network_file)
 
         if proxied_service?
@@ -192,9 +209,9 @@ module Meridian
 
       private class ContainerTemplate
         def initialize(
-          @service : String,
+          @name : String,
+          @description : String,
           @image : String,
-          @color : Color,
           @networks : Array(String),
           @environment : Hash(String, String),
           @secrets : Array(String),

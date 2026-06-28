@@ -26,6 +26,14 @@ module Meridian
         "#{service_name(color)}.service"
       end
 
+      protected def role_service_name(role : String) : String
+        "#{@config.service}-#{role}"
+      end
+
+      protected def role_service_unit(role : String) : String
+        "#{role_service_name(role)}.service"
+      end
+
       protected def inactive_color(color : Quadlet::Color) : Quadlet::Color
         case color
         in .blue?

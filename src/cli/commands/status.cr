@@ -10,7 +10,7 @@ module Meridian
         end
 
         def summary : String
-          "Show blue/green service state"
+          "Show deployed service state"
         end
 
         def usage : String
@@ -18,7 +18,7 @@ module Meridian
         end
 
         def description : String
-          "Show blue/green service state for the configured hosts."
+          "Show deployed service state for the configured hosts."
         end
 
         def configure(parser : OptionParser) : Nil

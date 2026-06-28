@@ -180,15 +180,21 @@ module Meridian
       private def self.generated_files_for(config : Config::DeployConfig) : Array(String)
         files = [
           File.join(Quadlet::DIRECTORY, "#{config.service}.network"),
-          Paths.active_color_file(config.service),
           Paths.manifest_file(config.service),
         ]
+        if config.servers.values.any? { |server| server.managed? && server.proxy }
+          files << Paths.active_color_file(config.service)
+        end
 
-        config.servers.each_value do |server|
+        config.servers.each do |role, server|
           next unless server.managed?
 
-          files << File.join(Quadlet::DIRECTORY, "#{config.service}-blue.container")
-          files << File.join(Quadlet::DIRECTORY, "#{config.service}-green.container")
+          if server.proxy
+            files << File.join(Quadlet::DIRECTORY, "#{config.service}-blue.container")
+            files << File.join(Quadlet::DIRECTORY, "#{config.service}-green.container")
+          else
+            files << File.join(Quadlet::DIRECTORY, "#{config.service}-#{role}.container")
+          end
         end
 
         if config.assets

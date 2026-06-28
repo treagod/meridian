@@ -158,6 +158,15 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("ContainerName=myapp-blue")
     end
 
+    it "sets a non-proxied container name from its role" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).role_container_file("workers", config.servers["workers"])
+
+      output.should contain("Description=myapp (workers)")
+      output.should contain("ContainerName=myapp-workers")
+      output.should_not contain("Network=meridian-proxy.network")
+    end
+
     it "includes clear environment variables" do
       config = load_config(FULL_CONFIG)
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
@@ -707,7 +716,54 @@ describe "Meridian::Quadlet::Generator" do
         build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
 
         File.exists?(File.join(path, "myapp-green.container")).should be_true
+        File.exists?(File.join(path, "myapp-workers.container")).should be_true
+        File.read(File.join(path, "myapp-workers.container")).should contain("ContainerName=myapp-workers")
       end
+    end
+
+    it "previews a role-named file when the web role is not proxied" do
+      generator = build_quadlet_generator(<<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+        YAML
+
+      with_tempdir do |path|
+        generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        File.exists?(File.join(path, "myapp-web.container")).should be_true
+        File.exists?(File.join(path, "myapp-green.container")).should be_false
+      end
+    end
+
+    it "reports role-named and color Quadlets in the service manifest" do
+      manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(FULL_CONFIG))
+
+      manifest.generated_files.should contain(".config/containers/systemd/myapp-blue.container")
+      manifest.generated_files.should contain(".config/containers/systemd/myapp-green.container")
+      manifest.generated_files.should contain(".config/containers/systemd/myapp-workers.container")
+    end
+
+    it "does not report active-color or color Quadlets for a non-proxied service" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          workers:
+            hosts:
+              - 192.168.1.12
+        YAML
+      manifest = Meridian::Runtime::ServiceManifest.from_config(config)
+
+      manifest.generated_files.should contain(".config/containers/systemd/myapp-workers.container")
+      manifest.generated_files.should_not contain(".config/containers/systemd/myapp-blue.container")
+      manifest.generated_files.should_not contain(".config/containers/systemd/myapp-green.container")
+      manifest.generated_files.should_not contain(".local/state/meridian/services/myapp/active-color")
     end
 
     it "creates a .network file in the output directory" do

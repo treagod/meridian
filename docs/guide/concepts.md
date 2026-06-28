@@ -37,8 +37,8 @@ lock -> verify service network -> transfer image -> upload Quadlets/files/assets
 12. Run `kamal-proxy deploy` to atomically switch traffic to the new color.
 13. Run remote `after_switch` hooks.
 14. Stop the old color and remove its inactive Quadlet file.
-14. Record `active-color`, `release-state.json`, and `manifest.json`.
-15. Run remote `after_deploy` hooks and release the deploy lock.
+15. Record `active-color`, `release-state.json`, and `manifest.json`.
+16. Run remote `after_deploy` hooks and release the deploy lock.
 
 For field-level details, see [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness),
@@ -56,6 +56,7 @@ through systemd.
   my-app.network
   my-app-blue.container
   my-app-green.container
+  my-app-workers.container
   my-app-postgres.container
   my-app-assets.volume
   my-app-assets-builder.container
@@ -67,7 +68,8 @@ through systemd.
 | File | Purpose |
 | --- | --- |
 | `<service>.network` | Private Podman network for one app and its accessories. |
-| `<service>-<color>.container` | Blue or green app container for a managed role. |
+| `<service>-<color>.container` | Blue or green app container for a proxied managed role. |
+| `<service>-<role>.container` | Stable restart-in-place container for a non-proxied managed role. |
 | `<accessory>.container` | Standalone accessory service such as Postgres or Redis. |
 | `<service>-assets-*` | Asset volume, builder, and static-server units when `assets:` is configured. |
 | `kamal-proxy.container` | Shared host-level proxy container. |
@@ -113,13 +115,16 @@ Meridian stores runtime state per service, not globally:
 
 | File | Purpose | Read by | Written by |
 | --- | --- | --- | --- |
-| `active-color` | Current proxied color, `blue` or `green`. | `status`, `logs`, `exec`, `rollback` | `deploy`, `rollback` |
+| `active-color` | Current proxied color, `blue` or `green`. | `status`, `exec`, `rollback` | proxied `deploy`, `rollback` |
 | `manifest.json` | Ownership manifest for proxy routes, assets, ports, accessories, generated files, and state paths. | `check`, `proxy remove` | `deploy` |
-| `release-state.json` | Current and previous rollback-safe releases. | `status`, `rollback` | `deploy`, `rollback` |
+| `release-state.json` | Current and previous rollback-safe proxied releases. | `status`, `rollback` | proxied `deploy`, `rollback` |
 | `lock/meta.json` | Deploy lock holder, timestamp, and optional message. | `lock status`, `deploy` | `deploy`, `lock acquire`, `lock release` |
 | `audit.log` | Line-oriented history of deploy, rollback, proxy, accessory, and lock operations. | `audit` | mutating commands |
 
 This layout lets multiple Meridian services share a host without sharing state.
+Non-proxied managed roles still contribute their role-named Quadlet to
+`manifest.json` ownership, but do not read or write `active-color` or
+`release-state.json`.
 
 ## Same-Host Multi-App Topology
 
@@ -166,3 +171,16 @@ keeps the previous rollback-safe release. `meridian rollback` reads
 `release-state.json`, starts the previous color if needed, runs kamal-proxy in
 reverse, rewrites `active-color`, swaps current/previous release metadata, and
 records an audit entry.
+
+## Non-Proxied Managed Roles
+
+A managed role without `proxy:` has one stable unit named
+`<service>-<role>.service`. Deploy uploads the matching
+`<service>-<role>.container` and restarts it in place, so a short interruption
+is expected. `status`, `logs`, and `exec` target that role unit directly instead
+of consulting active-colour state.
+
+On the first role-named deploy to a host that has no configured proxied managed
+role, Meridian stops and removes legacy `<service>-blue` and
+`<service>-green` Quadlets if they exist. It skips that cleanup when the same
+host still owns a proxied role, protecting the live blue/green units.

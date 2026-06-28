@@ -5,34 +5,28 @@ module Meridian
         role : String,
         host : String,
         release : String,
-        blue : String,
-        green : String
+        deployment : String,
+        state : String
 
       def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
         pairs = role_host_pairs(targets)
 
         rows = pairs.sort_by { |role, host| {role, host} }.map do |role, host|
-          Row.new(
-            role: role,
-            host: host,
-            release: release_label(host),
-            blue: service_state(host, Quadlet::Color::Blue),
-            green: service_state(host, Quadlet::Color::Green)
-          )
+          status_row(role, host)
         end
 
         role_width = Math.max("role".size, rows.max_of?(&.role.size) || 0)
         host_width = Math.max("host".size, rows.max_of?(&.host.size) || 0)
         release_width = Math.max("release".size, rows.max_of?(&.release.size) || 0)
-        blue_width = Math.max("blue".size, rows.max_of?(&.blue.size) || 0)
-        green_width = Math.max("green".size, rows.max_of?(&.green.size) || 0)
+        deployment_width = Math.max("deployment".size, rows.max_of?(&.deployment.size) || 0)
+        state_width = Math.max("state".size, rows.max_of?(&.state.size) || 0)
 
         @output.puts [
           pad("role", role_width),
           pad("host", host_width),
           pad("release", release_width),
-          pad("blue", blue_width),
-          pad("green", green_width),
+          pad("deployment", deployment_width),
+          pad("state", state_width),
         ].join("  ")
 
         rows.each do |row|
@@ -40,8 +34,8 @@ module Meridian
             pad(row.role, role_width),
             pad(row.host, host_width),
             pad(row.release, release_width),
-            pad(row.blue, blue_width),
-            pad(row.green, green_width),
+            pad(row.deployment, deployment_width),
+            pad(row.state, state_width),
           ].join("  ")
         end
       rescue ex : Config::UnknownRole | ArgumentError
@@ -58,10 +52,47 @@ module Meridian
         read_release_state(host).try(&.current.release_id) || "-"
       end
 
-      private def service_state(host : String, color : Quadlet::Color) : String
+      private def status_row(role : String, host : String) : Row
+        server = server_config(role)
+
+        unless server.managed?
+          return Row.new(
+            role: role,
+            host: host,
+            release: "-",
+            deployment: "existing",
+            state: unit_states(host, server.units)
+          )
+        end
+
+        if server.proxy
+          Row.new(
+            role: role,
+            host: host,
+            release: release_label(host),
+            deployment: "blue/green",
+            state: "blue=#{unit_state(host, service_unit(Quadlet::Color::Blue))},green=#{unit_state(host, service_unit(Quadlet::Color::Green))}"
+          )
+        else
+          unit = role_service_unit(role)
+          Row.new(
+            role: role,
+            host: host,
+            release: "-",
+            deployment: unit,
+            state: unit_state(host, unit)
+          )
+        end
+      end
+
+      private def unit_states(host : String, units : Array(String)) : String
+        units.map { |unit| "#{unit}=#{unit_state(host, unit)}" }.join(",")
+      end
+
+      private def unit_state(host : String, unit : String) : String
         result = run_ssh(
           host,
-          ["systemctl", "--user", "status", service_unit(color), "--no-pager", "--lines", "0"]
+          ["systemctl", "--user", "status", unit, "--no-pager", "--lines", "0"]
         )
         summarize_state(result)
       rescue ex : SSH::ConnectionError

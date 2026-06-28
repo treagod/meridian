@@ -221,9 +221,10 @@ Usage: meridian deploy [options]
 
 Side effects: acquires the remote deploy lock; verifies the setup-created
 service network; runs hooks; transfers images; uploads app Quadlets, files, and
-asset units; starts new units; switches kamal-proxy for proxied roles; stops old
-units; writes `active-color`, `release-state.json`, and `manifest.json`; appends
-audit entries; releases the lock in an `ensure` block.
+asset units; starts new units; switches kamal-proxy and writes `active-color`
+plus `release-state.json` for proxied managed roles; restarts stable
+`<service>-<role>` units without proxy state for other managed roles; writes
+`manifest.json`; appends audit entries; releases the lock in an `ensure` block.
 
 Exit codes: `0` when the selected rollout completes; non-zero on config,
 registry validation, missing setup-created service network, image transfer,
@@ -285,7 +286,7 @@ previous color cannot be started or reached. Relevant fields:
 
 ## `status` {#status}
 
-Purpose: show blue/green service state and active release IDs.
+Purpose: show the deployed service state for every selected role.
 
 ```bash
 Usage: meridian status [options]
@@ -299,8 +300,10 @@ Usage: meridian status [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: none. It reads user systemd state and service-scoped
-`release-state.json` when present.
+Side effects: none. It reads user systemd state and, for proxied roles,
+service-scoped `release-state.json` when present. Output columns are `role`,
+`host`, `release`, `deployment`, and `state`. Non-proxied managed roles report
+their stable role unit; unmanaged roles summarize their configured units.
 
 Exit codes: `0` when status is printed; non-zero on selector, config, or SSH
 failure.
@@ -333,8 +336,10 @@ Usage: meridian logs [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: none. This command is follow-only; it does not support `--lines`
-or `--no-follow`.
+Side effects: none. Proxied roles select both colour units, non-proxied managed
+roles select `<service>-<role>.service`, and unmanaged roles select their
+configured units. This command is follow-only; it does not support `--lines` or
+`--no-follow`.
 
 Exit codes: returns the remote `journalctl` stream exit code; non-zero on
 selector, config, SSH, or journalctl failure.
@@ -364,8 +369,11 @@ Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: no Meridian state changes. The command you run inside the
-container may mutate application data.
+Side effects: no Meridian state changes. Proxied roles resolve their active
+colour; non-proxied managed roles directly target `<service>-<role>`. Unmanaged
+roles are rejected because arbitrary configured systemd units do not identify
+one container name. The command you run inside the container may mutate
+application data.
 
 Exit codes: returns the streamed remote command exit code; non-zero on missing
 role, invalid host, missing active container, SSH, or command failure.

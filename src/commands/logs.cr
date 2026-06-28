@@ -43,12 +43,20 @@ module Meridian
         end
       end
 
-      def run(hosts : Array(String)) : Int32
-        raise ArgumentError.new("No hosts to stream") if hosts.empty?
-        return stream_ssh(hosts.first, journalctl_command) if hosts.size == 1
+      def run(targets : Array(CLI::TargetSelector::Target)) : Int32
+        raise ArgumentError.new("No targets to stream") if targets.empty?
 
-        unique_hosts = hosts.uniq
-        unique_hosts.sort!
+        units_by_host = targets.each_with_object(Hash(String, Array(String)).new { |hash, key| hash[key] = [] of String }) do |target, acc|
+          acc[target.host].concat(units_for_role(target.role))
+        end
+        units_by_host.each_value(&.uniq!)
+
+        if units_by_host.size == 1
+          host, units = units_by_host.first
+          return stream_ssh(host, journalctl_command(units))
+        end
+
+        unique_hosts = units_by_host.keys.sort!
         results = Channel(StreamResult).new(unique_hosts.size)
         mutex = Mutex.new
 
@@ -57,7 +65,7 @@ module Meridian
             begin
               exit_code = stream_ssh(
                 stream_host,
-                journalctl_command,
+                journalctl_command(units_by_host[stream_host]),
                 output: PrefixedIO.new(@output, "[#{stream_host}] ", mutex),
                 error: PrefixedIO.new(@error, "[#{stream_host}] ", mutex)
               )
@@ -84,17 +92,30 @@ module Meridian
         first_failure
       end
 
-      private def journalctl_command : Array(String)
-        [
+      private def units_for_role(role : String) : Array(String)
+        server = server_config(role)
+        return server.units unless server.managed?
+
+        if server.proxy
+          [
+            service_unit(Quadlet::Color::Blue),
+            service_unit(Quadlet::Color::Green),
+          ]
+        else
+          [role_service_unit(role)]
+        end
+      end
+
+      private def journalctl_command(units : Array(String)) : Array(String)
+        command = [
           "journalctl",
           "--user",
-          "-u",
-          service_unit(Quadlet::Color::Blue),
-          "-u",
-          service_unit(Quadlet::Color::Green),
-          "-f",
-          "--no-pager",
         ]
+        units.each do |unit|
+          command << "-u"
+          command << unit
+        end
+        command.concat(["-f", "--no-pager"])
       end
     end
   end

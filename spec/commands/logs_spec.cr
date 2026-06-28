@@ -11,13 +11,17 @@ def build_logs_command(
   Meridian::Commands::Logs.new(config, ssh_executor: executor, output: output, error: output)
 end
 
+def logs_target(role : String, host : String) : Meridian::CLI::TargetSelector::Target
+  Meridian::CLI::TargetSelector::Target.new(role: role, host: host)
+end
+
 describe "Meridian::Commands::Logs" do
   describe "#run" do
     it "runs journalctl on the specified host" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      exit_code = command.run(["192.168.1.10"])
+      exit_code = command.run([logs_target("web", "192.168.1.10")])
 
       exit_code.should eq(0)
       streaming_runner.invocations.map(&.host).should eq(["192.168.1.10"])
@@ -27,7 +31,7 @@ describe "Meridian::Commands::Logs" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      command.run(["192.168.1.10"])
+      command.run([logs_target("web", "192.168.1.10")])
 
       invocation = streaming_runner.invocations.last
       remote_command = value!(invocation.remote_command)
@@ -40,7 +44,7 @@ describe "Meridian::Commands::Logs" do
       streaming_runner = FakeSSHStreamingRunner.new
       command = build_logs_command(streaming_runner: streaming_runner)
 
-      command.run(["192.168.1.10"])
+      command.run([logs_target("web", "192.168.1.10")])
 
       invocation = streaming_runner.invocations.last
       remote_command = value!(invocation.remote_command)
@@ -56,7 +60,11 @@ describe "Meridian::Commands::Logs" do
       streaming_runner.enqueue_results_for_host("192.168.1.11", FakeSSHStreamResult.new(exit_code: 0, stdout: "green\n"))
       streaming_runner.enqueue_results_for_host("192.168.1.12", FakeSSHStreamResult.new(exit_code: 0, stdout: "worker\n"))
 
-      exit_code = command.run(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
+      exit_code = command.run([
+        logs_target("web", "192.168.1.10"),
+        logs_target("web", "192.168.1.11"),
+        logs_target("workers", "192.168.1.12"),
+      ])
 
       exit_code.should eq(0)
       output.to_s.should contain("[192.168.1.10] blue")
@@ -67,9 +75,21 @@ describe "Meridian::Commands::Logs" do
     it "raises when given an empty host list" do
       command = build_logs_command
 
-      expect_raises(ArgumentError, /No hosts to stream/) do
-        command.run([] of String)
+      expect_raises(ArgumentError, /No targets to stream/) do
+        command.run([] of Meridian::CLI::TargetSelector::Target)
       end
+    end
+
+    it "uses the role-named unit for a non-proxied role" do
+      streaming_runner = FakeSSHStreamingRunner.new
+      command = build_logs_command(streaming_runner: streaming_runner)
+
+      command.run([logs_target("workers", "192.168.1.12")])
+
+      remote_command = value!(streaming_runner.invocations.last.remote_command)
+      remote_command.should contain("-u myapp-workers.service")
+      remote_command.should_not contain("myapp-blue.service")
+      remote_command.should_not contain("myapp-green.service")
     end
   end
 end

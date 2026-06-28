@@ -1,5 +1,5 @@
 [Unit]
-Description=<%= @service %> (<%= @color.slug %>)
+Description=<%= @description %>
 <% unless @accessory_units.empty? %>
 Wants=<%= @accessory_units.join(" ") %>
 After=<%= @accessory_units.join(" ") %>
@@ -7,7 +7,7 @@ After=<%= @accessory_units.join(" ") %>
 
 [Container]
 Image=<%= @image %>
-ContainerName=<%= @service %>-<%= @color.slug %>
+ContainerName=<%= @name %>
 <% @networks.each do |network| %>
 Network=<%= network %>.network
 <% end %>

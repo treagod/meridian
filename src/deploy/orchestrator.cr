@@ -104,17 +104,15 @@ module Meridian
       def deploy_to_host(
         host : String,
         role : String,
-        color : Quadlet::Color = DEFAULT_COLOR,
       ) : Nil
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
         require_service_network!(host, "meridian deploy")
 
-        deployed_service_name = service_name(color)
-        service_unit = service_unit(color)
-        container_file = @quadlet_generator.container_file(server, color)
+        deployed_service_name = role_service_name(role)
+        service_unit = role_service_unit(role)
+        container_file = @quadlet_generator.role_container_file(role, server)
         image = server.image || @config.image
-        release_id = generate_release_id
 
         run_remote_hooks(host, role, "before_transfer")
         transfer_image_to_host(host, image)
@@ -124,13 +122,10 @@ module Meridian
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
         ensure_service_state_dir(host)
 
-        if server.proxy
-          log(host, "Uploading shared proxy network Quadlet")
-          upload_proxy_network_quadlet(host)
-        end
-
         log(host, "Uploading service Quadlet")
-        upload_ssh(host, container_path(color), container_file)
+        upload_ssh(host, role_container_path(role), container_file)
+
+        cleanup_legacy_color_units(host) unless proxied_role_on_host?(host)
 
         upload_file_syncs(host, role)
         run_remote_hooks(host, role, "after_upload")
@@ -151,8 +146,6 @@ module Meridian
         log(host, "Starting service #{deployed_service_name}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit])
         run_remote_hooks(host, role, "after_start")
-        record_active_color(host, color)
-        record_release(host, role, color, image, release_id)
         record_service_manifest(host)
         run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError
@@ -363,8 +356,20 @@ module Meridian
         "#{service_name(color)}.service"
       end
 
+      private def role_service_name(role : String) : String
+        "#{@config.service}-#{role}"
+      end
+
+      private def role_service_unit(role : String) : String
+        "#{role_service_name(role)}.service"
+      end
+
       private def container_path(color : Quadlet::Color) : String
         File.join(Quadlet::DIRECTORY, "#{service_name(color)}.container")
+      end
+
+      private def role_container_path(role : String) : String
+        File.join(Quadlet::DIRECTORY, "#{role_service_name(role)}.container")
       end
 
       private def proxy_network_path : String
@@ -589,6 +594,32 @@ module Meridian
         run_ssh(host, ["systemctl", "--user", "daemon-reload"])
       rescue ex : SSH::ConnectionError
         log(host, "Cleanup failed: #{ex.message || ex.class.name}")
+      end
+
+      private def proxied_role_on_host?(host : String) : Bool
+        @config.servers.any? do |_role, server|
+          server.managed? && !server.proxy.nil? && server.hosts.includes?(host)
+        end
+      end
+
+      private def cleanup_legacy_color_units(host : String) : Nil
+        blue_path = container_path(Quadlet::Color::Blue)
+        green_path = container_path(Quadlet::Color::Green)
+        blue_unit = service_unit(Quadlet::Color::Blue)
+        green_unit = service_unit(Quadlet::Color::Green)
+        command = <<-SH
+          for entry in #{Process.quote_posix("#{blue_path}:#{blue_unit}")} #{Process.quote_posix("#{green_path}:#{green_unit}")}; do
+            file=${entry%%:*}
+            unit=${entry#*:}
+            if test -f "$file"; then
+              systemctl --user stop "$unit"
+              rm -f "$file"
+            fi
+          done
+          SH
+
+        log(host, "Cleaning up legacy color Quadlets")
+        run_ssh!(host, ["sh", "-lc", command])
       end
 
       private def log(host : String, message : String) : Nil

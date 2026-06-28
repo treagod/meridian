@@ -4,11 +4,21 @@ module Meridian
       def run(role : String, command : Array(String), host : String? = nil) : Int32
         role_hosts = hosts_for_role(role)
         target_host = resolve_host(role, role_hosts, host)
-        color = running_color_for(target_host)
+        server = server_config(role)
+        unless server.managed?
+          raise ArgumentError.new("exec is not supported for unmanaged role: #{role}")
+        end
+
+        container_name =
+          if server.proxy
+            service_name(running_color_for(target_host))
+          else
+            role_service_name(role)
+          end
 
         stream_ssh(
           target_host,
-          ["podman", "exec", "-i", service_name(color)] + command
+          ["podman", "exec", "-i", container_name] + command
         )
       end
 
