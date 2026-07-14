@@ -34,20 +34,29 @@ provision:
       KbdInteractiveAuthentication yes
       EOF
 
+      # The removal service must never own a long-running process: apt-triggered
+      # needrestart restarts flagged units synchronously during bootstrap, and a
+      # blocking oneshot deadlocks the whole run. A path unit waits instead.
       cat >/etc/systemd/system/meridian-e2e-remove-root-password-ssh.service <<'EOF'
       [Unit]
       Description=Remove temporary Meridian E2E root password SSH access
-      After=ssh.service
 
       [Service]
       Type=oneshot
-      ExecStart=/bin/bash -c 'until test -s /home/deploy/.ssh/authorized_keys; do sleep 1; done; rm -f /etc/ssh/sshd_config.d/00-meridian-e2e.conf; systemctl reload ssh'
+      ExecStart=/bin/bash -c 'rm -f /etc/ssh/sshd_config.d/00-meridian-e2e.conf; systemctl reload ssh'
+      EOF
+
+      cat >/etc/systemd/system/meridian-e2e-remove-root-password-ssh.path <<'EOF'
+      [Unit]
+      Description=Watch for the Meridian E2E deploy key to remove root password SSH access
+
+      [Path]
+      PathExists=/home/deploy/.ssh/authorized_keys
 
       [Install]
       WantedBy=multi-user.target
       EOF
 
       systemctl daemon-reload
-      systemctl enable meridian-e2e-remove-root-password-ssh.service
-      systemctl start --no-block meridian-e2e-remove-root-password-ssh.service
+      systemctl enable --now meridian-e2e-remove-root-password-ssh.path
       systemctl restart ssh

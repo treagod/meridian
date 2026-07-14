@@ -1,6 +1,7 @@
 # Rails + Postgres
 
-Status: draft example awaiting maintainer verification.
+Status: verified example; deployed end-to-end on a fresh Ubuntu 24.04 host by
+`make e2e-rails-postgres`.
 
 Classic [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/)
 deployment without Docker on the server. The target host runs rootless Podman
@@ -89,7 +90,7 @@ at the same host as `assets.host`.
 FROM ruby:3.3-alpine AS build
 
 WORKDIR /app
-RUN apk add --no-cache build-base git libpq-dev nodejs yarn
+RUN apk add --no-cache build-base git libpq-dev tzdata nodejs yarn
 
 COPY Gemfile Gemfile.lock ./
 RUN bundle config set without development test
@@ -99,7 +100,14 @@ COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
 
 COPY . .
-RUN SECRET_KEY_BASE_DUMMY=1 RAILS_ENV=production bundle exec rails assets:precompile
+RUN SECRET_KEY_BASE_DUMMY=1 \
+    RAILS_ENV=production \
+    MY_APP_SECRET_KEY_BASE=build-only-secret \
+    MY_APP_DATABASE_HOST=localhost \
+    MY_APP_DATABASE_NAME=build \
+    MY_APP_DATABASE_USER=build \
+    MY_APP_DATABASE_PASSWORD=build \
+    bundle exec rails assets:precompile
 
 FROM ruby:3.3-alpine
 
@@ -114,6 +122,12 @@ EXPOSE 3000
 
 CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
 ```
+
+Two details matter on `ruby:*-alpine`: the build stage needs `tzdata` (Rails
+boots during `assets:precompile` and TZInfo requires a zoneinfo directory), and
+the strict `ENV.fetch` calls in `database.yml` and `production.rb` below need
+the build-only placeholder values shown above, because precompiling eagerly
+loads the application without a database.
 
 ## Rails Production Snippets
 

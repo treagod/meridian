@@ -1,0 +1,8 @@
+body {
+  color: #0f172a;
+  font-family: sans-serif;
+}
+
+.marker::before {
+  content: "meridian-e2e-marker";
+}
