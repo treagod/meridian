@@ -11,11 +11,13 @@ case "$RECIPE" in
     IMAGE="localhost/meridian-e2e-marten:latest"
     APP_HOST="e2e-app.test"
     ASSET_HOST="e2e-assets.test"
+    ASSET_HREF_PATTERN="css\\/app"
     HEALTH_PATH="/health"
+    HEALTH_BODY_PATTERN="^ok$"
     DATA_STORE_LABEL="SQLite"
     SUCCESS_LABEL="Marten SQLite recipe E2E"
     ACCESSORIES=()
-    EXTRA_SECRETS=()
+    SECRETS=("MARTEN_SECRET_KEY=e2e-secret-key-that-is-long-enough-for-marten")
     ;;
   marten-postgres-dragonfly-assets)
     SERVICE="meridian-e2e-marten-pg"
@@ -24,14 +26,38 @@ case "$RECIPE" in
     IMAGE="localhost/meridian-e2e-marten-pg:latest"
     APP_HOST="e2e-pg-app.test"
     ASSET_HOST="e2e-pg-assets.test"
+    ASSET_HREF_PATTERN="css\\/app"
     HEALTH_PATH="/healthz"
+    HEALTH_BODY_PATTERN="^ok$"
     DATA_STORE_LABEL="Postgres"
     SUCCESS_LABEL="Marten Postgres Dragonfly recipe E2E"
     ACCESSORIES=("${SERVICE}-postgres" "${SERVICE}-dragonfly")
-    EXTRA_SECRETS=("MY_APP_DATABASE_PASSWORD=e2e-postgres-password")
+    SECRETS=(
+      "MARTEN_SECRET_KEY=e2e-secret-key-that-is-long-enough-for-marten"
+      "MY_APP_DATABASE_PASSWORD=e2e-postgres-password"
+    )
+    ;;
+  rails-postgres)
+    SERVICE="meridian-e2e-rails"
+    FIXTURE_NAME="rails-postgres"
+    VM_SUFFIX="rails"
+    IMAGE="localhost/meridian-e2e-rails:latest"
+    APP_HOST="e2e-rails-app.test"
+    # The Rails recipe serves precompiled assets from the app container.
+    ASSET_HOST=""
+    ASSET_HREF_PATTERN="assets\\/app"
+    HEALTH_PATH="/up"
+    HEALTH_BODY_PATTERN="background-color: green"
+    DATA_STORE_LABEL="Postgres"
+    SUCCESS_LABEL="Rails Postgres recipe E2E"
+    ACCESSORIES=("${SERVICE}-postgres")
+    SECRETS=(
+      "MY_APP_SECRET_KEY_BASE=e2e-secret-key-base-that-is-long-enough"
+      "MY_APP_DATABASE_PASSWORD=e2e-postgres-password"
+    )
     ;;
   *)
-    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets" >&2
+    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets|rails-postgres" >&2
   exit 64
     ;;
 esac
@@ -110,6 +136,24 @@ wait_for_accessory_ready() {
       ssh_deploy "podman run --rm --network='$SERVICE' docker.io/library/alpine:3.21 sh -c 'for i in \$(seq 1 60); do nc -z \"$accessory\" 6379 && exit 0; sleep 1; done; exit 1'"
       ;;
   esac
+}
+
+# Removing the old colour's container right after the proxy switch can stall
+# the rootless Podman network for a few seconds (aardvark-dns re-syncs), so the
+# first request after a redeploy gets a bounded retry window before the strict
+# single-shot assertions run.
+wait_for_app_health() {
+  for _ in $(seq 1 10); do
+    if curl --fail --silent --max-time 15 \
+      --resolve "$APP_HOST:80:$VM_IP" \
+      "http://$APP_HOST$HEALTH_PATH" | grep -q "$HEALTH_BODY_PATTERN"; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Application health check never passed at http://$APP_HOST$HEALTH_PATH" >&2
+  return 1
 }
 
 collect_diagnostics() {
@@ -225,24 +269,16 @@ set result [wait]
 exit [lindex \$result 3]
 EOF
 
-log_step "Creating runtime secret"
-run_logged secret \
-  env PATH="$WRAPPER_DIR:$PATH" \
-  "$MERIDIAN_BIN" secret set MARTEN_SECRET_KEY \
-  --value "e2e-secret-key-that-is-long-enough-for-marten" \
-  --config "$APP_DIR/.meridian/deploy.yml"
-
-if ((${#EXTRA_SECRETS[@]} > 0)); then
-  for secret_pair in "${EXTRA_SECRETS[@]}"; do
-    secret_name="${secret_pair%%=*}"
-    secret_value="${secret_pair#*=}"
-    run_logged "secret-${secret_name}" \
-      env PATH="$WRAPPER_DIR:$PATH" \
-      "$MERIDIAN_BIN" secret set "$secret_name" \
-      --value "$secret_value" \
-      --config "$APP_DIR/.meridian/deploy.yml"
-  done
-fi
+for secret_pair in "${SECRETS[@]}"; do
+  secret_name="${secret_pair%%=*}"
+  secret_value="${secret_pair#*=}"
+  log_step "Creating runtime secret $secret_name"
+  run_logged "secret-${secret_name}" \
+    env PATH="$WRAPPER_DIR:$PATH" \
+    "$MERIDIAN_BIN" secret set "$secret_name" \
+    --value "$secret_value" \
+    --config "$APP_DIR/.meridian/deploy.yml"
+done
 
 log_step "Installing the shared proxy"
 run_logged setup \
@@ -288,18 +324,19 @@ HOME_HTML="$(
 grep -q "Meridian recipe E2E" <<<"$HOME_HTML"
 
 ASSET_URL="$(
-  sed -n 's/.*href="\([^"]*css\/app[^"]*\.css\)".*/\1/p' <<<"$HOME_HTML" | head -n 1
+  sed -n "s/.*href=\"\([^\"]*${ASSET_HREF_PATTERN}[^\"]*\.css\)\".*/\1/p" <<<"$HOME_HTML" | head -n 1
 )"
 if [[ -z "$ASSET_URL" ]]; then
   echo "Application HTML did not contain a fingerprinted CSS URL" >&2
   exit 71
 fi
 
-ASSET_PATH="${ASSET_URL#http://$ASSET_HOST}"
+ASSET_FETCH_HOST="${ASSET_HOST:-$APP_HOST}"
+ASSET_PATH="${ASSET_URL#http://$ASSET_FETCH_HOST}"
 ASSET_BODY="$(
   curl --fail --silent --show-error \
-    --resolve "$ASSET_HOST:80:$VM_IP" \
-    "http://$ASSET_HOST$ASSET_PATH"
+    --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
+    "http://$ASSET_FETCH_HOST$ASSET_PATH"
 )"
 grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
 
@@ -332,9 +369,7 @@ if [[ "$FIRST_COLOR" == "$SECOND_COLOR" ]]; then
 fi
 
 log_step "Verifying health, persistence, and assets after redeploy"
-curl --fail --silent --show-error \
-  --resolve "$APP_HOST:80:$VM_IP" \
-  "http://$APP_HOST$HEALTH_PATH" | grep -q "^ok$"
+run_logged health-after-redeploy wait_for_app_health
 
 curl --fail --silent --show-error \
   --resolve "$APP_HOST:80:$VM_IP" \
@@ -347,8 +382,8 @@ if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
 fi
 
 curl --fail --silent --show-error \
-  --resolve "$ASSET_HOST:80:$VM_IP" \
-  "http://$ASSET_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+  --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
+  "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
 
 echo
 echo "$SUCCESS_LABEL passed: $FIRST_COLOR -> $SECOND_COLOR"

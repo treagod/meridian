@@ -1,0 +1,65 @@
+service: meridian-e2e-rails
+image: localhost/meridian-e2e-rails:latest
+
+servers:
+  web:
+    hosts:
+      - __HOST__
+    proxy:
+      host: e2e-rails-app.test
+      ssl: false
+      app_port: 3000
+      healthcheck:
+        path: /up
+        interval: 1
+        timeout: 5
+        retries: 30
+
+env:
+  clear:
+    RAILS_ENV: production
+    RAILS_LOG_TO_STDOUT: "true"
+    MY_APP_DATABASE_HOST: meridian-e2e-rails-postgres
+    MY_APP_DATABASE_NAME: meridian_e2e
+    MY_APP_DATABASE_USER: meridian_e2e
+  secret:
+    - MY_APP_SECRET_KEY_BASE
+    - MY_APP_DATABASE_PASSWORD
+
+ssh:
+  user: deploy
+  keys:
+    - __SSH_KEY__
+
+transfer:
+  mode: stream
+
+accessories:
+  meridian-e2e-rails-postgres:
+    image: docker.io/library/postgres:18-alpine
+    host: __HOST__
+    network: meridian-e2e-rails.network
+    volumes:
+      - meridian-e2e-rails-pgdata:/var/lib/postgresql
+    env:
+      clear:
+        POSTGRES_DB: meridian_e2e
+        POSTGRES_USER: meridian_e2e
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_DATABASE_PASSWORD
+    secrets:
+      - MY_APP_DATABASE_PASSWORD
+    ready:
+      cmd: ["pg_isready", "-q", "-U", "meridian_e2e"]
+
+hooks:
+  remote:
+    before_start:
+      - command: >-
+          podman run --rm --network=meridian-e2e-rails
+          -e RAILS_ENV=production
+          -e MY_APP_DATABASE_HOST=meridian-e2e-rails-postgres
+          -e MY_APP_DATABASE_NAME=meridian_e2e
+          -e MY_APP_DATABASE_USER=meridian_e2e
+          --secret MY_APP_SECRET_KEY_BASE,type=env,target=MY_APP_SECRET_KEY_BASE
+          --secret MY_APP_DATABASE_PASSWORD,type=env,target=MY_APP_DATABASE_PASSWORD
+          localhost/meridian-e2e-rails:latest bin/rails db:prepare

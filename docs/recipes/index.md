@@ -7,10 +7,10 @@ show complete files first, then link to the reference for field details.
 
 - [Marten](https://martenframework.com/) + [SQLite](https://sqlite.org/) + Assets CDN - [the smallest production Marten deployment](/recipes/marten-sqlite-assets).
 - [Marten](https://martenframework.com/) + [Postgres](https://www.postgresql.org/) + [Dragonfly](https://www.dragonflydb.io/) + Assets CDN - [full production stack](/recipes/marten-postgres-dragonfly-assets) with deploy-managed static assets.
+- [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/) - [classic Rails deployment](/recipes/rails-postgres) with migrations before app start and app-served assets.
 
 ## Draft Examples Awaiting Maintainer Verification
 
-- [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/) - [recipe](/recipes/rails-postgres)
 - [Go](https://go.dev/) Static Binary - [recipe](/recipes/go-static-binary)
 - [Kemal](https://kemalcr.com/) - [simple app recipe](/recipes/kemal-simple)
 - [Static Site Behind kamal-proxy](/recipes/static-site) with [Caddy](https://caddyserver.com/)

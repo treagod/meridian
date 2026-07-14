@@ -1,0 +1,32 @@
+FROM docker.io/library/ruby:3.3-alpine AS build
+
+WORKDIR /app
+RUN apk add --no-cache build-base git libpq-dev tzdata yaml-dev
+
+COPY Gemfile Gemfile.lock ./
+RUN bundle config set --local without "development test" && \
+    bundle install --jobs 4
+
+COPY . .
+
+RUN SECRET_KEY_BASE_DUMMY=1 \
+    RAILS_ENV=production \
+    MY_APP_SECRET_KEY_BASE=build-only-secret \
+    MY_APP_DATABASE_HOST=localhost \
+    MY_APP_DATABASE_NAME=build \
+    MY_APP_DATABASE_USER=build \
+    MY_APP_DATABASE_PASSWORD=build \
+    bundle exec rails assets:precompile
+
+FROM docker.io/library/ruby:3.3-alpine
+
+WORKDIR /app
+RUN apk add --no-cache libpq tzdata
+
+COPY --from=build /usr/local/bundle /usr/local/bundle
+COPY --from=build /app /app
+
+ENV RAILS_ENV=production
+EXPOSE 3000
+
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
