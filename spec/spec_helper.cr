@@ -396,8 +396,12 @@ def run_cli(
   CLIResult.new(output: io.to_s, exit_code: exit_code)
 end
 
-def ssh_ok(stdout : String = "") : Meridian::SSH::Result
-  Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: "")
+def ssh_ok(stdout : String = "", stderr : String = "") : Meridian::SSH::Result
+  Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: stderr)
+end
+
+def ssh_fail(exit_code : Int32 = 1, stdout : String = "", stderr : String = "") : Meridian::SSH::Result
+  Meridian::SSH::Result.new(exit_code: exit_code, stdout: stdout, stderr: stderr)
 end
 
 def remote_commands_for(runner : FakeSSHRunner, host : String? = nil) : Array(String)

@@ -18,6 +18,9 @@ case "$RECIPE" in
     SUCCESS_LABEL="Marten SQLite recipe E2E"
     ACCESSORIES=()
     SECRETS=("MARTEN_SECRET_KEY=e2e-secret-key-that-is-long-enough-for-marten")
+    # Deploys two distinctly tagged releases and verifies `meridian rollback`
+    # reconstructs and serves the first one again.
+    ROLLBACK_LEG=1
     ;;
   marten-postgres-dragonfly-assets)
     SERVICE="meridian-e2e-marten-pg"
@@ -36,6 +39,7 @@ case "$RECIPE" in
       "MARTEN_SECRET_KEY=e2e-secret-key-that-is-long-enough-for-marten"
       "MY_APP_DATABASE_PASSWORD=e2e-postgres-password"
     )
+    ROLLBACK_LEG=0
     ;;
   rails-postgres)
     SERVICE="meridian-e2e-rails"
@@ -55,12 +59,21 @@ case "$RECIPE" in
       "MY_APP_SECRET_KEY_BASE=e2e-secret-key-base-that-is-long-enough"
       "MY_APP_DATABASE_PASSWORD=e2e-postgres-password"
     )
+    ROLLBACK_LEG=0
     ;;
   *)
     echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets|rails-postgres" >&2
   exit 64
     ;;
 esac
+
+# The rollback leg needs two distinguishable releases: unique per-release tags
+# keep the first image alive across the second deploy's dangling-image prune.
+if [[ "$ROLLBACK_LEG" == "1" ]]; then
+  IMAGE_REPO="${IMAGE%:*}"
+  IMAGE="$IMAGE_REPO:release-a"
+  IMAGE_B="$IMAGE_REPO:release-b"
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_DIR="$ROOT_DIR/e2e/fixtures/$FIXTURE_NAME"
@@ -136,6 +149,49 @@ wait_for_accessory_ready() {
       ssh_deploy "podman run --rm --network='$SERVICE' docker.io/library/alpine:3.21 sh -c 'for i in \$(seq 1 60); do nc -z \"$accessory\" 6379 && exit 0; sleep 1; done; exit 1'"
       ;;
   esac
+}
+
+render_deploy_config() {
+  sed \
+    -e "s|__HOST__|$VM_IP|g" \
+    -e "s|__SSH_KEY__|$KEY_FILE|g" \
+    -e "s|__IMAGE__|$1|g" \
+    "$APP_DIR/.meridian/deploy.yml.template" >"$APP_DIR/.meridian/deploy.yml"
+}
+
+assert_release_marker() {
+  local expected="$1"
+  local body
+  body="$(
+    curl --fail --silent --show-error \
+      --resolve "$APP_HOST:80:$VM_IP" \
+      "http://$APP_HOST/release"
+  )"
+  if [[ "$body" != "$expected" ]]; then
+    echo "Expected release marker '$expected' but got '$body'" >&2
+    return 1
+  fi
+}
+
+# The same rootless network re-sync stall can hit kamal-proxy's own 30s deploy
+# health window: the freshly started candidate is verifiably healthy (Meridian's
+# sidecar probes pass) but requests from the long-running proxy container never
+# reach it until the stall clears. A failed candidate is fully cleaned up, so
+# re-running the switch is idempotent; retry once when the log shows exactly
+# that kamal-proxy timeout.
+run_switch_with_retry() {
+  local name="$1"
+  shift
+  if run_logged "$name" "$@"; then
+    return 0
+  fi
+  if grep -q "target failed to become healthy within configured timeout" "$LOG_DIR/$name.log"; then
+    echo "kamal-proxy switch hit the rootless network re-sync stall; retrying once" >&2
+    sleep 20
+    run_logged "${name}-retry" "$@"
+    return $?
+  fi
+  return 1
 }
 
 # Removing the old colour's container right after the proxy switch can stall
@@ -238,16 +294,17 @@ if [[ -z "$VM_IP" ]]; then
   exit 70
 fi
 
-sed \
-  -e "s|__HOST__|$VM_IP|g" \
-  -e "s|__SSH_KEY__|$KEY_FILE|g" \
-  "$APP_DIR/.meridian/deploy.yml.template" >"$APP_DIR/.meridian/deploy.yml"
+render_deploy_config "$IMAGE"
 
 log_step "Building Meridian"
 run_logged meridian-build crystal build "$ROOT_DIR/src/meridian_cli.cr" -o "$MERIDIAN_BIN"
 
 log_step "Building $RECIPE image"
-run_logged image-build podman build -t "$IMAGE" "$APP_DIR"
+if [[ "$ROLLBACK_LEG" == "1" ]]; then
+  run_logged image-build podman build --build-arg RELEASE_MARKER=release-a -t "$IMAGE" "$APP_DIR"
+else
+  run_logged image-build podman build -t "$IMAGE" "$APP_DIR"
+fi
 
 log_step "Bootstrapping the VM"
 PATH="$WRAPPER_DIR:$PATH" expect <<EOF 2>&1 | tee "$LOG_DIR/bootstrap.log"
@@ -309,7 +366,7 @@ run_logged check \
   "$MERIDIAN_BIN" check --config "$APP_DIR/.meridian/deploy.yml"
 
 log_step "Running first deploy"
-run_logged deploy-first \
+run_switch_with_retry deploy-first \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
 
@@ -355,10 +412,19 @@ if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
     "http://$APP_HOST/dragonfly?value=dragonfly-survives" | grep -q "dragonfly-survives"
 fi
 
+if [[ "$ROLLBACK_LEG" == "1" ]]; then
+  log_step "Verifying release marker for the first release"
+  assert_release_marker "release-a"
+
+  log_step "Building second release image"
+  run_logged image-build-b podman build --build-arg RELEASE_MARKER=release-b -t "$IMAGE_B" "$APP_DIR"
+  render_deploy_config "$IMAGE_B"
+fi
+
 sleep 2
 
 log_step "Running second deploy"
-run_logged deploy-second \
+run_switch_with_retry deploy-second \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
 
@@ -385,5 +451,34 @@ curl --fail --silent --show-error \
   --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
   "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
 
+if [[ "$ROLLBACK_LEG" == "1" ]]; then
+  log_step "Verifying release marker for the second release"
+  assert_release_marker "release-b"
+
+  log_step "Rolling back to the first release"
+  run_switch_with_retry rollback \
+    env PATH="$WRAPPER_DIR:$PATH" \
+    "$MERIDIAN_BIN" rollback --config "$APP_DIR/.meridian/deploy.yml"
+
+  ROLLBACK_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/$SERVICE/active-color")"
+  if [[ "$ROLLBACK_COLOR" != "$FIRST_COLOR" ]]; then
+    echo "Expected rollback to restore color $FIRST_COLOR, but active color is $ROLLBACK_COLOR" >&2
+    exit 73
+  fi
+
+  log_step "Verifying health and first-release content after rollback"
+  run_logged health-after-rollback wait_for_app_health
+  assert_release_marker "release-a"
+
+  if ! ssh_deploy "grep -q ' | rollback | ' ~/.local/state/meridian/services/$SERVICE/audit.log"; then
+    echo "Expected an audit log entry for the rollback" >&2
+    exit 74
+  fi
+fi
+
 echo
-echo "$SUCCESS_LABEL passed: $FIRST_COLOR -> $SECOND_COLOR"
+if [[ "$ROLLBACK_LEG" == "1" ]]; then
+  echo "$SUCCESS_LABEL passed: $FIRST_COLOR -> $SECOND_COLOR -> rollback to $FIRST_COLOR"
+else
+  echo "$SUCCESS_LABEL passed: $FIRST_COLOR -> $SECOND_COLOR"
+fi

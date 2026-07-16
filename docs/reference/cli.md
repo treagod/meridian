@@ -252,7 +252,7 @@ Relevant fields: [`servers.<role>`](/reference/deploy-yml#serversrole),
 
 ## `rollback` {#rollback}
 
-Purpose: switch proxied web traffic back to the previous recorded release.
+Purpose: restore the previously deployed release on each proxied web host.
 
 ```bash
 Usage: meridian rollback [options]
@@ -263,13 +263,29 @@ Usage: meridian rollback [options]
 | `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
 | `-h`, `--help` | n/a | Print help. |
 
-Side effects: reads `release-state.json`; starts the previous color if needed;
-switches kamal-proxy back; rewrites `active-color` and `release-state.json`;
-appends an audit entry. On legacy hosts without release state, it falls back to
-the inactive-color behavior.
+Side effects: reads `release-state.json` and reconstructs the previous release
+from its recorded image and color — the old container no longer exists after a
+successful deploy, so rollback regenerates the Quadlet file, uploads it,
+reloads the user systemd daemon, and starts the unit fresh. kamal-proxy is
+switched back only after the reconstructed release passes the regular
+container health check; then the rolled-back-from release is stopped and its
+Quadlet removed, `active-color` and `release-state.json` are rewritten (the
+current and previous releases swap), and an audit entry is appended. If the
+health check or proxy switch fails, the reconstructed candidate is torn down
+and the currently active release keeps serving traffic. On legacy hosts
+without release state, it falls back to restarting the surviving
+inactive-color container.
 
-Exit codes: `0` when rollback completes; non-zero on missing rollback target,
-SSH, proxy, or config failure.
+Limitations: only the proxied web role is rolled back. The previous release's
+image must still be present on the host — use unique image tags per release;
+with a reused tag (such as `latest`) the previous image is retagged or pruned
+by the next deploy and rollback refuses to run. Non-image configuration (env,
+volumes, ports, command) comes from the current config file, not the previous
+release.
+
+Exit codes: `0` when rollback completes; non-zero when no rollback-safe
+release is retained, the previous image is missing, or on health-check, SSH,
+proxy, or config failure.
 
 Examples:
 

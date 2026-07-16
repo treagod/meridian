@@ -17,15 +17,15 @@ module Meridian
       def initialize(@config : Config::DeployConfig)
       end
 
-      def container_file(server : Config::ServerConfig, color : Color) : String
-        app_container_file(server, color.slug)
+      def container_file(server : Config::ServerConfig, color : Color, image : String? = nil) : String
+        app_container_file(server, color.slug, image)
       end
 
       def role_container_file(role : String, server : Config::ServerConfig) : String
         app_container_file(server, role)
       end
 
-      private def app_container_file(server : Config::ServerConfig, suffix : String) : String
+      private def app_container_file(server : Config::ServerConfig, suffix : String, image : String? = nil) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
         secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
         networks = [@config.service]
@@ -34,7 +34,7 @@ module Meridian
         ContainerTemplate.new(
           name: "#{@config.service}-#{suffix}",
           description: "#{@config.service} (#{suffix})",
-          image: server.image || @config.image,
+          image: image || server.image || @config.image,
           networks: networks,
           environment: environment,
           secrets: secrets,

@@ -55,14 +55,6 @@ def build_stream_transfer(
   )
 end
 
-def ssh_ok(stdout : String = "", stderr : String = "") : Meridian::SSH::Result
-  Meridian::SSH::Result.new(exit_code: 0, stdout: stdout, stderr: stderr)
-end
-
-def ssh_fail(exit_code : Int32 = 1, stdout : String = "", stderr : String = "") : Meridian::SSH::Result
-  Meridian::SSH::Result.new(exit_code: exit_code, stdout: stdout, stderr: stderr)
-end
-
 def health_command?(
   command : String?,
   container_name : String = "myapp-blue",

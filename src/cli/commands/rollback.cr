@@ -9,7 +9,7 @@ module Meridian
         end
 
         def summary : String
-          "Switch kamal-proxy back to the inactive color"
+          "Restore the previously deployed release"
         end
 
         def usage : String
@@ -17,7 +17,7 @@ module Meridian
         end
 
         def description : String
-          "Switch kamal-proxy back to the inactive color on each web host."
+          "Reconstruct the previous release from recorded release state on each web host, health-check it, then switch kamal-proxy back to it."
         end
 
         def configure(parser : OptionParser) : Nil
