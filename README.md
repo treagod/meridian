@@ -47,7 +47,7 @@ meridian deploy
 
 ## The interesting commands
 
-Most commands do the obvious thing: `status`, `logs`, `exec`, `rollback`. See the [CLI reference](docs/reference/cli.md) for exact usage, flags, side effects, exit codes, and troubleshooting links. A few are worth explaining.
+Most commands do the obvious thing: `status`, `logs`, `exec`. See the [CLI reference](docs/reference/cli.md) for exact usage, flags, side effects, exit codes, and troubleshooting links. A few are worth explaining.
 
 ### `deploy`
 
@@ -55,7 +55,11 @@ Rolling deploy across `servers.web` in batches of `boot.limit`. When a web host 
 
 Before touching any host, `deploy` acquires a remote deploy lock (an atomic `mkdir` on the first web host) and releases it at the end. A second deploy started while the first is running exits non-zero and prints who holds the lock. See `lock` and `audit` below.
 
-### `plan`
+### `rollback`
+
+Restores the previously deployed release on each proxied web host. The old container does not survive a successful deploy (its unit is stopped and its Quadlet file removed), so `rollback` doesn't try to revive it: it reconstructs the release from `~/.local/state/meridian/services/<service>/release-state.json` — regenerating the Quadlet for the previous image and colour, uploading it, starting it, and health-checking it exactly like a deploy. Traffic switches back only after the health check passes; a failed rollback tears the candidate down and leaves the current release serving. After the switch, the rolled-back-from release is stopped, the state files swap current and previous, and the rollback is audit-logged.
+
+Two things to know. Rollback covers the proxied web role only for now; secondary roles are rolled back by deploying the previous image. And it needs the previous release's image to still exist on the host, so use unique image tags per release — with a reused tag like `:latest`, the next deploy retags the name and prunes the old image, and rollback refuses rather than silently restoring the wrong content. Env, volumes, ports, and command come from your current `deploy.yml`; only image and colour come from the recorded release.
 
 Prints exactly what Meridian resolved from your `deploy.yml` (roles, hosts, image, transfer mode, required secrets, hooks, everything) without touching a server. Handy whenever you're editing config. Secret *values* are never printed, only their names.
 
@@ -233,7 +237,9 @@ test verifies volume-backed persistence; the Postgres/Dragonfly test also
 starts both accessories and verifies database and Dragonfly access through the
 deployed app; the Rails test verifies a non-Crystal stack with a Postgres
 accessory, `db:prepare` before app start, and fingerprinted assets served from
-the app container. A successful run removes the VM. Requirements are macOS, Lima 2+,
+the app container. The SQLite test additionally deploys two distinctly tagged
+releases and verifies that `meridian rollback` reconstructs and serves the
+first one again. A successful run removes the VM. Requirements are macOS, Lima 2+,
 Podman, Crystal, `curl`, and `expect`, plus the standard `ssh-keygen` and `nc`
 command-line tools. Set `KEEP_VM=1` to retain the VM and temporary logs for
 inspection.

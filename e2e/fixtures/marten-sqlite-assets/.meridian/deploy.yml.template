@@ -1,5 +1,5 @@
 service: meridian-e2e
-image: localhost/meridian-e2e-marten:latest
+image: __IMAGE__
 
 servers:
   web:
@@ -47,4 +47,4 @@ hooks:
           -e MARTEN_ENV=production
           -e MARTEN_ALLOWED_HOSTS=e2e-app.test
           --secret MARTEN_SECRET_KEY,type=env,target=MARTEN_SECRET_KEY
-          localhost/meridian-e2e-marten:latest /app/manage migrate
+          __IMAGE__ /app/manage migrate

@@ -26,6 +26,10 @@ module Meridian
         "#{service_name(color)}.service"
       end
 
+      protected def container_path(color : Quadlet::Color) : String
+        File.join(Quadlet::DIRECTORY, "#{service_name(color)}.container")
+      end
+
       protected def role_service_name(role : String) : String
         "#{@config.service}-#{role}"
       end
@@ -256,6 +260,12 @@ module Meridian
         run_ssh(host, ["podman", "container", "exists", container_name]).exit_code.zero?
       rescue ex : SSH::ConnectionError
         raise ArgumentError.new(ex.message || "Failed to inspect container state for #{host}")
+      end
+
+      protected def image_exists?(host : String, image : String) : Bool
+        run_ssh(host, ["podman", "image", "exists", image]).exit_code.zero?
+      rescue ex : SSH::ConnectionError
+        raise ArgumentError.new(ex.message || "Failed to inspect image state for #{host}")
       end
 
       protected def container_running?(host : String, container_name : String) : Bool

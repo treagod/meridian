@@ -35,6 +35,11 @@ COPY --from=build /app/bin/manage /app/manage
 COPY --from=build /app/src/ /app/src/
 COPY --from=build /app/assets/ /app/assets/
 
+# Bakes a per-release marker into the image so E2E scenarios can tell which
+# release is serving traffic (served at /release).
+ARG RELEASE_MARKER=dev
+RUN echo "$RELEASE_MARKER" > /app/release.txt
+
 EXPOSE 8000
 
 CMD ["/app/server"]
