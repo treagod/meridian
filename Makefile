@@ -1,7 +1,7 @@
 APP := meridian
 ENTRYPOINT := src/meridian_cli.cr
 
-.PHONY: build test lint release e2e-marten e2e-marten-postgres e2e-rails-postgres e2e-all
+.PHONY: build test lint release e2e-marten e2e-marten-postgres e2e-rails-postgres e2e-go e2e-all
 
 build:
 	crystal build $(ENTRYPOINT) -o bin/$(APP)
@@ -18,7 +18,10 @@ e2e-marten-postgres:
 e2e-rails-postgres:
 	./scripts/test-recipe rails-postgres
 
-e2e-all: e2e-marten e2e-marten-postgres e2e-rails-postgres
+e2e-go:
+	./scripts/test-recipe go-static-binary
+
+e2e-all: e2e-marten e2e-marten-postgres e2e-rails-postgres e2e-go
 
 .PHONY: format
 ## Perform and apply crystal formatting.

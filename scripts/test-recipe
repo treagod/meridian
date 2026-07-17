@@ -61,8 +61,26 @@ case "$RECIPE" in
     )
     ROLLBACK_LEG=0
     ;;
+  go-static-binary)
+    SERVICE="meridian-e2e-go"
+    FIXTURE_NAME="go-static-binary"
+    VM_SUFFIX="go"
+    IMAGE="localhost/meridian-e2e-go:latest"
+    APP_HOST="e2e-go-app.test"
+    # The Go recipe has no asset pipeline and no data store; the empty values
+    # skip the fingerprinted-CSS and persistence checks.
+    ASSET_HOST=""
+    ASSET_HREF_PATTERN=""
+    HEALTH_PATH="/healthz"
+    HEALTH_BODY_PATTERN="^ok$"
+    DATA_STORE_LABEL=""
+    SUCCESS_LABEL="Go static binary recipe E2E"
+    ACCESSORIES=()
+    SECRETS=()
+    ROLLBACK_LEG=0
+    ;;
   *)
-    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets|rails-postgres" >&2
+    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets|rails-postgres|go-static-binary" >&2
   exit 64
     ;;
 esac
@@ -326,16 +344,20 @@ set result [wait]
 exit [lindex \$result 3]
 EOF
 
-for secret_pair in "${SECRETS[@]}"; do
-  secret_name="${secret_pair%%=*}"
-  secret_value="${secret_pair#*=}"
-  log_step "Creating runtime secret $secret_name"
-  run_logged "secret-${secret_name}" \
-    env PATH="$WRAPPER_DIR:$PATH" \
-    "$MERIDIAN_BIN" secret set "$secret_name" \
-    --value "$secret_value" \
-    --config "$APP_DIR/.meridian/deploy.yml"
-done
+# The guard matters on macOS: the system bash 3.2 treats an empty array
+# expansion as unbound under `set -u`.
+if ((${#SECRETS[@]} > 0)); then
+  for secret_pair in "${SECRETS[@]}"; do
+    secret_name="${secret_pair%%=*}"
+    secret_value="${secret_pair#*=}"
+    log_step "Creating runtime secret $secret_name"
+    run_logged "secret-${secret_name}" \
+      env PATH="$WRAPPER_DIR:$PATH" \
+      "$MERIDIAN_BIN" secret set "$secret_name" \
+      --value "$secret_value" \
+      --config "$APP_DIR/.meridian/deploy.yml"
+  done
+fi
 
 log_step "Installing the shared proxy"
 run_logged setup \
@@ -380,30 +402,34 @@ HOME_HTML="$(
 )"
 grep -q "Meridian recipe E2E" <<<"$HOME_HTML"
 
-ASSET_URL="$(
-  sed -n "s/.*href=\"\([^\"]*${ASSET_HREF_PATTERN}[^\"]*\.css\)\".*/\1/p" <<<"$HOME_HTML" | head -n 1
-)"
-if [[ -z "$ASSET_URL" ]]; then
-  echo "Application HTML did not contain a fingerprinted CSS URL" >&2
-  exit 71
+if [[ -n "$ASSET_HREF_PATTERN" ]]; then
+  ASSET_URL="$(
+    sed -n "s/.*href=\"\([^\"]*${ASSET_HREF_PATTERN}[^\"]*\.css\)\".*/\1/p" <<<"$HOME_HTML" | head -n 1
+  )"
+  if [[ -z "$ASSET_URL" ]]; then
+    echo "Application HTML did not contain a fingerprinted CSS URL" >&2
+    exit 71
+  fi
+
+  ASSET_FETCH_HOST="${ASSET_HOST:-$APP_HOST}"
+  ASSET_PATH="${ASSET_URL#http://$ASSET_FETCH_HOST}"
+  ASSET_BODY="$(
+    curl --fail --silent --show-error \
+      --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
+      "http://$ASSET_FETCH_HOST$ASSET_PATH"
+  )"
+  grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
 fi
 
-ASSET_FETCH_HOST="${ASSET_HOST:-$APP_HOST}"
-ASSET_PATH="${ASSET_URL#http://$ASSET_FETCH_HOST}"
-ASSET_BODY="$(
-  curl --fail --silent --show-error \
-    --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
-    "http://$ASSET_FETCH_HOST$ASSET_PATH"
-)"
-grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
-
-log_step "Writing persistent $DATA_STORE_LABEL data"
-RECORD_BODY="$(
-  curl --fail --silent --show-error \
-    --resolve "$APP_HOST:80:$VM_IP" \
-    "http://$APP_HOST/records?value=survives-redeploy"
-)"
-grep -q "survives-redeploy" <<<"$RECORD_BODY"
+if [[ -n "$DATA_STORE_LABEL" ]]; then
+  log_step "Writing persistent $DATA_STORE_LABEL data"
+  RECORD_BODY="$(
+    curl --fail --silent --show-error \
+      --resolve "$APP_HOST:80:$VM_IP" \
+      "http://$APP_HOST/records?value=survives-redeploy"
+  )"
+  grep -q "survives-redeploy" <<<"$RECORD_BODY"
+fi
 
 if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
   log_step "Writing persistent Dragonfly data"
@@ -437,9 +463,11 @@ fi
 log_step "Verifying health, persistence, and assets after redeploy"
 run_logged health-after-redeploy wait_for_app_health
 
-curl --fail --silent --show-error \
-  --resolve "$APP_HOST:80:$VM_IP" \
-  "http://$APP_HOST/records" | grep -q "survives-redeploy"
+if [[ -n "$DATA_STORE_LABEL" ]]; then
+  curl --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/records" | grep -q "survives-redeploy"
+fi
 
 if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
   curl --fail --silent --show-error \
@@ -447,9 +475,11 @@ if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
     "http://$APP_HOST/dragonfly" | grep -q "dragonfly-survives"
 fi
 
-curl --fail --silent --show-error \
-  --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
-  "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+if [[ -n "$ASSET_HREF_PATTERN" ]]; then
+  curl --fail --silent --show-error \
+    --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
+    "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+fi
 
 if [[ "$ROLLBACK_LEG" == "1" ]]; then
   log_step "Verifying release marker for the second release"
