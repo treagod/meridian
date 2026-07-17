@@ -1,0 +1,28 @@
+service: meridian-e2e-go
+image: localhost/meridian-e2e-go:latest
+
+servers:
+  web:
+    hosts:
+      - __HOST__
+    proxy:
+      host: e2e-go-app.test
+      ssl: false
+      app_port: 8080
+      healthcheck:
+        path: /healthz
+        interval: 1
+        timeout: 5
+        retries: 30
+
+env:
+  clear:
+    APP_ENV: production
+
+ssh:
+  user: deploy
+  keys:
+    - __SSH_KEY__
+
+transfer:
+  mode: stream

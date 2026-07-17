@@ -228,6 +228,7 @@ have full local deployment tests:
 make e2e-marten
 make e2e-marten-postgres
 make e2e-rails-postgres
+make e2e-go
 ```
 
 Each E2E test creates an ephemeral Ubuntu 24.04 VM with
@@ -237,9 +238,10 @@ test verifies volume-backed persistence; the Postgres/Dragonfly test also
 starts both accessories and verifies database and Dragonfly access through the
 deployed app; the Rails test verifies a non-Crystal stack with a Postgres
 accessory, `db:prepare` before app start, and fingerprinted assets served from
-the app container. The SQLite test additionally deploys two distinctly tagged
-releases and verifies that `meridian rollback` reconstructs and serves the
-first one again. A successful run removes the VM. Requirements are macOS, Lima 2+,
+the app container; the Go test verifies a `scratch` image with no shell, whose
+health checks run entirely from Meridian's probe sidecar. The SQLite test
+additionally deploys two distinctly tagged releases and verifies that
+`meridian rollback` reconstructs and serves the first one again. A successful run removes the VM. Requirements are macOS, Lima 2+,
 Podman, Crystal, `curl`, and `expect`, plus the standard `ssh-keygen` and `nc`
 command-line tools. Set `KEEP_VM=1` to retain the VM and temporary logs for
 inspection.
