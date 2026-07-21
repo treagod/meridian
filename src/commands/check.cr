@@ -22,6 +22,7 @@ module Meridian
         detail : String
 
       alias LocalImageProbe = Proc(String, Bool)
+      alias LocalFileProbe = Proc(String, Bool)
 
       DEFAULT_LOCAL_IMAGE_PROBE = ->(image : String) do
         Process.run("podman", ["image", "exists", image]).success?
@@ -29,7 +30,10 @@ rescue
   false
       end
 
+      DEFAULT_LOCAL_FILE_PROBE = ->(path : String) { File::Info.readable?(path) }
+
       @local_image_probe : LocalImageProbe
+      @local_file_probe : LocalFileProbe
 
       def initialize(
         config : Config::DeployConfig,
@@ -38,9 +42,11 @@ rescue
         error : IO = STDERR,
         audit_logger : ::Meridian::Audit::Logger? = nil,
         local_image_probe : LocalImageProbe? = nil,
+        local_file_probe : LocalFileProbe? = nil,
       )
         super(config, ssh_executor, output, error, audit_logger)
         @local_image_probe = local_image_probe || DEFAULT_LOCAL_IMAGE_PROBE
+        @local_file_probe = local_file_probe || DEFAULT_LOCAL_FILE_PROBE
       end
 
       def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Bool
@@ -57,7 +63,13 @@ rescue
 
           batch.each do |host_context|
             spawn do
-              channel.send(check_host(host_context))
+              results =
+                begin
+                  check_host(host_context)
+                rescue ex : Exception
+                  [fail(host_context.host, "check", 99, "unexpected error: #{ex.class.name}: #{ex.message}")]
+                end
+              channel.send(results)
             end
           end
 
@@ -67,6 +79,7 @@ rescue
         end
 
         rows.concat(check_local_images(targets))
+        rows.concat(check_local_files(targets))
 
         print_rows(rows)
         passed = rows.all?(&.passed)
@@ -88,8 +101,35 @@ rescue
       end
 
       private def selected_local_images(targets : Array(CLI::TargetSelector::Target)?) : Array(String)
-        roles = targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
-        roles.map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!.sort!
+        selected_roles(targets).map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!.sort!
+      end
+
+      # Local `files:` sources the selected roles would upload: a missing or unreadable
+      # source aborts the deploy on its first host, so it belongs in preflight.
+      private def check_local_files(targets : Array(CLI::TargetSelector::Target)?) : Array(ProbeResult)
+        selected_file_sources(targets).map_with_index do |source, index|
+          position = 50 + index
+          if @local_file_probe.call(source)
+            pass("local", "file:#{source}", position, "readable")
+          else
+            fail("local", "file:#{source}", position, "not found or unreadable")
+          end
+        end
+      end
+
+      private def selected_file_sources(targets : Array(CLI::TargetSelector::Target)?) : Array(String)
+        return [] of String if @config.files.empty?
+
+        roles = selected_roles(targets)
+        sources = @config.files
+          .select { |file_sync| roles.any? { |role| file_sync.applies_to?(role) } }
+          .map(&.source)
+        sources.uniq!
+        sources.sort!
+      end
+
+      private def selected_roles(targets : Array(CLI::TargetSelector::Target)?) : Array(String)
+        targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
       end
 
       private def validate_batch_settings! : Nil

@@ -4,7 +4,7 @@ module Meridian
       private record StreamResult,
         host : String,
         exit_code : Int32,
-        error : SSH::ConnectionError?
+        error : Exception?
 
       private class PrefixedIO < IO
         def initialize(@target : IO, @prefix : String, @mutex : Mutex)
@@ -62,17 +62,21 @@ module Meridian
 
         unique_hosts.each do |stream_host|
           spawn do
-            begin
-              exit_code = stream_ssh(
-                stream_host,
-                journalctl_command(units_by_host[stream_host]),
-                output: PrefixedIO.new(@output, "[#{stream_host}] ", mutex),
-                error: PrefixedIO.new(@error, "[#{stream_host}] ", mutex)
-              )
-              results.send(StreamResult.new(host: stream_host, exit_code: exit_code, error: nil))
-            rescue ex : SSH::ConnectionError
-              results.send(StreamResult.new(host: stream_host, exit_code: 255, error: ex))
-            end
+            # Exactly one result per fiber, whatever the stream raises: a fiber that
+            # dies without sending leaves the receive loop below waiting forever.
+            result =
+              begin
+                exit_code = stream_ssh(
+                  stream_host,
+                  journalctl_command(units_by_host[stream_host]),
+                  output: PrefixedIO.new(@output, "[#{stream_host}] ", mutex),
+                  error: PrefixedIO.new(@error, "[#{stream_host}] ", mutex)
+                )
+                StreamResult.new(host: stream_host, exit_code: exit_code, error: nil)
+              rescue ex : Exception
+                StreamResult.new(host: stream_host, exit_code: 255, error: ex)
+              end
+            results.send(result)
           end
         end
 

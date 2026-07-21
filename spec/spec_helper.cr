@@ -174,6 +174,10 @@ class FakeSSHStreamingRunner < Meridian::SSH::Executor::StreamingRunner
   getter queued_results_by_host : Hash(String, Array(FakeSSHStreamResult))
   property next_result : FakeSSHStreamResult = FakeSSHStreamResult.new(exit_code: 0)
 
+  # Raise an unexpected (non-SSH) error for one host, to prove callers do not
+  # depend on a narrow rescue to get a result back.
+  property raise_for_host : String? = nil
+
   def initialize
     @invocation_events = Channel(FakeSSHStreamInvocation).new(256)
     @queued_results_by_host = Hash(String, Array(FakeSSHStreamResult)).new do |hash, host|
@@ -197,6 +201,10 @@ class FakeSSHStreamingRunner < Meridian::SSH::Executor::StreamingRunner
     invocation = FakeSSHStreamInvocation.new(command: command, args: args.dup)
     @invocations << invocation
     @invocation_events.send(invocation)
+
+    if (host = @raise_for_host) && invocation.host == host
+      raise IO::Error.new("stream pipe collapsed for #{host}")
+    end
 
     result = result_for(invocation)
     output << result.stdout

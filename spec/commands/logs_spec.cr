@@ -72,6 +72,32 @@ describe "Meridian::Commands::Logs" do
       output.to_s.should contain("[192.168.1.12] worker")
     end
 
+    it "surfaces an unexpected stream error instead of waiting forever for a result" do
+      streaming_runner = FakeSSHStreamingRunner.new
+      streaming_runner.raise_for_host = "192.168.1.11"
+      command = build_logs_command(streaming_runner: streaming_runner)
+
+      finished = Channel(Exception?).new(1)
+      spawn do
+        begin
+          command.run([
+            logs_target("web", "192.168.1.10"),
+            logs_target("web", "192.168.1.11"),
+          ])
+          finished.send(nil)
+        rescue ex : Exception
+          finished.send(ex)
+        end
+      end
+
+      select
+      when result = finished.receive
+        value!(result).message.should eq("stream pipe collapsed for 192.168.1.11")
+      when timeout(5.seconds)
+        fail("logs never reported a result for the failing host")
+      end
+    end
+
     it "raises when given an empty host list" do
       command = build_logs_command
 

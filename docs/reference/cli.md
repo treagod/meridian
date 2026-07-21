@@ -184,8 +184,8 @@ Usage: meridian check [options]
 
 Side effects: none. It probes SSH, Podman, lingering, Quadlet directories,
 transfer tools, Podman secrets, local image availability for registry-free
-transfer, kamal-proxy, the shared proxy network, accessory readiness, and
-same-host manifest collisions.
+transfer, readability of every local `files:` source, kamal-proxy, the shared
+proxy network, accessory readiness, and same-host manifest collisions.
 
 Exit codes: `0` when all probes pass; `1` when at least one probe fails; other
 non-zero codes can occur for parse or config errors.
