@@ -248,6 +248,8 @@ module Meridian
 
       def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
         validate_local_images!(targets)
+        validate_file_sources!(targets)
+        validate_accessory_readiness!
         validate_registry_config!
         @lock_manager.acquire(DEPLOY_LOCK_MESSAGE)
         begin
@@ -261,8 +263,7 @@ module Meridian
         mode = @config.transfer.try(&.mode)
         return if mode.nil? || mode.registry?
 
-        roles = targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
-        images = roles.map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!
+        images = selected_roles(targets).map { |role| @config.servers[role]?.try(&.image) || @config.image }.uniq!
         missing = images.reject { |image| @local_image_probe.call(image) }
         return if missing.empty?
 
@@ -270,6 +271,42 @@ module Meridian
         raise DeployFailed.new(
           "Local #{label} not found for #{mode.to_s.downcase} transfer: #{missing.join(", ")}. Build or pull #{missing.size == 1 ? "it" : "them"} locally before deploying."
         )
+      end
+
+      # Pre-lock readability check for every `files:` source the selected roles will
+      # upload. Reading through `@file_reader` (the same seam `upload_file_syncs`
+      # uses) catches missing, unreadable, and non-file sources locally instead of
+      # mid-rollout with the deploy lock held.
+      private def validate_file_sources!(targets : Array(CLI::TargetSelector::Target)?) : Nil
+        return if @config.files.empty?
+
+        roles = selected_roles(targets)
+        @config.files.each do |file_sync|
+          next unless roles.any? { |role| file_sync.applies_to?(role) }
+
+          begin
+            @file_reader.call(file_sync.source)
+          rescue ex : IO::Error
+            raise DeployFailed.new(
+              "files: source #{file_sync.source} (destination #{file_sync.destination}) cannot be read: #{ex.message}"
+            )
+          end
+        end
+      end
+
+      # Pre-lock resolution of every co-network accessory's readiness contract, so an
+      # image Meridian cannot infer a probe for fails locally rather than inside a
+      # host fiber during `wait_for_accessories`.
+      private def validate_accessory_readiness! : Nil
+        co_network_accessories.each do |name, accessory|
+          accessory.effective_ready(name)
+        rescue ex : Config::ValidationError
+          raise DeployFailed.new(ex.message || "accessory '#{name}' readiness could not be resolved")
+        end
+      end
+
+      private def selected_roles(targets : Array(CLI::TargetSelector::Target)?) : Array(String)
+        targets ? targets.map(&.role).uniq! : @config.servers.keys.to_a
       end
 
       private def release_deploy_lock : Nil
@@ -285,10 +322,10 @@ module Meridian
         web_hosts = hosts_for_role?("web")
         secondary_roles = ordered_secondary_roles
         abort_rollout = RolloutAbort.new
-        secondary_results = Channel(RoleDeployResult).new
+        secondary_count = secondary_roles.size
+        secondary_results = Channel(RoleDeployResult).new(secondary_count)
         secondary_started = false
         secondary_started_mutex = Mutex.new
-        secondary_count = secondary_roles.size
 
         start_secondary_roles = -> do
           should_start = secondary_started_mutex.synchronize do
@@ -301,7 +338,13 @@ module Meridian
           if should_start
             secondary_roles.each do |role|
               spawn do
-                secondary_results.send(deploy_role(role, abort_rollout))
+                result =
+                  begin
+                    deploy_role(role, abort_rollout)
+                  rescue ex : Exception
+                    RoleDeployResult.new(role: role, error: deploy_failure(ex, "Deploy of role #{role}"))
+                  end
+                secondary_results.send(result)
               end
             end
           end
@@ -451,14 +494,20 @@ module Meridian
       # can resolve its dependencies. Probes run from a pinned sidecar on the
       # service network (tcp/http) or via `podman exec` against the accessory (cmd).
       private def wait_for_accessories(host : String) : Nil
-        ref = "#{@config.service}.network"
-        accessories = (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
+        accessories = co_network_accessories
         return if accessories.empty?
 
         @output.puts "[#{host}] Waiting for accessories: #{accessories.keys.join(", ")}"
         accessories.each do |name, accessory|
           wait_for_accessory(host, name, accessory)
         end
+      end
+
+      # Accessories sharing the app's service network, and therefore gated on before
+      # the app starts. Shared by the readiness wait and its pre-lock validation.
+      private def co_network_accessories : Hash(String, Config::AccessoryConfig)
+        ref = "#{@config.service}.network"
+        (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
       end
 
       private def wait_for_accessory(host : String, name : String, accessory : Config::AccessoryConfig) : Nil
@@ -599,12 +648,18 @@ module Meridian
 
           batch.each do |host|
             spawn do
-              begin
-                deploy_host(host, role)
-                batch_result_channel.send(HostDeployResult.new(role: role, host: host, error: nil))
-              rescue ex : DeployFailed
-                batch_result_channel.send(HostDeployResult.new(role: role, host: host, error: ex))
-              end
+              result =
+                begin
+                  deploy_host(host, role)
+                  HostDeployResult.new(role: role, host: host, error: nil)
+                rescue ex : Exception
+                  HostDeployResult.new(
+                    role: role,
+                    host: host,
+                    error: deploy_failure(ex, "Deploy to #{host} (role: #{role})")
+                  )
+                end
+              batch_result_channel.send(result)
             end
           end
 
@@ -638,6 +693,16 @@ module Meridian
       private def record_deploy_audit(host : String, role : String) : Nil
         image = server_config(role).image || @config.image
         @audit_logger.record(host, "deploy", "role=#{role} image=#{image}")
+      end
+
+      # Every spawned fiber must report exactly one result, so anything that is not
+      # already a DeployFailed is wrapped with the context of the operation that
+      # raised it. The rollout then fails loudly instead of leaving the main fiber
+      # waiting forever on a result that never arrives while it holds the deploy lock.
+      private def deploy_failure(ex : Exception, context : String) : DeployFailed
+        return ex if ex.is_a?(DeployFailed)
+
+        DeployFailed.new("#{context} failed: #{ex.class.name}: #{ex.message}", ex)
       end
 
       private def deploy_host(host : String, role : String) : Nil
@@ -827,7 +892,7 @@ module Meridian
 
       private def upload_file_syncs(host : String, role : String) : Nil
         @config.files.each do |file_sync|
-          next if (roles = file_sync.roles) && !roles.includes?(role)
+          next unless file_sync.applies_to?(role)
 
           content = @file_reader.call(file_sync.source)
           content = @quadlet_generator.render_file_sync_template(content) if file_sync.template?

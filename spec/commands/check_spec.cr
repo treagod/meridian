@@ -37,6 +37,7 @@ def build_check_command(
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
   local_image_probe : Meridian::Commands::Check::LocalImageProbe = ->(_image : String) { true },
+  local_file_probe : Meridian::Commands::Check::LocalFileProbe = Meridian::Commands::Check::DEFAULT_LOCAL_FILE_PROBE,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(
@@ -48,7 +49,8 @@ def build_check_command(
     ssh_executor: executor,
     output: output,
     error: output,
-    local_image_probe: local_image_probe
+    local_image_probe: local_image_probe,
+    local_file_probe: local_file_probe
   )
 end
 
@@ -639,6 +641,122 @@ describe "Meridian::Commands::Check" do
 
       probed.should be_empty
       output.to_s.should_not contain("image:")
+    end
+
+    it "passes a local file row when a files: source is readable" do
+      with_tempdir do |dir|
+        source_path = File.join(dir, "nginx.conf")
+        File.write(source_path, "server { listen 80; }")
+
+        runner = FakeSSHRunner.new
+        output = IO::Memory.new
+        command = build_check_command(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/nginx.conf
+            YAML
+          runner: runner,
+          output: output
+        )
+
+        runner.enqueue_results(
+          ssh_ok,
+          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok,
+          ssh_ok
+        )
+
+        command.run.should be_true
+
+        text = output.to_s
+        text.should contain("file:#{source_path}")
+        text.should contain("readable")
+        text.should contain("Check passed")
+      end
+    end
+
+    it "fails when a files: source is missing locally" do
+      missing_path = File.join(Dir.tempdir, "meridian_missing_#{Random::Secure.hex(8)}.conf")
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          files:
+            - source: #{missing_path}
+              destination: /home/deploy/nginx.conf
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("file:#{missing_path}")
+      text.should contain("not found or unreadable")
+      text.should contain("Check failed")
+    end
+
+    it "skips file sources scoped to roles outside the selected targets" do
+      missing_path = File.join(Dir.tempdir, "meridian_missing_#{Random::Secure.hex(8)}.conf")
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      content = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          workers:
+            hosts:
+              - 192.168.1.11
+            cmd: bin/sidekiq
+
+        files:
+          - source: #{missing_path}
+            destination: /home/deploy/nginx.conf
+            roles:
+              - workers
+        YAML
+      command = build_check_command(content: content, runner: runner, output: output)
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok
+      )
+
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "web", host: "192.168.1.10")]
+      command.run(targets).should be_true
+
+      output.to_s.should_not contain("file:")
     end
   end
 end

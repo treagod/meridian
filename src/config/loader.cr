@@ -364,6 +364,12 @@ module Meridian
       getter destination : String
       getter? template : Bool = false
       getter roles : Array(String)?
+
+      # A sync without `roles:` applies to every role.
+      def applies_to?(role : String) : Bool
+        selected = roles
+        selected.nil? || selected.includes?(role)
+      end
     end
 
     struct AssetsConfig

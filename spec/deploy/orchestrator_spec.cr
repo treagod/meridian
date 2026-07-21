@@ -434,6 +434,24 @@ def accessory_gate_config : String
     YAML
 end
 
+# A single non-proxied web host with one `files:` entry, so the deploy reaches
+# `upload_file_syncs` on the downtime path.
+def file_sync_config(source : String, roles : String? = nil) : String
+  <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    files:
+      - source: #{source}
+        destination: /home/deploy/nginx.conf#{roles ? "\n    roles:\n      - #{roles}" : ""}
+    YAML
+end
+
 def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probes : Int32 = 0)
   results = [
     ssh_ok,                            # service network precheck
@@ -2555,5 +2573,107 @@ describe "Meridian::Deploy::Orchestrator deploy lock and audit" do
 
     deploy_entries = audit.recorded.select(&.action.== "deploy")
     deploy_entries.map(&.host).sort!.should eq(["192.168.1.10", "192.168.1.11", "192.168.1.12"])
+  end
+end
+
+describe "Meridian::Deploy::Orchestrator host failure propagation" do
+  it "reports an unexpected host exception instead of waiting forever for a result" do
+    with_tempdir do |dir|
+      source_path = File.join(dir, "nginx.conf")
+      File.write(source_path, "server { listen 80; }")
+
+      # Readable during pre-lock validation, gone by the time the host fiber
+      # uploads it: the failure lands inside the fiber, as a deleted or racing
+      # source would in production.
+      reads = 0
+      file_reader = ->(path : String) do
+        reads += 1
+        raise File::NotFoundError.new("Error opening file with mode 'r'", file: path) if reads > 1
+
+        File.read(path)
+      end
+
+      content = file_sync_config(source_path)
+      lock = FakeLockManager.new(load_config(content))
+      runner = FakeSSHRunner.new
+      enqueue_deploy_success_for_host(runner, "192.168.1.10")
+      orchestrator = build_orchestrator(
+        content: content,
+        runner: runner,
+        lock_manager: lock,
+        file_reader: file_reader
+      )
+
+      finished = run_deploy_async(orchestrator)
+
+      select
+      when result = finished.receive
+        failure = value!(result)
+        failure.should be_a(Meridian::Deploy::DeployFailed)
+        message = value!(failure.message)
+        message.should contain("192.168.1.10")
+        message.should contain("role: web")
+        message.should contain("File::NotFoundError")
+      when timeout(5.seconds)
+        fail("deploy never reported a result for the failing host")
+      end
+
+      lock.release_calls.should eq(1)
+    end
+  end
+
+  it "fails before acquiring the deploy lock when a files: source is missing" do
+    missing_path = File.join(Dir.tempdir, "meridian_missing_#{Random::Secure.hex(8)}.conf")
+    content = file_sync_config(missing_path)
+    lock = FakeLockManager.new(load_config(content))
+    runner = FakeSSHRunner.new
+    orchestrator = build_orchestrator(content: content, runner: runner, lock_manager: lock)
+
+    expect_raises(Meridian::Deploy::DeployFailed, /#{Regex.escape(missing_path)}/) do
+      orchestrator.deploy
+    end
+
+    lock.acquire_calls.should eq(0)
+    runner.invocations.should be_empty
+  end
+
+  it "ignores missing files: sources scoped to roles outside the deploy" do
+    missing_path = File.join(Dir.tempdir, "meridian_missing_#{Random::Secure.hex(8)}.conf")
+    content = file_sync_config(missing_path, roles: "workers")
+    runner = FakeSSHRunner.new
+    enqueue_deploy_success_for_host(runner, "192.168.1.10")
+    orchestrator = build_orchestrator(content: content, runner: runner)
+
+    orchestrator.deploy
+
+    remote_commands_for(runner, "192.168.1.10").should_not contain("cat > /home/deploy/nginx.conf")
+  end
+
+  it "fails before acquiring the deploy lock when accessory readiness cannot be resolved" do
+    content = <<-YAML
+      service: myapp
+      image: registry.example.com/myorg/myapp
+
+      servers:
+        web:
+          hosts:
+            - 192.168.1.10
+
+      accessories:
+        search:
+          image: docker.io/library/opensearch:2
+          host: 192.168.1.10
+          network: myapp.network
+      YAML
+    lock = FakeLockManager.new(load_config(content))
+    runner = FakeSSHRunner.new
+    orchestrator = build_orchestrator(content: content, runner: runner, lock_manager: lock)
+
+    expect_raises(Meridian::Deploy::DeployFailed, /cannot infer readiness from image/) do
+      orchestrator.deploy
+    end
+
+    lock.acquire_calls.should eq(0)
+    runner.invocations.should be_empty
   end
 end

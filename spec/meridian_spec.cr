@@ -90,6 +90,36 @@ describe "Meridian::CLI" do
       end
     end
 
+    it "exits non-zero naming a missing files: source before touching any host" do
+      with_tempdir do |path|
+        missing_path = File.join(path, "nginx.conf")
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, <<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          files:
+            - source: #{missing_path}
+              destination: /home/deploy/nginx.conf
+          YAML
+
+        runner = FakeSSHRunner.new
+        result = run_cli(
+          ["deploy", "--config", config_path],
+          ssh_executor: Meridian::SSH::Executor.new(runner: runner)
+        )
+
+        result.exit_code.should eq(1)
+        result.output.should contain(missing_path)
+        runner.invocations.should be_empty
+      end
+    end
+
     it "runs the setup subcommand with the loaded config" do
       fake_manager = nil.as(FakeProxyManager?)
       captured_service = nil.as(String?)
