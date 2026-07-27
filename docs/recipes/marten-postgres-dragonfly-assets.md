@@ -114,7 +114,7 @@ if CSS-referenced files 404.
 
 ```dockerfile
 # --- Stage 1: Crystal build ---
-FROM crystallang/crystal:1.20.2-alpine AS build
+FROM crystallang/crystal:1.21.0-alpine AS build
 
 # Build dependencies for Marten, SQLite dev defaults, and the pg shard.
 RUN apk --no-cache add sqlite-dev openssl-dev yaml-dev zlib-dev \

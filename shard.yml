@@ -15,6 +15,10 @@ development_dependencies:
     github: crystal-ameba/ameba
     # Pinned to the exact commit already in shard.lock. `branch: master` let
     # ameba's ruleset drift and silently break the `make lint` release gate.
+    # This commit does not compile on Crystal 1.21: its tokenizer calls
+    # `Crystal::Lexer#next_string_array_token`, which 1.21 made private. Build
+    # and run the specs on 1.21 if you like, but `make lint` needs 1.20.x until
+    # ameba ships a 1.21-compatible commit (CI pins its lint job accordingly).
     commit: ae09e383a062d50cec1dd7cc93382ca6ad2363ce
 
 license: MIT

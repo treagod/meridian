@@ -30,7 +30,7 @@ crystal build src/meridian_cli.cr --release -o meridian
 sudo mv meridian /usr/local/bin/
 ```
 
-You'll need Crystal 1.17+ to build. Target servers need Podman 4.4+ and systemd. For registry-free transfers, you'll also need `zstd` (stream mode) or `rsync` + `skopeo` (incremental mode) on both ends. `meridian server bootstrap` installs the remote side automatically.
+You'll need Crystal 1.17+ to build; CI builds and tests on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.4+ and systemd. For registry-free transfers, you'll also need `zstd` (stream mode) or `rsync` + `skopeo` (incremental mode) on both ends. `meridian server bootstrap` installs the remote side automatically.
 
 ## Five minutes from zero to deployed
 
