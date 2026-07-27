@@ -8,10 +8,16 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Test (Crystal ${{ matrix.crystal }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest version CI actually exercises, plus the latest release. The
+        # shard.yml floor is >= 1.17.0.
+        crystal: ["1.20.2", "1.21.0"]
     container:
-      image: crystallang/crystal:1.20.2
+      image: crystallang/crystal:${{ matrix.crystal }}
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -23,7 +29,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.20.2
+      image: crystallang/crystal:1.21.0
     steps:
       - uses: actions/checkout@v4
       - name: Check formatting
@@ -33,6 +39,11 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     container:
+      # Pinned to 1.20.2 while the rest of CI runs 1.21.0: ameba's tokenizer
+      # calls Crystal::Lexer#next_string_array_token, which 1.21 made private
+      # ("Error: undefined method 'next_string_array_token' for Crystal::Lexer"
+      # at lib/ameba/src/ameba/tokenizer.cr:88). Lift this pin once ameba
+      # supports 1.21 and the commit in shard.yml is moved forward.
       image: crystallang/crystal:1.20.2
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +58,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.20.2
+      image: crystallang/crystal:1.21.0
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
