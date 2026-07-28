@@ -1,7 +1,5 @@
 # Simple Kemal App
 
-Status: draft example awaiting maintainer verification.
-
 Small [Crystal](https://crystal-lang.org/)/[Kemal](https://kemalcr.com/) app
 with no database or accessory service. `meridian init` does not currently
 auto-detect Kemal projects, so this recipe starts from a hand-written

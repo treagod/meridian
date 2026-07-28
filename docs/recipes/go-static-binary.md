@@ -1,8 +1,5 @@
 # Go Static Binary
 
-Status: verified example; deployed end-to-end on a fresh Ubuntu 24.04 host by
-`make e2e-go`.
-
 Single [Go](https://go.dev/) HTTP service built into a static binary and
 shipped as a `scratch` image. The app image has no shell; Meridian healthchecks
 run from a temporary probe container, so that is fine.

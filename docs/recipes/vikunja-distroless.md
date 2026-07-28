@@ -1,7 +1,5 @@
 # Third-Party Distroless Image
 
-Status: draft (pending a re-verification deploy).
-
 Third-party app recipe using an upstream image and registry pull. This example
 uses [Vikunja](https://vikunja.io/) with [Postgres](https://www.postgresql.org/);
 there is no local `Containerfile`.

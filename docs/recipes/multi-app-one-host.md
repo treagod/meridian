@@ -1,7 +1,5 @@
 # Multi-App On One Host
 
-Status: draft example awaiting maintainer verification.
-
 Companion recipe for the [Multi-App Hosting guide](/guide/multi-app). This page
 shows two static Caddy services side by side, keeping the example focused on
 service names, proxy routes, and isolated runtime state. The guide explains the
