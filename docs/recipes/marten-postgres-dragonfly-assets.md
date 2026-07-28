@@ -1,7 +1,5 @@
 # Marten + Postgres + Dragonfly + Assets CDN
 
-Status: verified example based on an anonymized production deployment.
-
 Full [Marten](https://martenframework.com/) production stack: one web
 container, [Postgres](https://www.postgresql.org/), [Dragonfly](https://www.dragonflydb.io/),
 migrations before app start, and deploy-managed static assets served from a
@@ -209,9 +207,9 @@ Marten.configure :production do |config|
 end
 ```
 
-Dragonfly speaks the Redis protocol. The local E2E fixture verifies this through
-a small app endpoint using `MY_APP_DRAGONFLY_URL`; production apps can use the
-same hostname with any Redis-compatible Crystal client or session store.
+Dragonfly speaks the Redis protocol. Read the connection string from
+`MY_APP_DRAGONFLY_URL` and use it with any Redis-compatible Crystal client or
+session store.
 
 ```crystal
 class HealthzHandler < Marten::Handler
@@ -240,22 +238,3 @@ meridian plan
 meridian check
 meridian deploy
 ```
-
-## Local E2E Test
-
-Meridian's repository includes an executable version of this recipe:
-
-```bash
-make e2e-marten-postgres
-```
-
-The test creates a temporary Ubuntu 24.04 Lima VM and exercises the real
-fresh-host path: bootstrap, secret creation, proxy setup, Postgres and
-Dragonfly accessories, migration, asset publication, first deploy, and a second
-blue/green deploy. It writes a Postgres record through the application, writes
-and reads a value through Dragonfly, and verifies that the database record and
-fingerprinted CSS remain available after the color switch.
-
-Requirements are macOS, Lima 2+, Podman, Crystal, `curl`, `expect`,
-`ssh-keygen`, and `nc`. `KEEP_VM=1 make e2e-marten-postgres` retains the VM and
-work directory when debugging.

@@ -97,6 +97,34 @@ describe "Meridian::Lock::Manager" do
         manager.acquire
       end
     end
+
+    it "hands back the lock directory when it cannot finish taking the lock" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(
+        ssh_ok,                            # mkdir -p service directory
+        ssh_ok,                            # mkdir lock directory
+        ssh_fail(1, "", "No space left\n") # upload lock metadata
+      )
+      manager = build_lock_manager(runner)
+
+      expect_raises(Meridian::Lock::LockError, /upload to #{Regex.escape(LOCK_METADATA)}/) do
+        manager.acquire
+      end
+
+      # `acquire` is called outside the orchestrator's ensure block, so a lock
+      # left behind here would block every later deploy until someone ran
+      # `meridian lock release` by hand.
+      remote_commands_for(runner).should contain("rm -rf #{LOCK_DIRECTORY}")
+    end
+
+    it "keeps the lock directory when the lock is fully established" do
+      runner = FakeSSHRunner.new
+      manager = build_lock_manager(runner)
+
+      manager.acquire
+
+      remote_commands_for(runner).should_not contain("rm -rf #{LOCK_DIRECTORY}")
+    end
   end
 
   describe "#status" do

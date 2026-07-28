@@ -187,6 +187,12 @@ transfer tools, Podman secrets, local image availability for registry-free
 transfer, readability of every local `files:` source, kamal-proxy, the shared
 proxy network, accessory readiness, and same-host manifest collisions.
 
+A local `files:` source must be a readable regular file - the same thing the
+deploy reads - so a directory is reported as a failure. Accessory readiness is
+reported twice: every accessory sharing the service network gets a `local` row
+proving its readiness contract resolves, and accessories pinned to a checked
+host additionally get a live probe run against that host.
+
 Exit codes: `0` when all probes pass; `1` when at least one probe fails; other
 non-zero codes can occur for parse or config errors.
 

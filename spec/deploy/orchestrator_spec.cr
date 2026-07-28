@@ -1882,6 +1882,28 @@ describe "Meridian::Deploy::Orchestrator" do
       runner.invocations.none? { |invocation| invocation.host == "192.168.1.12" }.should be_true
     end
 
+    # Only the first error is propagated, so without a per-host line the other
+    # failures in the batch never reach the operator.
+    it "logs every failing host in a batch, not just the one it reports" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.10", health_attempts: 1)
+      enqueue_zero_downtime_health_failure_for_host(runner, "192.168.1.11", health_attempts: 1)
+      orchestrator = build_orchestrator(
+        content: fast_health_config(multi_host_config(boot_limit: 2)),
+        runner: runner,
+        output: output
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /Health check failed/) do
+        orchestrator.deploy
+      end
+
+      text = output.to_s
+      text.should contain("[192.168.1.10] Deploy failed:")
+      text.should contain("[192.168.1.11] Deploy failed:")
+    end
+
     it "prefixes log output with the host address" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new

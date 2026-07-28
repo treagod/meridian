@@ -346,6 +346,71 @@ describe "Meridian::Commands::Check" do
       output.to_s.should contain("accessory-readiness:cache")
     end
 
+    # A deploy gates on every accessory sharing the service network regardless of
+    # `host:`, so resolution has to be reported even where no host probes it live.
+    it "reports unresolvable readiness for a co-network accessory pinned to no host" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            search:
+              image: myorg/custom:1
+              network: myapp.network
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("accessory-readiness:search")
+      text.should contain("cannot infer readiness")
+      text.should contain("Check failed")
+    end
+
+    it "passes readiness resolution for a co-network accessory with an explicit ready block" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            search:
+              image: myorg/custom:1
+              network: myapp.network
+              ready:
+                tcp: 9200
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+
+      command.run.should be_true
+
+      output.to_s.should contain("accessory-readiness:search")
+    end
+
     it "fails when the readiness probe image is missing on a proxied host" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new
@@ -719,6 +784,49 @@ describe "Meridian::Commands::Check" do
       text.should contain("file:#{missing_path}")
       text.should contain("not found or unreadable")
       text.should contain("Check failed")
+    end
+
+    # `File::Info.readable?` says yes to a directory, but the deploy reads the
+    # source and fails with EISDIR - check has to agree with the deploy.
+    it "fails when a files: source is a directory" do
+      with_tempdir do |dir|
+        source_path = File.join(dir, "config")
+        Dir.mkdir(source_path)
+
+        runner = FakeSSHRunner.new
+        output = IO::Memory.new
+        command = build_check_command(
+          content: <<-YAML,
+            service: myapp
+            image: registry.example.com/myorg/myapp
+
+            servers:
+              web:
+                hosts:
+                  - 192.168.1.10
+
+            files:
+              - source: #{source_path}
+                destination: /home/deploy/nginx.conf
+            YAML
+          runner: runner,
+          output: output
+        )
+
+        runner.enqueue_results(
+          ssh_ok,
+          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok,
+          ssh_ok
+        )
+
+        command.run.should be_false
+
+        text = output.to_s
+        text.should contain("file:#{source_path}")
+        text.should contain("not found or unreadable")
+        text.should contain("Check failed")
+      end
     end
 
     it "skips file sources scoped to roles outside the selected targets" do

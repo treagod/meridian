@@ -666,6 +666,9 @@ module Meridian
           batch.size.times do
             result = batch_result_channel.receive
             if error = result.error
+              # Only the first error is propagated, so every other failing host in
+              # the batch would otherwise vanish from the operator's output.
+              log(result.host, "Deploy failed: #{error.message}")
               abort_rollout.request(error)
               batch_errors << error
             else

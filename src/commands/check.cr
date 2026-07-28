@@ -30,7 +30,9 @@ rescue
   false
       end
 
-      DEFAULT_LOCAL_FILE_PROBE = ->(path : String) { File::Info.readable?(path) }
+      # Must agree with what `upload_file_syncs` does: deploy reads the source, so
+      # a directory or a special file fails there even though it is "readable".
+      DEFAULT_LOCAL_FILE_PROBE = ->(path : String) { File.file?(path) && File::Info.readable?(path) }
 
       @local_image_probe : LocalImageProbe
       @local_file_probe : LocalFileProbe
@@ -80,6 +82,7 @@ rescue
 
         rows.concat(check_local_images(targets))
         rows.concat(check_local_files(targets))
+        rows.concat(check_accessory_readiness_resolution)
 
         print_rows(rows)
         passed = rows.all?(&.passed)
@@ -219,10 +222,37 @@ rescue
         results
       end
 
-      private def accessory_readiness_probes(host : String) : Array(ProbeResult)
+      # Accessories sharing the app's service network, and therefore gated on
+      # before the app starts. Mirrors `Deploy::Orchestrator#co_network_accessories`,
+      # which selects on the network alone - `host:` is optional and does not
+      # narrow what a deploy waits for.
+      private def co_network_accessories : Hash(String, Config::AccessoryConfig)
         ref = "#{@config.service}.network"
-        accessories = @config.accessories || EMPTY_ACCESSORIES
-        names = accessories.select { |_, accessory| accessory.network == ref && accessory.host == host }.keys.sort!
+        (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
+      end
+
+      # Resolving a readiness contract is pure and local - the same thing the
+      # deploy's pre-lock `validate_accessory_readiness!` does - so it covers
+      # every co-network accessory, including those no single host would probe.
+      private def check_accessory_readiness_resolution : Array(ProbeResult)
+        accessories = co_network_accessories
+        accessories.keys.sort!.map_with_index do |name, index|
+          position = 100 + index
+          probe = "accessory-readiness:#{name}"
+          begin
+            ready = accessories[name].effective_ready(name)
+            pass("local", probe, position, ready.summary)
+          rescue ex : Config::ValidationError
+            fail("local", probe, position, ex.message || "unresolved readiness")
+          end
+        end
+      end
+
+      # The live probe stays host-scoped: unlike resolution, it needs somewhere
+      # to run.
+      private def accessory_readiness_probes(host : String) : Array(ProbeResult)
+        accessories = co_network_accessories.select { |_, accessory| accessory.host == host }
+        names = accessories.keys.sort!
 
         names.map_with_index do |name, index|
           accessory = accessories[name]

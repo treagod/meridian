@@ -1,8 +1,5 @@
 # Rails + Postgres
 
-Status: verified example; deployed end-to-end on a fresh Ubuntu 24.04 host by
-`make e2e-rails-postgres`.
-
 Classic [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/)
 deployment without Docker on the server. The target host runs rootless Podman
 Quadlets, and the image is transferred over SSH.

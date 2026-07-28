@@ -1,7 +1,5 @@
 # Marten + SQLite + Assets CDN
 
-Status: verified example based on an anonymized production deployment.
-
 Small [Marten](https://martenframework.com/) deployment with no database
 accessory. [SQLite](https://sqlite.org/) lives on a named Podman volume, while
 fingerprinted static assets are published on a separate hostname.
@@ -181,21 +179,3 @@ meridian plan
 meridian check
 meridian deploy
 ```
-
-## Local E2E Test
-
-Meridian's repository includes an executable version of this recipe:
-
-```bash
-make e2e-marten
-```
-
-The test creates a temporary Ubuntu 24.04 Lima VM and exercises the real
-fresh-host path: bootstrap, secret creation, proxy setup, migration, asset
-publication, first deploy, and a second blue/green deploy. It also writes a
-SQLite record through the application and verifies that both the record and
-the fingerprinted CSS remain available after the color switch.
-
-Requirements are macOS, Lima 2+, Podman, Crystal, `curl`, `expect`,
-`ssh-keygen`, and `nc`. `KEEP_VM=1 make e2e-marten` retains the VM and work
-directory when debugging.

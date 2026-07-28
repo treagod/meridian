@@ -64,6 +64,18 @@ module Meridian
           )
         end
 
+        establish_lock(host, message)
+      rescue ex : SSH::CommandFailed | SSH::ConnectionError
+        raise LockError.new(ex.message || "Failed to acquire deploy lock")
+      end
+
+      # Fill in the lock directory we just created. It is already ours, so every
+      # failure from here on has to hand it back - otherwise the next deploy
+      # inherits a lock nobody holds that only `meridian lock release` can clear.
+      # The rescue is deliberately unfiltered: an unexpected error is exactly the
+      # case that used to strand the lock. It re-raises rather than handling, so
+      # the caller above still does the `LockError` conversion.
+      private def establish_lock(host : String, message : String?) : Runtime::LockMetadata
         metadata = Runtime::LockMetadata.new(
           actor: @actor.call,
           acquired_at: @clock.call.to_rfc3339,
@@ -72,8 +84,9 @@ module Meridian
         upload(host, metadata_file, "#{metadata.to_json}\n")
         @audit_logger.record(host, "lock", acquire_detail(metadata))
         metadata
-      rescue ex : SSH::CommandFailed | SSH::ConnectionError
-        raise LockError.new(ex.message || "Failed to acquire deploy lock")
+      rescue ex
+        discard_partial_lock(host)
+        raise ex
       end
 
       # Release the deploy lock. A stale lock is only ever cleared by an
@@ -124,6 +137,15 @@ module Meridian
         Runtime::LockMetadata.from_json(text)
       rescue JSON::ParseException
         nil
+      end
+
+      # Best-effort cleanup of a lock directory we created but never finished
+      # taking. Deliberately not `release`: there is no metadata to announce and
+      # nothing to audit as released. A failure here is not worth masking the
+      # original error that got us here.
+      private def discard_partial_lock(host : String) : Nil
+        run_ssh(host, ["rm", "-rf", lock_directory])
+      rescue SSH::CommandFailed | SSH::ConnectionError
       end
 
       private def directory_exists?(host : String, path : String) : Bool

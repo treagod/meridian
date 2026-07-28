@@ -1,7 +1,5 @@
 # Static Site Behind kamal-proxy
 
-Status: draft example awaiting maintainer verification.
-
 Static HTML served by [Caddy](https://caddyserver.com/) behind kamal-proxy.
 There is no framework, database, or accessory service.
 
