@@ -52,16 +52,6 @@ private SHARED_HOST_CONFIG = <<-YAML
       image: ghcr.io/basecamp/kamal-proxy:latest
   YAML
 
-private NO_WEB_CONFIG = <<-YAML
-    service: myapp
-    image: registry.example.com/myorg/myapp
-
-    servers:
-      workers:
-        hosts:
-          - 192.168.1.12
-  YAML
-
 describe Meridian::CLI::TargetSelector do
   describe "#resolve" do
     it "returns all role/host pairs when empty" do
@@ -172,15 +162,6 @@ describe Meridian::CLI::TargetSelector do
 
       expect_raises(ArgumentError, /--primary cannot be combined with --host/) do
         selector.resolve(load_config(SELECTOR_CONFIG))
-      end
-    end
-
-    it "raises when --primary is used without a web role" do
-      selector = Meridian::CLI::TargetSelector.new
-      selector.primary = true
-
-      expect_raises(ArgumentError, /--primary requires a 'web' role/) do
-        selector.resolve(load_config(NO_WEB_CONFIG))
       end
     end
   end

@@ -178,7 +178,7 @@ describe "Meridian::Commands::Status" do
           image: registry.example.com/myorg/myapp
 
           servers:
-            legacy:
+            web:
               hosts:
                 - 192.168.1.10
               managed: false

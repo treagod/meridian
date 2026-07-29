@@ -31,6 +31,10 @@ module Meridian
         raise ValidationError.new("Config key build is not yet supported") if build
         raise ValidationError.new("Missing required config key: servers") if servers.empty?
 
+        unless servers.has_key?("web")
+          raise ValidationError.new("Missing required config key: servers.web (web is the reserved role name for the proxied application)")
+        end
+
         unless /\A[a-zA-Z][a-zA-Z0-9_-]*\z/.matches?(service)
           raise ValidationError.new("Invalid service name #{service.inspect}: must start with a letter and contain only letters, digits, hyphens, and underscores")
         end
@@ -50,6 +54,10 @@ module Meridian
         if server.managed?
           unless server.units.empty?
             raise ValidationError.new("servers.#{role}.units requires managed: false")
+          end
+
+          if server.proxy && role != "web"
+            raise ValidationError.new("servers.#{role}.proxy is not supported: web is the only role that can be proxied")
           end
         else
           if server.units.empty?

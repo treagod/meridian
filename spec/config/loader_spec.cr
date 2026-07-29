@@ -170,6 +170,98 @@ describe "Meridian::Config::Loader" do
       message.should contain("managed: false")
     end
 
+    it "accepts a proxied web role alongside a non-proxied role" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+              app_port: 8000
+          workers:
+            hosts:
+              - 192.168.1.12
+            cmd: bin/sidekiq
+        YAML
+
+      config = Meridian::Config::Loader.load(write_config(yaml))
+      web_proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+
+      web_proxy.host.should eq("myapp.example.com")
+      web_proxy.app_port.should eq(8000)
+      config.servers["workers"].proxy.should be_nil
+    end
+
+    it "rejects proxy configuration on a role other than web" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+          admin:
+            hosts:
+              - 192.168.1.12
+            proxy:
+              host: admin.example.com
+        YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("servers.admin.proxy")
+      message.should contain("web is the only role that can be proxied")
+    end
+
+    it "rejects proxy configuration on an unmanaged role" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            managed: false
+            units:
+              - myapp.service
+            proxy:
+              host: myapp.example.com
+        YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("servers.web.proxy is not supported when managed: false")
+    end
+
+    it "rejects a config without a web role" do
+      yaml = <<-YAML
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          workers:
+            hosts:
+              - 192.168.1.12
+            cmd: bin/sidekiq
+        YAML
+
+      ex = expect_raises(Meridian::Config::ValidationError) do
+        Meridian::Config::Loader.load(write_config(yaml))
+      end
+      message = ex.message || raise "Expected validation error message"
+      message.should contain("servers.web")
+    end
+
     it "parses a per-role image override" do
       yaml = <<-YAML
         service: myapp

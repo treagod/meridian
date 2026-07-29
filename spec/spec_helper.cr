@@ -524,6 +524,23 @@ FULL_CONFIG = <<-YAML
             - POSTGRES_PASSWORD
   YAML
 
+PROXIED_NON_WEB_ROLE_CONFIG = <<-YAML
+    service: myapp
+    image: registry.example.com/myorg/myapp
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: myapp.example.com
+      admin:
+        hosts:
+          - 192.168.1.12
+        proxy:
+          host: admin.example.com
+  YAML
+
 FULL_CONFIG_WITH_KEYS = <<-YAML
     service: myapp
     image: registry.example.com/myorg/myapp
