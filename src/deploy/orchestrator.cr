@@ -708,10 +708,16 @@ module Meridian
         DeployFailed.new("#{context} failed: #{ex.class.name}: #{ex.message}", ex)
       end
 
+      # Keyed on `proxy:` alone, like every other proxy-aware branch (Quadlet unit
+      # naming, status, logs, exec, manifest). Config validation guarantees only the
+      # web role can carry `proxy:`, so a role name check here would be redundant -
+      # and a second, weaker copy of that rule is what previously let a proxied role
+      # deploy through the restart-in-place path while the rest of the CLI looked for
+      # blue/green units.
       private def deploy_host(host : String, role : String) : Nil
         server = server_config(role)
 
-        if role == "web" && server.proxy
+        if server.proxy
           zero_downtime_deploy_to_host(host, role)
         else
           deploy_to_host(host, role)

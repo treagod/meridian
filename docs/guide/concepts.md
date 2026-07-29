@@ -155,9 +155,11 @@ For a worked setup, see [Multi-App Hosting](/guide/multi-app).
 
 ## Blue/Green
 
-Meridian keeps one active color and one candidate color for proxied managed
-roles. If `active-color` says `blue`, the next deploy starts `green`; if it says
-`green`, the next deploy starts `blue`.
+Meridian keeps one active color and one candidate color for the proxied managed
+role. `web` is a reserved role name: it is the only role that may declare
+`proxy:`, so exactly one role per service is deployed this way. If `active-color`
+says `blue`, the next deploy starts `green`; if it says `green`, the next deploy
+starts `blue`.
 
 ```text
 before deploy:  active-color=blue   proxy -> my-app-blue
@@ -174,8 +176,8 @@ records an audit entry.
 
 ## Non-Proxied Managed Roles
 
-A managed role without `proxy:` has one stable unit named
-`<service>-<role>.service`. Deploy uploads the matching
+Every managed role other than `web` — and `web` itself when it has no `proxy:` —
+has one stable unit named `<service>-<role>.service`. Deploy uploads the matching
 `<service>-<role>.container` and restarts it in place, so a short interruption
 is expected. `status`, `logs`, and `exec` target that role unit directly instead
 of consulting active-colour state.

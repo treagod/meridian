@@ -73,6 +73,9 @@ describe "Meridian::Commands::Exec" do
         image: registry.example.com/myorg/myapp
 
         servers:
+          web:
+            hosts:
+              - 192.168.1.10
           legacy:
             hosts:
               - 192.168.1.10

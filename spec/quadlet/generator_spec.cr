@@ -765,6 +765,9 @@ describe "Meridian::Quadlet::Generator" do
         image: registry.example.com/myorg/myapp
 
         servers:
+          web:
+            hosts:
+              - 192.168.1.10
           workers:
             hosts:
               - 192.168.1.12

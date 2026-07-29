@@ -153,6 +153,9 @@ describe "Meridian::Commands::Plan" do
         service: myapp
         image: example.com/myapp
         servers:
+          web:
+            hosts:
+              - 192.168.1.50
           legacy:
             hosts:
               - 192.168.1.50
@@ -220,5 +223,15 @@ describe "meridian plan CLI" do
 
     result.exit_code.should eq(1)
     result.output.should contain("servers")
+  end
+
+  it "returns non-zero and names the role when a non-web role is proxied" do
+    path = write_config(PROXIED_NON_WEB_ROLE_CONFIG)
+
+    result = run_cli(["plan", "--config", path])
+
+    result.exit_code.should eq(1)
+    result.output.should contain("servers.admin.proxy")
+    result.output.should_not contain("service:   myapp")
   end
 end

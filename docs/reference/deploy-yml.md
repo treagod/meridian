@@ -18,7 +18,7 @@ the resolved deploy intent without SSH or registry access.
 | `service` | `String` | Required | `my-app` | Must start with a letter and contain only letters, digits, hyphens, and underscores. |
 | `image` | `String` | Required | `ghcr.io/acme/my-app:latest` | Used by every role unless `servers.<role>.image` overrides it. |
 | `build` | `BuildConfig` | Optional, but unsupported | See [build](#build) | Any present `build:` block fails with `Config key build is not yet supported`. |
-| `servers` | map of role name to `ServerConfig` | Required, non-empty | `web: { hosts: [...] }` | Role names are user-defined; `assets:` requires `servers.web.proxy`. |
+| `servers` | map of role name to `ServerConfig` | Required, non-empty | `web: { hosts: [...] }` | Must define a `web` role; other role names are user-defined. `assets:` requires `servers.web.proxy`. |
 | `proxy` | `ProxyConfig` | Optional | `image: docker.io/basecamp/kamal-proxy:v0.9.2` | Configures the shared host-level kamal-proxy service used by proxied roles. |
 | `registry` | `RegistryConfig` | Optional | `server: ghcr.io` | Used before registry pulls when credentials are configured. |
 | `env` | `EnvConfig` | Optional | `clear: { MARTEN_ENV: production }` | Applied to app containers and one-off run containers. |
@@ -73,8 +73,10 @@ a registry-free transfer mode.
 
 ## `servers.<role>`
 
-Each key under `servers:` is a role name. `web` is the conventional proxied role
-and is required when `assets:` is configured.
+Each key under `servers:` is a role name. `web` is a reserved role name: every
+config must define `servers.web`, and it is the only role that may declare
+`proxy:`. Meridian supports exactly one proxied role in this release. Other role
+names are user-defined.
 
 ```yaml
 servers:
@@ -95,13 +97,15 @@ servers:
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `hosts` | `Array(String)` | Optional, default `[]` | `["prod-01.example.com"]` | Commands have no targets if a role has no hosts. |
-| `proxy` | `ServerProxyConfig` | Optional | See [role proxy](#serversroleproxy) | Only supported when `managed: true`. |
+| `proxy` | `ServerProxyConfig` | Optional | See [role proxy](#serversroleproxy) | Only supported on the `web` role, and only when `managed: true`. |
 | `cmd` | `String` | Optional | `bin/jobs` | Appends a container command for managed roles; forbidden when `managed: false`. |
 | `image` | `String` | Optional | `ghcr.io/acme/my-worker:latest` | Overrides top-level `image` for this role. |
 | `managed` | `Bool` | Optional, default `true` | `false` | `false` switches to existing-unit compatibility mode. |
 | `units` | `Array(String)` | Optional, default `[]` | `["legacy-app.service"]` | Required when `managed: false`; forbidden when `managed: true`. |
 
-Validation: unmanaged roles cannot define `proxy` or `cmd`, and must define at
+Validation: `servers.web` is required. `proxy:` on any other role fails with
+`servers.<role>.proxy is not supported: web is the only role that can be
+proxied`. Unmanaged roles cannot define `proxy` or `cmd`, and must define at
 least one `units` entry.
 
 Managed roles use one of two unit models:
@@ -115,6 +119,7 @@ Managed roles use one of two unit models:
 ## `servers.<role>.proxy`
 
 Role-local proxy configuration enables blue/green cutover through kamal-proxy.
+Only `servers.web` may declare it — see [`servers.<role>`](#serversrole).
 
 ```yaml
 servers:
@@ -158,7 +163,7 @@ For failures, see [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeo
 
 Top-level proxy settings configure the shared kamal-proxy Quadlet installed by
 `meridian setup`. This block is optional; omit it to use Meridian's built-in
-kamal-proxy defaults. Role-level `servers.<role>.proxy` is what enables proxied
+kamal-proxy defaults. Role-level `servers.web.proxy` is what enables proxied
 deploys and route registration.
 
 ```yaml

@@ -120,6 +120,66 @@ describe "Meridian::CLI" do
       end
     end
 
+    it "rejects proxy on a non-web role before the deploy acquires a lock" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, PROXIED_NON_WEB_ROLE_CONFIG)
+
+        runner = FakeSSHRunner.new
+        result = run_cli(
+          ["deploy", "--config", config_path],
+          ssh_executor: Meridian::SSH::Executor.new(runner: runner)
+        )
+
+        result.exit_code.should eq(1)
+        result.output.should contain("servers.admin.proxy")
+        runner.invocations.should be_empty
+      end
+    end
+
+    it "rejects proxy on a non-web role when checking hosts" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, PROXIED_NON_WEB_ROLE_CONFIG)
+
+        runner = FakeSSHRunner.new
+        result = run_cli(
+          ["check", "--config", config_path],
+          ssh_executor: Meridian::SSH::Executor.new(runner: runner)
+        )
+
+        result.exit_code.should eq(1)
+        result.output.should contain("servers.admin.proxy")
+        runner.invocations.should be_empty
+      end
+    end
+
+    it "rejects a config without a web role before the deploy acquires a lock" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, <<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            workers:
+              hosts:
+                - 192.168.1.12
+              cmd: bin/sidekiq
+          YAML
+
+        runner = FakeSSHRunner.new
+        result = run_cli(
+          ["deploy", "--config", config_path],
+          ssh_executor: Meridian::SSH::Executor.new(runner: runner)
+        )
+
+        result.exit_code.should eq(1)
+        result.output.should contain("servers.web")
+        runner.invocations.should be_empty
+      end
+    end
+
     it "runs the setup subcommand with the loaded config" do
       fake_manager = nil.as(FakeProxyManager?)
       captured_service = nil.as(String?)
