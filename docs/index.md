@@ -265,7 +265,7 @@ function copyInstall() {
           <svg class="lucide lucide-key-round" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></svg>
         </div>
         <h3>Podman Secrets, not .env files</h3>
-        <p><code class="inline-code">meridian secret gen</code> and <code class="inline-code">meridian secret set</code> manage encrypted secrets on every host. Names listed under <code class="inline-code">env.secret</code> reach the container through the Quadlet's <code class="inline-code">Secret=</code> directive - nothing plaintext on disk, nothing baked into the image.</p>
+        <p><code class="inline-code">meridian secret gen</code> and <code class="inline-code">meridian secret set</code> push values over SSH stdin into Podman's secret store on every host, kept under whatever secret driver that host's Podman is configured to use. Names listed under <code class="inline-code">env.secret</code> are injected at container start through the Quadlet's <code class="inline-code">Secret=</code> directive - never committed to your repo, never baked into the image.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">

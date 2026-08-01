@@ -224,6 +224,13 @@ env:
 
 Use service-prefixed secret names when multiple apps share one host.
 
+Meridian creates these with `podman secret create` over SSH stdin and lets Podman
+store them with whatever secret driver is configured on that host; it does not
+select a driver itself, so the storage guarantees are the host's, not Meridian's.
+Each declared name is injected into the container at start through a generated
+Quadlet `Secret=` directive, so values stay out of `deploy.yml`, out of the image,
+and out of the generated unit file.
+
 ## `ssh`
 
 SSH settings used by remote commands and transfer helpers.
