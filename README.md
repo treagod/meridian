@@ -42,7 +42,9 @@ Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries
 meridian init                              # generates .meridian/deploy.yml from your project
 # edit .meridian/deploy.yml: set hosts, ssh.keys, image, and transfer mode
 meridian server bootstrap --host 1.2.3.4   # provisions a fresh Debian/Ubuntu box
+meridian secret gen SECRET_KEY_BASE        # every name under env.secret, per role
 meridian setup                             # installs the service network, shared proxy network, and kamal-proxy
+meridian accessory start postgres          # accessories are started explicitly, once each
 meridian check                             # preflight: SSH, Podman, secrets, proxy
 meridian deploy
 ```
