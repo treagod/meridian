@@ -89,7 +89,7 @@ module Meridian
     end
 
     class RailsDetector < Detector
-      UP_ROUTE_PATTERN = /["']\/up["']/
+      UP_ROUTE_PATTERN = /["']\/?up["']/
 
       def detect : DetectedFramework?
         return unless root_file?("Gemfile")

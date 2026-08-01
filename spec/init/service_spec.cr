@@ -6,6 +6,13 @@ DEFAULT_INIT_MARTEN_ROUTES = <<-CRYSTAL
   end
   CRYSTAL
 
+DEFAULT_INIT_RAILS_ROUTES = <<-RUBY
+  Rails.application.routes.draw do
+    root "home#index"
+    get "up" => "rails/health#show", as: :rails_health_check
+  end
+  RUBY
+
 private def run_init_service(
   root : String,
   input_string : String,
@@ -31,6 +38,12 @@ private def write_init_marten_project(root : String, routes_content : String = D
   write_project_file(root, "src/server.cr", "require \"./project\"\n\nMarten.start\n")
   write_project_file(root, "config/routes.cr", routes_content)
   write_project_file(root, "config/settings/base.cr", "Marten.configure do |config|\nend\n")
+end
+
+private def write_init_rails_project(root : String, routes_content : String = DEFAULT_INIT_RAILS_ROUTES)
+  write_project_file(root, "Gemfile", "source \"https://rubygems.org\"\ngem \"rails\"\n")
+  write_project_file(root, "config.ru", "require_relative \"config/environment\"\nrun Rails.application\n")
+  write_project_file(root, "config/routes.rb", routes_content)
 end
 
 describe "Meridian::Init::Service" do
@@ -116,6 +129,25 @@ describe "Meridian::Init::Service" do
       proxy = config.servers["web"].proxy || raise "Expected web proxy config"
       proxy.app_port.should eq(8000)
       proxy.healthcheck.path.should eq("/health")
+    end
+  end
+
+  it "renders the Rails /up healthcheck path" do
+    with_tempdir do |path|
+      write_init_rails_project(path)
+
+      run_init_service(
+        path,
+        "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
+      )
+
+      deploy_yml = File.read(File.join(path, ".meridian/deploy.yml"))
+      deploy_yml.should contain("path: /up")
+
+      config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
+      proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      proxy.healthcheck.path.should eq("/up")
+      proxy.app_port.should eq(3000)
     end
   end
 

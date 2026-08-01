@@ -89,6 +89,42 @@ describe "Meridian::Init::FrameworkDetector" do
     end
   end
 
+  it "detects the standard generated Rails up route" do
+    with_tempdir do |path|
+      write_rails_project(path, <<-RUBY)
+          Rails.application.routes.draw do
+            root "home#index"
+            get "up" => "rails/health#show", as: :rails_health_check
+          end
+        RUBY
+
+      framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
+
+      framework.name.should eq("Rails")
+      framework.healthcheck_path.should eq("/up")
+      framework.note.should be_nil
+    end
+  end
+
+  it "does not treat unrelated Rails routes containing up as a health route" do
+    with_tempdir do |path|
+      write_rails_project(path, <<-RUBY)
+          Rails.application.routes.draw do
+            get "signup" => "users#new"
+            get "/backup" => "backups#index"
+            resources :uploads
+          end
+        RUBY
+
+      framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
+
+      framework.name.should eq("Rails")
+      framework.healthcheck_path.should be_nil
+      note = framework.note || raise "Expected framework note"
+      note.should contain("/health")
+    end
+  end
+
   it "prefers Marten over other repo-root markers" do
     with_tempdir do |path|
       write_marten_project(path)
