@@ -8,7 +8,7 @@ description: A native CLI that ships your containers to any Linux box - Podman Q
 import './.vitepress/theme/landing.css'
 import { ref } from 'vue'
 
-const installCmd = 'curl -fsSL meridian-deploy.dev/install.sh | sh'
+const installCmd = 'curl -fsSL https://meridian-deploy.dev/install.sh | sh'
 const copyLabel = ref('COPY')
 
 function copyInstall() {
