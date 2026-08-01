@@ -146,9 +146,9 @@ function copyInstall() {
   <div class="container">
     <div class="section-header">
       <span class="section-eyebrow">The flow</span>
-      <h2 class="section-title">Three commands from <em>repo to running.</em></h2>
+      <h2 class="section-title">From repo to <em>running.</em></h2>
       <p class="section-sub">
-        No Kubernetes. No Docker Swarm. No CI/CD rebuild loop. Meridian is an imperative CLI that does what you tell it, when you tell it.
+        No Kubernetes. No Docker Swarm. No CI/CD rebuild loop. Meridian is an imperative CLI that does what you tell it, when you tell it. A fresh host is prepared once; after that the loop is build and deploy. Full sequence in the <a href="/guide/quickstart">Quickstart</a>.
       </p>
     </div>
     <div class="steps-grid">
@@ -161,20 +161,20 @@ function copyInstall() {
         <span class="step-cmd">$ meridian init</span>
       </div>
       <div class="step">
-        <span class="step-num">II · Deploy</span>
-        <h3>Ship, run, supervise</h3>
+        <span class="step-num">II · Prepare the host</span>
+        <h3>Once per server</h3>
         <p>
-          Send the image you've already built to each host - registry pull, SSH stream, or rsync'd OCI layout. systemd takes over through a Quadlet unit. No Docker daemon on the target.
+          Bootstrap provisions a fresh Debian or Ubuntu box - deploy user, Podman, rootless directories, hardened SSH. Setup adds the service and proxy networks and starts <code class="inline-code">kamal-proxy</code>.
         </p>
-        <span class="step-cmd">$ meridian deploy</span>
+        <span class="step-cmd">$ meridian server bootstrap --host 1.2.3.4<br>$ meridian setup</span>
       </div>
       <div class="step">
-        <span class="step-num">III · Cut over</span>
+        <span class="step-num">III · Ship</span>
         <h3>Zero-downtime release</h3>
         <p>
-          <code class="inline-code">kamal-proxy</code> routes traffic from the old container to the new one only after health checks pass. Rollback is a single command.
+          Send the image you've already built to each host - registry pull, SSH stream, or rsync'd OCI layout. systemd takes over through a Quadlet unit, and <code class="inline-code">kamal-proxy</code> switches traffic only after health checks pass.
         </p>
-        <span class="step-cmd">$ meridian rollback</span>
+        <span class="step-cmd">$ meridian deploy</span>
       </div>
     </div>
   </div>
@@ -419,7 +419,7 @@ function copyInstall() {
     <details class="faq-item">
       <summary>What about databases, Redis, background jobs?</summary>
       <div class="answer">
-        Accessory services are first-class - define them in <code>deploy.yml</code> and they deploy alongside your app. Meridian treats them as Quadlet units too, which means systemd handles their lifecycle consistently with everything else.
+        Accessory services are first-class - define them in <code>deploy.yml</code> and start them explicitly with <code>meridian accessory start</code>. They run as their own Quadlet units, so systemd handles their lifecycle consistently with everything else, on their own schedule instead of inside the rolling deploy. An accessory on the service network gates the deploy: the new colour won't start until it passes its readiness probe.
       </div>
     </details>
     </div>
