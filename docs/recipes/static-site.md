@@ -29,7 +29,7 @@ transfer:
   mode: stream
 ```
 
-See [`servers.<role>.proxy`](/reference/deploy-yml#serversroleproxy) and
+See [`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy) and
 [`transfer`](/reference/deploy-yml#transfer).
 
 ## `Containerfile`

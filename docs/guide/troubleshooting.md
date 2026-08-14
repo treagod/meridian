@@ -112,7 +112,7 @@ meridian check
 meridian deploy
 ```
 
-The accessory readiness gate waits before starting the new app color; see [Accessory readiness](/reference/#accessory-readiness).
+The accessory readiness gate waits before starting the new app color; see [Accessory readiness](/reference/deploy-yml#accessory-readiness).
 
 ## kamal-proxy `bind: permission denied` On Port 80
 
@@ -136,7 +136,8 @@ meridian setup
 meridian check
 ```
 
-`meridian server bootstrap` provisions the low-port setting; `meridian setup` writes and starts the shared proxy Quadlet.
+Bootstrap is what sets `net.ipv4.ip_unprivileged_port_start`; re-running it on an
+already-provisioned host is safe. `setup` then writes and starts the proxy Quadlet.
 
 ## Lets Encrypt Issuance Hangs
 
@@ -166,9 +167,13 @@ Do not enable `ssl: true` until public DNS points at the target host.
 
 ## Distroless Or Scratch Image Has No `curl` Or `wget`
 
-Problem: the app starts, but you expect Meridian's health probe to fail because the app image is distroless or `FROM scratch`.
+Not actually a problem, but it comes up often enough to answer here: Meridian never
+runs `curl` or `wget` inside your app image. The health probe runs from a temporary
+container on `meridian-proxy` and reaches the app over the network, so a distroless or
+`FROM scratch` image with no shell works fine.
 
-Root cause: this is usually not a problem. Meridian does not run `curl` or `wget` inside the app image; it runs a temporary probe container on `meridian-proxy`.
+The one case where it does break is when the *probe* image cannot be pulled on the
+host.
 
 Diagnose:
 
@@ -188,7 +193,7 @@ meridian check
 meridian deploy
 ```
 
-The relevant field is `servers.<role>.proxy.healthcheck.probe_image`; see [Health check tuning](/reference/#health-check-tuning).
+The relevant field is `servers.<role>.proxy.healthcheck.probe_image`; see [Health check tuning](/reference/deploy-yml#healthcheck).
 
 ## Stale Deploy Lock
 

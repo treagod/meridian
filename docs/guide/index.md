@@ -1,30 +1,25 @@
 # Guide
 
-Welcome to the Meridian guide. This documentation is still being built out.
+Meridian deploys containers to Linux servers you already have: SSH in, write Podman
+Quadlets, let systemd supervise them, and switch traffic with kamal-proxy. This guide
+takes you from install to a running production deployment.
 
-Marten is a first-class target: `meridian init` already recognizes the standard project layout and generates sensible production defaults for it. Meridian also detects Rails, Elixir, Go, and Node projects.
-
-## What This Guide Covers
-
-This guide is meant to take you from the first install to a production deployment:
-
-- Installation and initial configuration
-- Initializing your first project
-- Deploying to your own server
-- Rollbacks, accessories, and troubleshooting
-
-For the technical details, see the [Reference](/reference/). For complete
-starter configs, see the [Recipes](/recipes/).
+`meridian init` reads your project and writes a config that fits it — Marten, Rails,
+Elixir, Go, and Node are each recognized by their standard layout and get the
+production defaults that framework expects.
 
 ## Pages
 
-- [Quickstart](/guide/quickstart) - install Meridian, initialize a project, run the preflight check, and deploy.
-- [Concepts](/guide/concepts) - understand deploy flow, Quadlets, runtime state, same-host topology, and blue/green.
-- [Multi-App Hosting](/guide/multi-app) - add a second app to a VPS that already runs one Meridian service.
-- [Pre-Flight Checklist](/guide/preflight) - verify DNS, images, app ports, secrets, and accessories before deploy.
-- [Troubleshooting](/guide/troubleshooting) - diagnose common first-deploy failures with copy-paste commands.
+- [Quickstart](/guide/quickstart) — install, initialize, provision a host, deploy.
+- [Concepts](/guide/concepts) — deploy flow, Quadlets, runtime state, same-host
+  topology, blue/green. Read this before debugging anything.
+- [Multi-App Hosting](/guide/multi-app) — add a second app to a VPS that already runs
+  one Meridian service.
+- [Pre-Flight Checklist](/guide/preflight) — DNS, images, app ports, secrets, and
+  accessories, verified before the first deploy.
+- [Troubleshooting](/guide/troubleshooting) — the failures you actually hit, with
+  copy-paste diagnostics.
 
-## Where To Go Next
-
-- [Recipes](/recipes/) - copy-pasteable `deploy.yml` and `Containerfile` starters.
-- [Reference](/reference/) - schema and command details.
+Beyond the guide: [Recipes](/recipes/) are complete `deploy.yml` and `Containerfile`
+starters per stack, and the [Reference](/reference/) documents every config key and
+command.

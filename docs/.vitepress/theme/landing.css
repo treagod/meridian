@@ -74,12 +74,15 @@
     vertical-align: middle;
 }
 
-/* --- navigation --- */
+/* --- navigation ---
+   Sizing and tint come from the --md-nav-* tokens in custom.css, which the docs
+   navbar reads as well. Both stylesheets ship in one bundle on every page, so the
+   two bars cannot drift apart. */
 .landing-root nav.top {
     position: sticky;
     top: 0;
     z-index: 50;
-    background: rgba(12, 17, 40, 0.7);
+    background: var(--md-nav-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(232, 184, 70, 0.08);
@@ -88,22 +91,22 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 64px;
+    height: var(--md-nav-height);
     gap: 1rem;
 }
 .landing-root .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--md-nav-brand-gap);
     min-width: 0;
     font-family: var(--serif);
     font-weight: 600;
-    font-size: 20px;
+    font-size: var(--md-nav-title-size);
     letter-spacing: 0.01em;
 }
 .landing-root .brand-mark {
-    width: 32px;
-    height: 32px;
+    width: var(--md-nav-logo-size);
+    height: var(--md-nav-logo-size);
     flex-shrink: 0;
     display: block;
     object-fit: contain;
@@ -173,18 +176,8 @@
     }
 }
 
+/* Bar height, logo and wordmark shrink via the --md-nav-* tokens (custom.css). */
 @media (max-width: 420px) {
-    .landing-root nav.top .container {
-        height: 58px;
-    }
-    .landing-root .brand {
-        gap: 8px;
-        font-size: 18px;
-    }
-    .landing-root .brand-mark {
-        width: 28px;
-        height: 28px;
-    }
     .landing-root nav .cta {
         padding: 7px 11px;
         font-size: 12px;

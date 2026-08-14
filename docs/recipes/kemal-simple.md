@@ -35,7 +35,7 @@ transfer:
   mode: stream
 ```
 
-See [`servers.<role>`](/reference/deploy-yml#serversrole),
+See [`servers.<role>`](/reference/deploy-yml#servers-role),
 [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck), and
 [`transfer`](/reference/deploy-yml#transfer).
 
@@ -82,9 +82,6 @@ end
 Kemal.config.port = 3000
 Kemal.run
 ```
-
-The Kemal app only needs to expose `/health`. During deploy, Meridian runs the
-temporary probe container on `meridian-proxy.network` and calls that endpoint.
 
 ## Commands
 

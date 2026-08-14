@@ -4,8 +4,6 @@ Deploy containers to Linux servers over SSH. No Docker, no Kubernetes, no regist
 
 Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they end up as ordinary systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Traffic switches through [kamal-proxy](https://github.com/basecamp/kamal-proxy) with no dropped requests. Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH.
 
-> **Don't run this in production yet.** It works and runs real deploys, but the config format isn't frozen, and breaking changes will land whenever a better shape turns up.
-
 ## Why this exists
 
 [Kamal 2.0](https://kamal-deploy.org) is great. It would be the obvious choice if it didn't insist on Docker on every server and a registry for every deploy. Meridian skips both.
@@ -206,7 +204,7 @@ Full docs live at [meridian-deploy.dev](https://meridian-deploy.dev).
 
 ## Contributing
 
-The current focus is shaking out config-format mistakes before anything gets tagged stable. After that, roughly in order: a `build:` section, better error messages on the failure paths in `check`, and more verified recipes as real deployments exercise them.
+Current priorities are a `build:` section, better error messages on the failure paths in `check`, and more recipes verified through real deployments.
 
 Issues and PRs are welcome. For anything non-trivial, open an issue first — better to have the design conversation before the code gets written.
 

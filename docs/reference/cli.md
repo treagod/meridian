@@ -1,70 +1,72 @@
 # CLI
 
-This page documents the commands that exist in the current Meridian CLI. Usage
-lines match `meridian <command> --help`; use `--config PATH` on config-backed
-commands when your deploy file is not `.meridian/deploy.yml`.
+Every command in the current Meridian CLI. Run `meridian COMMAND --help` for the
+authoritative flag list.
 
-Exit codes are simple: `0` means the command completed successfully, and any
-non-zero code means the command failed. Validation errors, SSH failures,
-preflight probe failures, missing secrets, healthcheck timeouts, and deploy-lock
-contention all return non-zero.
+## Common Flags
+
+Every config-backed command accepts these, so they are not repeated per command:
+
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
+| `-h`, `--help` | n/a | Print help and exit. |
+
+`init` takes no `--config` — it is what writes the config in the first place.
+
+## Exit Codes
+
+`0` means the command completed, anything else means it failed. Validation errors,
+SSH failures, preflight probe failures, missing secrets, healthcheck timeouts, and
+deploy-lock contention all return non-zero. Two groups deviate and say so in their
+own section: `check` returns `1` specifically when a probe fails, and the streaming
+commands pass the remote exit code through.
 
 ## Target Selectors
 
-Commands that inspect or operate on configured role hosts can narrow their
-target set.
+Commands that operate on configured role hosts can narrow the target set.
 
 | Flag | Default | What it does |
 | --- | --- | --- |
-| `--role ROLE` | all roles, or command-specific `web` where noted | Select hosts from one configured role. |
+| `--role ROLE` | all roles | Select every host of one configured role. |
 | `--host HOST` | all selected hosts | Select one configured host. |
-| `--primary` | `false` | Select the first host from each selected role. Cannot be combined with `--role` or `--host`. |
+| `--primary` | `false` | Select the first host of the `web` role. Cannot be combined with `--role` or `--host`. |
+
+`--role` and `--host` together select exactly that pair, and fail if the host is not
+configured for the role.
 
 ## `init` {#init}
 
-Purpose: generate `.meridian/deploy.yml` for the current project.
-
-```bash
-Usage: meridian init [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--force` | `false` | Overwrite an existing `.meridian/deploy.yml`. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: creates `.meridian/deploy.yml` and `.meridian/.gitignore` locally.
-It does not connect to any host and does not write runtime state under
-`~/.local/state/meridian/services/<service>/`.
-
-Exit codes: `0` on successful generation; non-zero when config generation,
-validation, or overwrite protection fails.
-
-Examples:
+Generates `.meridian/deploy.yml` for the current project by detecting the framework.
 
 ```bash
 meridian init
 meridian init --force
 ```
 
-Common failures: unsupported config keys after manual edits are covered by the
-[`deploy.yml` reference](/reference/deploy-yml). Relevant fields:
-[`service`](/reference/deploy-yml#service), [`image`](/reference/deploy-yml#image),
-[`servers.<role>`](/reference/deploy-yml#serversrole), and
-[`ssh`](/reference/deploy-yml#ssh).
+`--force` overwrites an existing config. Without it, an existing
+`.meridian/deploy.yml` is left alone and the command fails.
+
+Writes `.meridian/deploy.yml` and `.meridian/.gitignore` locally. No host is
+contacted, no runtime state is written.
+
+See [`service`](/reference/deploy-yml#service), [`image`](/reference/deploy-yml#image),
+[`servers.<role>`](/reference/deploy-yml#servers-role), [`ssh`](/reference/deploy-yml#ssh).
 
 ## `server bootstrap` {#server-bootstrap}
 
-Purpose: provision a fresh Debian/Ubuntu server so later Meridian commands can
-run as the deploy user.
+Provisions a fresh Debian or Ubuntu server so later commands can run as the deploy
+user. Expects root SSH with password login still enabled, and turns both off when it
+finishes.
 
 ```bash
-Usage: meridian server bootstrap --host HOST [options]
+meridian server bootstrap --host 203.0.113.10
+meridian server bootstrap --host prod-01.example.com --root-user ubuntu --deploy-user deploy
 ```
 
 | Flag | Default | What it does |
 | --- | --- | --- |
-| `--host HOST` | inferred only when config has one host | Server IP or hostname to provision. |
+| `--host HOST` | inferred only when the config has exactly one host | Server IP or hostname to provision. |
 | `--port PORT` | `ssh.port` or `22` | SSH port for the initial root connection. |
 | `--root-user USER` | `root` | Privileged user used before the deploy user exists. |
 | `--deploy-user USER` | `ssh.user` | User to create for future Meridian commands. |
@@ -74,509 +76,308 @@ Usage: meridian server bootstrap --host HOST [options]
 | `--passwordless-sudo BOOL` | `yes` | Allow passwordless sudo for the deploy user. |
 | `--rootless-low-ports BOOL` | `yes` | Allow rootless containers to bind ports such as 80 and 443. |
 | `--rootless-port-start PORT` | `80` | Lowest port rootless containers may bind. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file used for host, SSH, and transfer defaults. |
-| `-h`, `--help` | n/a | Print help. |
 
-Side effects: installs Podman, UFW, transfer tools, and rootless prerequisites;
-creates the deploy user; installs your SSH key; enables lingering; configures
-low-port binding and SSH hardening. It does not write service runtime state.
+Installs Podman, UFW, transfer tools, and rootless prerequisites; creates the deploy
+user; installs your SSH key; enables lingering; configures low-port binding and SSH
+hardening. It writes no service runtime state.
 
-Exit codes: `0` when provisioning completes; non-zero on SSH, package install,
-unsupported OS, key, or config failures.
-
-Examples:
-
-```bash
-meridian server bootstrap --host 203.0.113.10
-meridian server bootstrap --host prod-01.example.com --root-user ubuntu --deploy-user deploy
-```
-
-Common failures: low-port proxy failures are covered in
-[kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80).
-Relevant fields: [`ssh`](/reference/deploy-yml#ssh) and
-[`transfer`](/reference/deploy-yml#transfer).
+See [`ssh`](/reference/deploy-yml#ssh), [`transfer`](/reference/deploy-yml#transfer),
+and [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)
+if low ports stay blocked afterwards.
 
 ## `setup` {#setup}
 
-Purpose: install or refresh the shared host-level proxy and networks.
-
-```bash
-Usage: meridian setup [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: uploads and starts the service network on configured service
-hosts and service-networked accessory hosts; uploads `meridian-proxy.network`
-and `kamal-proxy.container` to web hosts; creates `proxy.data_dir`; runs
-`systemctl --user daemon-reload`; starts kamal-proxy; connects an
-already-running legacy proxy to the shared network when needed. It does not
-write per-service release state.
-
-Exit codes: `0` when proxy setup completes; non-zero on config, SSH, Podman, or
-systemd failure.
-
-Examples:
+Installs or refreshes the shared host-level proxy and the networks it needs. Run it
+once per service, before the first deploy; it is safe to re-run.
 
 ```bash
 meridian setup
 meridian setup --config config/production.yml
 ```
 
-Common failures: see [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)
-and [Lets Encrypt issuance hangs](/guide/troubleshooting#lets-encrypt-issuance-hangs).
-Relevant fields: [`proxy`](/reference/deploy-yml#proxy) and
-[`servers.<role>.proxy`](/reference/deploy-yml#serversroleproxy).
+Uploads and starts `<service>.network` on configured service hosts and on
+service-networked accessory hosts, uploads `meridian-proxy.network` and
+`kamal-proxy.container` to web hosts, creates `proxy.data_dir`, runs
+`systemctl --user daemon-reload`, and starts kamal-proxy. An already-running legacy
+proxy is connected to the shared network. No per-service release state is written.
+
+See [`proxy`](/reference/deploy-yml#proxy) and
+[`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy). Failures usually land
+in [bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)
+or [Lets Encrypt issuance hangs](/guide/troubleshooting#lets-encrypt-issuance-hangs).
 
 ## `proxy remove` {#proxy-remove}
 
-Purpose: remove this service's kamal-proxy routes and, when safe, the shared
-proxy.
-
-```bash
-Usage: meridian proxy remove [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `--force` | `false` | Remove the shared proxy even when other service manifests exist. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: removes the current service's proxy routes and manifest; appends
-an audit entry. Without `--force`, leaves kamal-proxy running if other Meridian
-services are registered on the host.
-
-Exit codes: `0` when removal completes; non-zero on config, SSH, proxy, or
-safety-check failure.
-
-Examples:
+Removes this service's kamal-proxy routes and its manifest, then removes the shared
+proxy if no other Meridian service is registered on the host.
 
 ```bash
 meridian proxy remove
 meridian proxy remove --force
 ```
 
-Common failures: same-host ownership problems are covered in
-[`manifest-collisions: fail`](/guide/troubleshooting#manifest-collisions-fail).
-Relevant fields: [`proxy`](/reference/deploy-yml#proxy),
-[`servers.<role>.proxy`](/reference/deploy-yml#serversroleproxy), and
-[`assets`](/reference/deploy-yml#assets).
+`--force` removes the shared proxy even when other service manifests exist. That is a
+destructive host-level action and can interrupt other apps on the same server.
+
+Appends an audit entry either way.
+
+See [`proxy`](/reference/deploy-yml#proxy),
+[`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy),
+[`assets`](/reference/deploy-yml#assets), and
+[`manifest-collisions: fail`](/guide/troubleshooting#manifest-collisions-fail) for
+ownership problems.
 
 ## `check` {#check}
 
-Purpose: run read-only preflight checks against the selected hosts.
-
-```bash
-Usage: meridian check [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | all roles | Check only one configured role. |
-| `--host HOST` | all selected hosts | Check only one configured host. |
-| `--primary` | `false` | Check the primary host for each selected role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. It probes SSH, Podman, lingering, Quadlet directories,
-transfer tools, Podman secrets, local image availability for registry-free
-transfer, readability of every local `files:` source, kamal-proxy, the shared
-proxy network, accessory readiness, and same-host manifest collisions.
-
-A local `files:` source must be a readable regular file - the same thing the
-deploy reads - so a directory is reported as a failure. Accessory readiness is
-reported twice: every accessory sharing the service network gets a `local` row
-proving its readiness contract resolves, and accessories pinned to a checked
-host additionally get a live probe run against that host.
-
-Exit codes: `0` when all probes pass; `1` when at least one probe fails; other
-non-zero codes can occur for parse or config errors.
-
-Examples:
+Runs read-only preflight probes against the selected hosts. Changes nothing.
 
 ```bash
 meridian check
 meridian check --role web --host prod-01.example.com
 ```
 
-Common failures: see [`image not known`](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer),
-[`manifest-collisions: fail`](/guide/troubleshooting#manifest-collisions-fail),
-and the [pre-flight checklist](/guide/preflight). Relevant fields:
-[`transfer`](/reference/deploy-yml#transfer), [`env`](/reference/deploy-yml#env),
-[`proxy`](/reference/deploy-yml#proxy), [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
-and [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness).
+Accepts the [target selectors](#target-selectors).
+
+Probes SSH, Podman, lingering, Quadlet directories, transfer tools, Podman secrets,
+local image availability for registry-free transfer, readability of every local
+`files:` source, kamal-proxy, the shared proxy network, accessory readiness, and
+same-host manifest collisions.
+
+Two probes have detail worth knowing. A local `files:` source must be a readable
+regular file — the same thing the deploy reads — so a directory is reported as a
+failure. Accessory readiness is reported twice: every accessory sharing the service
+network gets a `local` row proving its readiness contract resolves, and accessories
+pinned to a checked host additionally get a live probe against that host.
+
+Exit code `1` means at least one probe failed. Parse and config errors return other
+non-zero codes.
+
+See [`transfer`](/reference/deploy-yml#transfer), [`env`](/reference/deploy-yml#env),
+[`proxy`](/reference/deploy-yml#proxy),
+[`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
+[`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness), and the
+[pre-flight checklist](/guide/preflight) for what `check` cannot infer.
 
 ## `deploy` {#deploy}
 
-Purpose: deploy the configured application to the selected hosts.
-
-```bash
-Usage: meridian deploy [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | all roles | Deploy only one configured role. |
-| `--host HOST` | all selected hosts | Deploy only one configured host. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: acquires the remote deploy lock; verifies the setup-created
-service network; runs hooks; transfers images; uploads app Quadlets, files, and
-asset units; starts new units; switches kamal-proxy and writes `active-color`
-plus `release-state.json` for proxied managed roles; restarts stable
-`<service>-<role>` units without proxy state for other managed roles; writes
-`manifest.json`; appends audit entries; releases the lock in an `ensure` block.
-
-Exit codes: `0` when the selected rollout completes; non-zero on config,
-registry validation, missing setup-created service network, image transfer,
-hook, healthcheck, accessory-readiness, proxy, SSH, or lock-contention failure.
-Lock contention is reported as a normal failed deploy, not a separate numeric
-code.
-
-Examples:
+Deploys the configured application to the selected hosts. Run
+[`setup`](#setup) first for a new service — deploy fails if the service network is
+missing.
 
 ```bash
 meridian deploy
 meridian deploy --role web --host prod-01.example.com
 ```
 
-Common failures: see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock),
-[Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout),
-[`image not known`](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer),
-[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs),
-and missing setup-created networks. Run `meridian setup` before the first
-deploy for a service.
-Relevant fields: [`servers.<role>`](/reference/deploy-yml#serversrole),
+Accepts `--role` and `--host` from the [target selectors](#target-selectors).
+
+Acquires the remote deploy lock, verifies the service network, runs hooks, transfers
+images, uploads app Quadlets/files/asset units, and starts new units. Proxied managed
+roles then switch kamal-proxy and write `active-color` plus `release-state.json`;
+other managed roles restart their stable `<service>-<role>` unit without proxy state.
+Finally writes `manifest.json`, appends audit entries, and releases the lock in an
+`ensure` block.
+
+Lock contention is reported as a normal failed deploy, not a separate numeric code.
+
+See [`servers.<role>`](/reference/deploy-yml#servers-role),
 [`boot`](/reference/deploy-yml#boot), [`transfer`](/reference/deploy-yml#transfer),
 [`registry`](/reference/deploy-yml#registry), [`files`](/reference/deploy-yml#files),
-[`assets`](/reference/deploy-yml#assets), and [`hooks`](/reference/deploy-yml#hooks).
+[`assets`](/reference/deploy-yml#assets), [`hooks`](/reference/deploy-yml#hooks). The
+common first-deploy failures are [stale deploy lock](/guide/troubleshooting#stale-deploy-lock),
+[healthcheck timeout](/guide/troubleshooting#healthcheck-timeout),
+[`image not known`](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer),
+and [`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup-try-again-in-app-logs).
 
 ## `rollback` {#rollback}
 
-Purpose: restore the previously deployed release on each proxied web host.
-
-```bash
-Usage: meridian rollback [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: reads `release-state.json` and reconstructs the previous release
-from its recorded image and color — the old container no longer exists after a
-successful deploy, so rollback regenerates the Quadlet file, uploads it,
-reloads the user systemd daemon, and starts the unit fresh. kamal-proxy is
-switched back only after the reconstructed release passes the regular
-container health check; then the rolled-back-from release is stopped and its
-Quadlet removed, `active-color` and `release-state.json` are rewritten (the
-current and previous releases swap), and an audit entry is appended. If the
-health check or proxy switch fails, the reconstructed candidate is torn down
-and the currently active release keeps serving traffic. On legacy hosts
-without release state, it falls back to restarting the surviving
-inactive-color container.
-
-Limitations: only the proxied web role is rolled back. The previous release's
-image must still be present on the host — use unique image tags per release;
-with a reused tag (such as `latest`) the previous image is retagged or pruned
-by the next deploy and rollback refuses to run. Non-image configuration (env,
-volumes, ports, command) comes from the current config file, not the previous
-release.
-
-Exit codes: `0` when rollback completes; non-zero when no rollback-safe
-release is retained, the previous image is missing, or on health-check, SSH,
-proxy, or config failure.
-
-Examples:
+Restores the previously deployed release on each proxied web host.
 
 ```bash
 meridian rollback
 meridian rollback --config config/production.yml
 ```
 
-Common failures: inspect [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock)
-and [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout) when the
-previous color cannot be started or reached. Relevant fields:
-[`servers.<role>.proxy`](/reference/deploy-yml#serversroleproxy) and
+The old container does not survive a successful deploy, so rollback reconstructs it:
+it reads `release-state.json`, regenerates the Quadlet for the recorded image and
+color, uploads it, reloads the user systemd daemon, and starts the unit fresh.
+kamal-proxy switches back only after the reconstructed release passes the regular
+container health check. Then the rolled-back-from release is stopped and its Quadlet
+removed, `active-color` and `release-state.json` are rewritten (current and previous
+swap), and an audit entry is appended.
+
+If the health check or proxy switch fails, the candidate is torn down and the
+currently active release keeps serving. On legacy hosts without release state,
+rollback falls back to restarting the surviving inactive-color container.
+
+Two limits decide whether rollback is available at all:
+
+- Only the proxied web role is rolled back. Secondary roles go back by deploying the
+  previous image.
+- The previous release's image must still be on the host. With a reused tag such as
+  `latest` the next deploy retags or prunes it, and rollback refuses to run.
+
+Non-image configuration — env, volumes, ports, command — comes from the current
+config file, not from the previous release.
+
+See [`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy) and
 [`proxy`](/reference/deploy-yml#proxy).
 
 ## `status` {#status}
 
-Purpose: show the deployed service state for every selected role.
-
-```bash
-Usage: meridian status [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | all roles | Show only one configured role. |
-| `--host HOST` | all selected hosts | Show only one configured host. |
-| `--primary` | `false` | Show the primary host for each selected role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. It reads user systemd state and, for proxied roles,
-service-scoped `release-state.json` when present. Output columns are `role`,
-`host`, `release`, `deployment`, and `state`. Non-proxied managed roles report
-their stable role unit; unmanaged roles summarize their configured units.
-
-Exit codes: `0` when status is printed; non-zero on selector, config, or SSH
-failure.
-
-Examples:
+Shows deployed service state for every selected role. Reads only.
 
 ```bash
 meridian status
 meridian status --primary
 ```
 
-Common failures: use the [troubleshooting guide](/guide/troubleshooting) when a
-unit is not in the expected state. Relevant fields:
-[`servers.<role>`](/reference/deploy-yml#serversrole) and
+Accepts the [target selectors](#target-selectors).
+
+Columns are `role`, `host`, `release`, `deployment`, and `state`. It reads user
+systemd state and, for proxied roles, service-scoped `release-state.json` when
+present. Non-proxied managed roles report their stable role unit; unmanaged roles
+summarize their configured units.
+
+See [`servers.<role>`](/reference/deploy-yml#servers-role) and
 [`boot`](/reference/deploy-yml#boot).
 
 ## `logs` {#logs}
 
-Purpose: stream `journalctl --user` logs for the selected service units.
-
-```bash
-Usage: meridian logs [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | all roles | Stream units for one configured role. |
-| `--host HOST` | all selected hosts | Stream logs from one configured host. |
-| `--primary` | `false` | Stream logs from the primary host for each selected role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. Proxied roles select both colour units, non-proxied managed
-roles select `<service>-<role>.service`, and unmanaged roles select their
-configured units. This command is follow-only; it does not support `--lines` or
-`--no-follow`.
-
-Exit codes: returns the remote `journalctl` stream exit code; non-zero on
-selector, config, SSH, or journalctl failure.
-
-Examples:
+Streams `journalctl --user` logs for the selected service units.
 
 ```bash
 meridian logs
 meridian logs --host prod-01.example.com
 ```
 
-Common failures: for historical log slices, use direct SSH as shown in
-[Healthcheck timeout](/guide/troubleshooting#healthcheck-timeout). Relevant
-fields: [`servers.<role>`](/reference/deploy-yml#serversrole).
+Accepts the [target selectors](#target-selectors).
+
+Proxied roles select both colour units, non-proxied managed roles select
+`<service>-<role>.service`, unmanaged roles select their configured units.
+
+Follow-only: there is no `--lines` and no `--no-follow`. For a historical slice, SSH
+in directly — [healthcheck timeout](/guide/troubleshooting#healthcheck-timeout) shows
+the `journalctl` invocation. Returns the remote `journalctl` exit code.
+
+See [`servers.<role>`](/reference/deploy-yml#servers-role).
 
 ## `exec` {#exec}
 
-Purpose: run a command inside the active container for one role.
-
-```bash
-Usage: meridian exec ROLE [options] -- COMMAND [ARGS...]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--host HOST` | first host for the role | Choose which configured role host to exec into. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: no Meridian state changes. Proxied roles resolve their active
-colour; non-proxied managed roles directly target `<service>-<role>`. Unmanaged
-roles are rejected because arbitrary configured systemd units do not identify
-one container name. The command you run inside the container may mutate
-application data.
-
-Exit codes: returns the streamed remote command exit code; non-zero on missing
-role, invalid host, missing active container, SSH, or command failure.
-
-Examples:
+Runs a command inside the *already running* container for one role.
 
 ```bash
 meridian exec web -- bin/rails db:migrate:status
 meridian exec web --host prod-01.example.com -- printenv MARTEN_ENV
 ```
 
-Common failures: use [`status`](#status) and [`logs`](#logs) when the active
-container cannot be resolved. Relevant fields: [`servers.<role>`](/reference/deploy-yml#serversrole).
+`--host HOST` picks which configured role host to exec into; it defaults to the first
+host of the role.
+
+Proxied roles resolve their active colour, non-proxied managed roles target
+`<service>-<role>` directly. Unmanaged roles are rejected — a list of arbitrary
+systemd units does not identify one container name.
+
+Meridian changes no state, but the command you run may mutate application data.
+Returns the streamed remote command's exit code. Use [`status`](#status) and
+[`logs`](#logs) when the active container cannot be resolved.
+
+See [`servers.<role>`](/reference/deploy-yml#servers-role).
 
 ## `run` {#run}
 
-Purpose: run a one-off command in a fresh container on the service network.
-
-```bash
-Usage: meridian run ROLE [options] -- COMMAND [ARGS...]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--host HOST` | first host for the role | Choose which configured role host runs the one-off container. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: no Meridian runtime-state changes. The one-off container is
-removed after exit and joins the setup-created `<service>` Podman network; the
-command may mutate application data or connected services.
-
-Exit codes: returns the remote `podman run` exit code; non-zero on missing role,
-invalid host, SSH, image, missing setup-created service network, or command
-failure.
-
-Examples:
+Runs a one-off command in a *fresh* container on the service network — the difference
+to [`exec`](#exec), which reuses the running one.
 
 ```bash
 meridian run web -- bin/rails db:migrate
 meridian run workers --host prod-02.example.com -- crystal eval 'puts 1'
 ```
 
-Common failures: network or dependency startup problems are covered in
-[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs).
-Run `meridian setup` first if the service network is missing.
-Relevant fields: [`image`](/reference/deploy-yml#image),
-[`env`](/reference/deploy-yml#env), and [`accessories`](/reference/deploy-yml#accessories).
+`--host HOST` picks which configured role host runs the container; it defaults to the
+first host of the role.
+
+The container joins the setup-created `<service>` Podman network and is removed on
+exit. Meridian writes no runtime state, but the command may mutate application data
+or connected services. Returns the remote `podman run` exit code.
+
+Run [`setup`](#setup) first if the service network does not exist yet.
+
+See [`image`](/reference/deploy-yml#image), [`env`](/reference/deploy-yml#env),
+[`accessories`](/reference/deploy-yml#accessories), and
+[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup-try-again-in-app-logs)
+for dependency startup problems.
 
 ## `quadlet` {#quadlet}
 
-Purpose: generate local Quadlet previews without contacting servers.
-
-```bash
-Usage: meridian quadlet [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--color COLOR` | required | Deployment color to render, `blue` or `green`. |
-| `--output-dir DIR` | `./quadlet-preview` | Directory for generated preview files. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: writes preview files under `--output-dir` on the local machine. It
-does not connect to hosts and does not write Meridian runtime state.
-
-Exit codes: `0` when files are written; non-zero on missing `--color`, invalid
-color, config error, or local filesystem failure.
-
-Examples:
+Renders Quadlet files locally so you can read them before a deploy writes them. No
+host is contacted.
 
 ```bash
 meridian quadlet --color green
 meridian quadlet --color blue --output-dir ./tmp/quadlets
 ```
 
-Common failures: compare generated files with the [concepts guide](/guide/concepts#what-is-a-quadlet).
-Relevant fields: [`servers.<role>`](/reference/deploy-yml#serversrole),
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--color COLOR` | required | Deployment color to render, `blue` or `green`. |
+| `--output-dir DIR` | `./quadlet-preview` | Directory for generated preview files. |
+
+Compare the output against [what is a Quadlet](/guide/concepts#what-is-a-quadlet).
+
+See [`servers.<role>`](/reference/deploy-yml#servers-role),
 [`volumes`](/reference/deploy-yml#volumes), [`ports`](/reference/deploy-yml#ports),
-[`files`](/reference/deploy-yml#files), and [`assets`](/reference/deploy-yml#assets).
+[`files`](/reference/deploy-yml#files), [`assets`](/reference/deploy-yml#assets).
 
 ## `accessory start` {#accessory-start}
 
-Purpose: upload and start one configured accessory service.
-
-```bash
-Usage: meridian accessory start NAME [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: for accessories that reference `network: <service>.network`,
-first verifies that `meridian setup` has materialized the service network. Then
-uploads the accessory Quadlet to the accessory host, reloads user systemd,
-starts `<name>.service`, and appends an audit entry. It does not update app
-`active-color` or `release-state.json`.
-
-Exit codes: `0` when the accessory starts; non-zero on unknown accessory, SSH,
-Podman, missing setup-created service network, systemd, or config failure.
-
-Examples:
+Uploads and starts one configured accessory. Accessories are never started by
+`deploy`; this is the only command that starts them.
 
 ```bash
 meridian accessory start postgres
 meridian accessory start dragonfly
 ```
 
-Common failures: readiness and DNS issues are covered in
-[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs).
-Relevant fields: [`accessories`](/reference/deploy-yml#accessories) and
-[`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness).
+For accessories that reference `network: <service>.network`, it first verifies that
+[`setup`](#setup) has materialized the service network. Then it uploads the accessory
+Quadlet to the accessory host, reloads user systemd, starts `<name>.service`, and
+appends an audit entry. App `active-color` and `release-state.json` are untouched.
+
+See [`accessories`](/reference/deploy-yml#accessories),
+[`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness), and
+[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup-try-again-in-app-logs)
+for readiness and DNS symptoms.
 
 ## `accessory stop` {#accessory-stop}
 
-Purpose: stop one configured accessory service.
-
-```bash
-Usage: meridian accessory stop NAME [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: stops `<name>.service` on its configured host and appends an audit
-entry. It does not remove the Quadlet file or app runtime state.
-
-Exit codes: `0` when the accessory stops; non-zero on unknown accessory, SSH,
-systemd, or config failure.
-
-Examples:
+Stops `<name>.service` on its configured host and appends an audit entry. The Quadlet
+file and the app's runtime state are left alone.
 
 ```bash
 meridian accessory stop postgres
-meridian accessory stop dragonfly
 ```
 
-Common failures: use [`accessory logs`](#accessory-logs) and the
-[troubleshooting guide](/guide/troubleshooting). Relevant fields:
-[`accessories`](/reference/deploy-yml#accessories).
+See [`accessories`](/reference/deploy-yml#accessories).
 
 ## `accessory logs` {#accessory-logs}
 
-Purpose: stream `journalctl --user` logs for one accessory service.
-
-```bash
-Usage: meridian accessory logs NAME [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. This command is follow-only.
-
-Exit codes: returns the remote `journalctl` stream exit code; non-zero on
-unknown accessory, SSH, journalctl, or config failure.
-
-Examples:
+Streams `journalctl --user` logs for one accessory. Follow-only, like
+[`logs`](#logs). Returns the remote `journalctl` exit code.
 
 ```bash
 meridian accessory logs postgres
-meridian accessory logs dragonfly
 ```
 
-Common failures: for dependency DNS symptoms, see
-[`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup--try-again-in-app-logs).
-Relevant fields: [`accessories`](/reference/deploy-yml#accessories).
+See [`accessories`](/reference/deploy-yml#accessories).
 
 ## `secret gen` {#secret-gen}
 
-Purpose: generate a random Podman secret for one role.
+Generates a random Podman secret and stores it on every host in the target role.
 
 ```bash
-Usage: meridian secret gen NAME [options]
+meridian secret gen SECRET_KEY_BASE
+meridian secret gen JWT_SECRET --format base64url --role workers
 ```
 
 | Flag | Default | What it does |
@@ -586,262 +387,126 @@ Usage: meridian secret gen NAME [options]
 | `--print` | `false` | Print locally instead of storing on remote hosts. |
 | `--force` | `false` | Rotate an existing remote secret. Cannot be combined with `--print`. |
 | `--role ROLE` | `web` | Target role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
 
-Side effects: without `--print`, creates the Podman secret on every host in the
-target role. It does not write Meridian runtime state.
+Without `--force` the command refuses to overwrite an existing name. Run
+[`secret ls`](#secret-ls) first when rotating.
 
-Exit codes: `0` when the secret is printed or stored; non-zero on invalid
-format, existing secret without `--force`, unknown role, SSH, Podman, or config
-failure.
-
-Examples:
-
-```bash
-meridian secret gen SECRET_KEY_BASE
-meridian secret gen JWT_SECRET --format base64url --role workers
-```
-
-Common failures: run [`secret ls`](#secret-ls) before rotating. Relevant fields:
-[`env.secret`](/reference/deploy-yml#env).
+See [`env.secret`](/reference/deploy-yml#env).
 
 ## `secret set` {#secret-set}
 
-Purpose: create or replace a Podman secret with an explicit value.
-
-```bash
-Usage: meridian secret set NAME [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--value VALUE` | read from stdin | Secret value to store. |
-| `--role ROLE` | `web` | Target role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: removes any existing remote Podman secret with the same name and
-creates the replacement on every host in the target role. It does not write
-Meridian runtime state.
-
-Exit codes: `0` when all target hosts are updated; non-zero on unknown role,
-SSH, Podman, stdin, or config failure.
-
-Examples:
+Creates or replaces a Podman secret with a value you supply. Unlike
+[`secret gen`](#secret-gen) it always replaces.
 
 ```bash
 printf '%s\n' "$DATABASE_URL" | meridian secret set DATABASE_URL
 meridian secret set API_TOKEN --value 's3cr3t' --role workers
 ```
 
-Common failures: missing deploy-time secrets surface in [`check`](#check).
-Relevant fields: [`env.secret`](/reference/deploy-yml#env).
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--value VALUE` | read from stdin | Secret value to store. |
+| `--role ROLE` | `web` | Target role. |
+
+Prefer stdin over `--value` — a value passed as a flag ends up in your shell history.
+
+Removes any existing remote secret with the same name, then creates the replacement
+on every host in the role. Missing deploy-time secrets surface in [`check`](#check).
+
+See [`env.secret`](/reference/deploy-yml#env).
 
 ## `secret ls` {#secret-ls}
 
-Purpose: list Podman secrets on every host in one role.
-
-```bash
-Usage: meridian secret ls [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | `web` | Target role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none.
-
-Exit codes: `0` when secrets are listed; non-zero on unknown role, SSH, Podman,
-or config failure.
-
-Examples:
+Lists Podman secrets on every host in one role. `--role ROLE` defaults to `web`.
 
 ```bash
 meridian secret ls
 meridian secret ls --role workers
 ```
 
-Common failures: use [`secret set`](#secret-set) or [`secret gen`](#secret-gen)
-to create missing secrets. Relevant fields: [`env.secret`](/reference/deploy-yml#env).
+See [`env.secret`](/reference/deploy-yml#env).
 
 ## `secret rm` {#secret-rm}
 
-Purpose: remove one Podman secret from every host in one role.
-
-```bash
-Usage: meridian secret rm NAME [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--role ROLE` | `web` | Target role. |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: removes the named Podman secret from every host in the target
-role. It does not edit `deploy.yml`; remove the name from `env.secret` yourself
-if the app no longer needs it.
-
-Exit codes: `0` when removal completes; non-zero on unknown role, SSH, Podman,
-or config failure.
-
-Examples:
+Removes one Podman secret from every host in one role. `--role ROLE` defaults to
+`web`.
 
 ```bash
 meridian secret rm OLD_TOKEN
 meridian secret rm OLD_TOKEN --role workers
 ```
 
-Common failures: a later [`check`](#check) fails if `env.secret` still declares
-the removed name. Relevant fields: [`env.secret`](/reference/deploy-yml#env).
+It does not edit `deploy.yml`. Remove the name from `env.secret` yourself, otherwise
+the next [`check`](#check) fails on the now-missing secret.
+
+See [`env.secret`](/reference/deploy-yml#env).
 
 ## `lock status` {#lock-status}
 
-Purpose: show whether the remote deploy lock is held.
-
-```bash
-Usage: meridian lock status [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. It reads lock metadata from
+Shows whether the remote deploy lock is held, by reading
 `~/.local/state/meridian/services/<service>/lock/meta.json` on the lock host.
-
-Exit codes: `0` when status is printed; non-zero on config or SSH failure.
-
-Examples:
 
 ```bash
 meridian lock status
 ```
 
-Common failures: see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
-Relevant fields: [`service`](/reference/deploy-yml#service) and
-[`servers.<role>`](/reference/deploy-yml#serversrole).
+See [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
 
 ## `lock acquire` {#lock-acquire}
 
-Purpose: manually acquire the remote deploy lock.
-
-```bash
-Usage: meridian lock acquire [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `--message MESSAGE` | none | Reason recorded in lock metadata. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: creates the remote lock directory with metadata and appends an
-audit entry. While held, deploys and other lock acquisitions fail.
-
-Exit codes: `0` when the lock is acquired; non-zero when the lock is already
-held or when config/SSH fails.
-
-Examples:
+Manually acquires the remote deploy lock. While held, deploys and other acquisitions
+fail.
 
 ```bash
 meridian lock acquire --message 'database maintenance'
 ```
 
-Common failures: see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
-Relevant fields: [`service`](/reference/deploy-yml#service) and
-[`servers.<role>`](/reference/deploy-yml#serversrole).
+`--message MESSAGE` is recorded in the lock metadata and shown by
+[`lock status`](#lock-status). Appends an audit entry.
 
 ## `lock release` {#lock-release}
 
-Purpose: release the remote deploy lock and report who held it.
-
-```bash
-Usage: meridian lock release [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: removes the remote lock directory and appends an audit entry.
-Only run this after confirming no mutation is still active.
-
-Exit codes: `0` when release completes; non-zero on config or SSH failure.
-
-Examples:
+Removes the remote lock directory and appends an audit entry.
 
 ```bash
 meridian lock release
 ```
 
-Common failures: see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
-Relevant fields: [`service`](/reference/deploy-yml#service) and
-[`servers.<role>`](/reference/deploy-yml#serversrole).
+Only run this after confirming no deploy, rollback, or proxy mutation is still
+active — see [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock) for how to
+check.
 
 ## `audit` {#audit}
 
-Purpose: print recent Meridian audit log entries by host.
-
-```bash
-Usage: meridian audit [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `--host HOST` | all configured server and accessory hosts | Limit output to one configured host. |
-| `--lines N` | `20` | Number of entries to show per host. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. It reads `audit.log` on each selected host.
-
-Exit codes: returns `0` when entries are printed; non-zero on unknown host,
-config, SSH, or invalid `--lines`.
-
-Examples:
+Prints recent Meridian audit entries per host by reading `audit.log` on each selected
+host.
 
 ```bash
 meridian audit
 meridian audit --host prod-01.example.com --lines 50
 ```
 
-Common failures: use this command while diagnosing [Stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
-Relevant fields: [`service`](/reference/deploy-yml#service),
-[`servers.<role>`](/reference/deploy-yml#serversrole), and
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--host HOST` | all configured server and accessory hosts | Limit output to one configured host. |
+| `--lines N` | `20` | Entries to show per host. |
+
+Entries cover deploy, rollback, proxy, accessory, and lock operations. This is the
+first thing to read when diagnosing a [stale deploy lock](/guide/troubleshooting#stale-deploy-lock).
+
+See [`service`](/reference/deploy-yml#service),
+[`servers.<role>`](/reference/deploy-yml#servers-role),
 [`accessories`](/reference/deploy-yml#accessories).
 
 ## `plan` {#plan}
 
-Purpose: print the resolved deploy plan without contacting servers.
-
-```bash
-Usage: meridian plan [options]
-```
-
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--config PATH` | `.meridian/deploy.yml` | Config file to load. |
-| `-h`, `--help` | n/a | Print help. |
-
-Side effects: none. It reads local config only; secret values are not printed.
-
-Exit codes: `0` when the plan renders; non-zero on config validation failure.
-
-Examples:
+Prints the resolved deploy intent from local config only. No SSH, no registry calls,
+and secret values are never printed. Run it after every config edit.
 
 ```bash
 meridian plan
 meridian plan --config config/production.yml
 ```
 
-Common failures: strict config parsing is described in the
-[`deploy.yml` reference](/reference/deploy-yml). Relevant fields: all fields in
-[`deploy.yml`](/reference/deploy-yml), especially [`servers.<role>`](/reference/deploy-yml#serversrole),
-[`env`](/reference/deploy-yml#env), [`transfer`](/reference/deploy-yml#transfer),
-[`accessories`](/reference/deploy-yml#accessories), and [`assets`](/reference/deploy-yml#assets).
+It loads the same strict schema as `deploy`, so a config error shows up here first.
+Every field in [`deploy.yml`](/reference/deploy-yml) affects the output.

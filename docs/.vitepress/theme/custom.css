@@ -83,8 +83,19 @@
   --vp-c-gray-3: #0F1534;
   --vp-c-gray-soft: rgba(232, 184, 70, 0.08);
 
+  /* Nav — single source of truth, consumed by landing.css too.
+     The landing nav is hand-rolled (index.md uses layout:false) and the docs nav
+     is VitePress's VPNavBar; these tokens are what keep the two from drifting. */
+  --md-nav-height: 64px;
+  --md-nav-logo-size: 32px;
+  --md-nav-title-size: 20px;
+  --md-nav-brand-gap: 10px;
+  --md-nav-bg: rgba(12, 17, 40, 0.7);
+
   /* Nav + sidebar */
-  --vp-nav-bg-color: rgba(12, 17, 40, 0.75);
+  --vp-nav-height: var(--md-nav-height);
+  --vp-nav-logo-height: var(--md-nav-logo-size);
+  --vp-nav-bg-color: var(--md-nav-bg);
   --vp-sidebar-bg-color: #080C1E;
 
   /* Buttons */
@@ -148,6 +159,18 @@
   /* Shiki code-block token colors (dark theme tweak for gold palette) */
   --vp-code-color: #F5EBD6;
 
+}
+
+/* Compact nav on narrow phones. Re-pointing the tokens is enough: VP derives the
+   local-nav offset, the layout top padding and the menu-link line-height from
+   --vp-nav-height, and landing.css reads the same tokens. */
+@media (max-width: 420px) {
+  :root {
+    --md-nav-height: 58px;
+    --md-nav-logo-size: 28px;
+    --md-nav-title-size: 18px;
+    --md-nav-brand-gap: 8px;
+  }
 }
 
 /* Enable smooth scroll for anchor links on doc pages too */
@@ -295,44 +318,119 @@ html {
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Keep the compass logo square — VP sets height but not width */
-.VPImage.logo {
-  width: var(--vp-nav-logo-height, 24px);
-  height: var(--vp-nav-logo-height, 24px);
-  object-fit: contain;
-  margin-bottom: 0;
+/* The doubled class is deliberate: VP's competing rules are scoped, so their
+   [data-v-…] attribute puts them at (0,4,0) and a plain three-class selector
+   would lose. Repeating the class ties, and source order decides. */
+
+/* From 960px up VP absolutely positions the title over the sidebar rail and puts
+   the tint on .content-body alone, which leaves the wordmark sitting on an
+   untinted patch. Tinting the title with the same token makes the bar read as one
+   continuous surface, like the landing nav. */
+.VPNavBar.VPNavBar.has-sidebar .title {
+  /* The fixed sidebar starts at y=0, so it — not the page — is what shows through
+     this strip. Painting the tint over an opaque page background makes the strip
+     resolve to the same colour as the tint over .content-body; without the base
+     layer the sidebar's darker navy bleeds through and the wordmark sits on a
+     visible patch. */
+  background-color: var(--vp-c-bg);
+  background-image: linear-gradient(var(--md-nav-bg), var(--md-nav-bg));
 }
 
-.VPNavBar.has-sidebar .content-body,
-.VPNavBar:not(.has-sidebar) .content {
-  border-bottom: 1px solid rgba(232, 184, 70, 0.08);
+/* One hairline across the full width: VP pads .divider by the sidebar width so the
+   line starts at the sidebar edge. (VP's second, shorter line under the title is
+   removed by the border-bottom reset on the brand below.) */
+.VPNavBar.VPNavBar.has-sidebar .divider {
+  padding-left: 0;
 }
 
+/* VP shortens this wrapper by 1px to make room for that title border. With the
+   border gone the reservation just pushes the brand off the landing's centre. */
+.VPNavBar .container > .title {
+  height: var(--md-nav-height);
+}
+
+/* Match the landing's 16px gutter once the bar is brand + controls only. */
+@media (max-width: 767px) {
+  .VPNavBar .wrapper {
+    padding: 0 16px;
+  }
+}
+
+/* 'force-dark' keeps VP's hasExtraContent truthy, so between 768px and 1279px it
+   renders an overflow flyout whose every group is empty — a dead "..." after the
+   pill. It only had content while socialLinks existed. */
+.VPNavBar .VPNavBarExtra {
+  display: none;
+}
+
+/* Brand — mirrors .brand / .brand-mark in landing.css. The border reset also kills
+   VP's short hairline under the wordmark: it wins on width even though VP recolours
+   that border at (0,4,0), and zero-width borders paint nothing. */
 .VPNavBarTitle .title {
-  font-family: 'Fraunces', Georgia, serif;
+  border-bottom: 0;
+  gap: var(--md-nav-brand-gap);
+  font-family: Georgia, 'Times New Roman', serif;
   font-weight: 600;
+  font-size: var(--md-nav-title-size);
   letter-spacing: 0.01em;
   color: #F5EBD6;
 }
 
-.VPSocialLink > svg.github-invertocat {
-  display: block;
-  fill: none;
+/* Keep the compass logo square — VP sets height but not width. The brand gap
+   replaces VP's margin-right on the logo. */
+.VPImage.logo {
+  width: var(--md-nav-logo-size);
+  height: var(--md-nav-logo-size);
+  object-fit: contain;
+  margin-right: 0;
+  margin-bottom: 0;
+  filter: drop-shadow(0 2px 6px rgba(232, 184, 70, 0.15));
 }
 
-.VPSocialLink > svg.github-invertocat path,
-.VPSocialLink:hover > svg.github-invertocat path {
-  fill: #fff;
-}
-
-.VPNavBarMenuLink {
+/* Qualifying with the parent ties VP's scoped .VPNavBarMenuLink[data-v-…] on
+   specificity and wins on source order — no !important needed. */
+.VPNavBarMenu .VPNavBarMenuLink {
+  padding: 0 14px;
   font-weight: 500;
-  color: #C9BFA5 !important;
+  color: #C9BFA5;
 }
 
-.VPNavBarMenuLink:hover,
-.VPNavBarMenuLink.active {
-  color: #F3CE6B !important;
+.VPNavBarMenu .VPNavBarMenuLink:hover,
+.VPNavBarMenu .VPNavBarMenuLink.active {
+  color: #F3CE6B;
+}
+
+/* Let the trailing pill sit flush with the wrapper edge, like the landing CTA. */
+.VPNavBarMenu .VPNavBarMenuLink:last-child {
+  padding-right: 0;
+}
+
+/* The GitHub item is the docs counterpart to the landing's "Read the Docs" CTA;
+   config.mts wraps its label in span.nav-cta so the pill has a stable hook. */
+.VPNavBarMenu .VPNavBarMenuLink .nav-cta {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid #E8B846;
+  border-radius: 6px;
+  color: #F3CE6B;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.VPNavBarMenu .VPNavBarMenuLink:hover .nav-cta {
+  background: #E8B846;
+  color: #0C1128;
+}
+
+@media (max-width: 420px) {
+  .VPNavBarMenu .VPNavBarMenuLink .nav-cta {
+    padding: 7px 11px;
+    font-size: 12px;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -446,12 +544,19 @@ html {
 /* ------------------------------------------------------------------ */
 
 .DocSearch-Button {
-  background: rgba(232, 184, 70, 0.06) !important;
-  border: 1px solid rgba(232, 184, 70, 0.18) !important;
   color: #C9BFA5 !important;
 }
 
-.DocSearch-Button:hover {
-  border-color: #E8B846 !important;
-  background: rgba(232, 184, 70, 0.1) !important;
+/* Only the wide search field gets a surface. Below 768px VP renders a bare 48x55
+   icon button; filling it there turns it into a heavy circle next to the brand. */
+@media (min-width: 768px) {
+  .DocSearch-Button {
+    background: rgba(232, 184, 70, 0.06) !important;
+    border: 1px solid rgba(232, 184, 70, 0.18) !important;
+  }
+
+  .DocSearch-Button:hover {
+    border-color: #E8B846 !important;
+    background: rgba(232, 184, 70, 0.1) !important;
+  }
 }

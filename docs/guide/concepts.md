@@ -7,21 +7,7 @@ logs, debugging failures, and running multiple apps on one host.
 
 ## Deploy Flow
 
-Proxied web deploys follow this sequence on each selected host:
-
-```text
-operator
-  |
-  | meridian deploy
-  v
-lock -> verify service network -> transfer image -> upload Quadlets/files/assets -> daemon-reload
-  -> wait_for_accessories -> before_start hooks -> asset build
-  -> start new color -> temporary health probe
-  -> before_switch hooks -> kamal-proxy deploy
-  -> after_switch hooks -> stop old color
-  -> record active color + release + manifest -> after_deploy hooks
-  -> release lock
-```
+Proxied web deploys run this sequence on each selected host:
 
 1. Acquire the deploy lock before remote mutation starts.
 2. Verify the setup-created service network.
