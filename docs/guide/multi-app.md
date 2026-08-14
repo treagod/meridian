@@ -106,6 +106,9 @@ Create a separate project directory for `my-blog`. Do not reuse the first app's
 `.meridian/deploy.yml`; each service owns one config and one runtime-state
 directory.
 
+Its config has the same shape. Only the names, the proxy route, and the app port
+differ — every `MY_APP_*` becomes `MY_BLOG_*`, and nothing is shared:
+
 ```yaml
 service: my-blog
 image: ghcr.io/example/my-blog:latest
@@ -113,11 +116,11 @@ image: ghcr.io/example/my-blog:latest
 servers:
   web:
     hosts:
-      - prod-01.example.com
+      - prod-01.example.com       # same box
     proxy:
-      host: blog.example.com
+      host: blog.example.com      # different hostname
       ssl: true
-      app_port: 3000
+      app_port: 3000              # different port inside the container
       healthcheck:
         path: /up
 
@@ -131,16 +134,11 @@ env:
     - MY_BLOG_DATABASE_PASSWORD
     - MY_BLOG_SESSION_SECRET
 
-ssh:
-  user: deploy
-  keys:
-    - ~/.ssh/id_ed25519
-
 accessories:
-  my-blog-postgres:
+  my-blog-postgres:               # not 'postgres', not 'my-app-postgres'
     image: docker.io/library/postgres:18-alpine
     host: prod-01.example.com
-    network: my-blog.network
+    network: my-blog.network      # its own private network
     volumes:
       - my-blog-pgdata:/var/lib/postgresql
     env:
@@ -150,11 +148,9 @@ accessories:
         POSTGRES_PASSWORD_FILE: /run/secrets/MY_BLOG_DATABASE_PASSWORD
     secrets:
       - MY_BLOG_DATABASE_PASSWORD
-    # readiness inferred from the postgres image (pg_isready)
 ```
 
-The second app follows the same convention with `MY_BLOG_*`,
-`my-blog-postgres`, and `my-blog.network`.
+The `ssh:` block is identical to the first app's and is omitted here.
 
 Neither database publishes a host port: each app reaches its own Postgres by
 container name on its private `<service>.network`, so there's nothing to
@@ -305,27 +301,21 @@ meridian proxy remove --force
 That is a destructive host-level action. It can interrupt other Meridian apps on
 the same server.
 
-## What Does Not Work
+## What Collides
 
-- Two services cannot claim the same `servers.<role>.proxy.host`.
-- Two services cannot claim the same `servers.<role>.proxy.host` plus
-  `servers.<role>.proxy.path`.
-- Two accessories on the same host cannot use the same accessory name, because
-  the accessory name becomes the Quadlet and container name.
-- Two accessories cannot publish the same host port with
-  `accessories.<name>.port`.
-- Two services should not share generic secret names such as
-  `DATABASE_PASSWORD`; use service-prefixed names so rotations are obvious.
+`meridian check` rejects the first four outright. The last one it cannot see, and it
+is the one that bites during an incident.
 
-## Checklist
+- [ ] **`service:` is unique.** It names the state directory, the network, and every
+      unit.
+- [ ] **Proxy host — or host plus `path` — is unique.** Two services cannot register
+      the same route.
+- [ ] **Accessory names are service-prefixed.** The name becomes the Quadlet and
+      container name, so `postgres` twice on one host is a collision.
+- [ ] **Published accessory host ports do not collide** when you set
+      `accessories.<name>.port` at all. Most setups should not.
+- [ ] **Secret names are service-prefixed.** A shared `DATABASE_PASSWORD` parses
+      fine, deploys fine, and then one app's rotation silently breaks the other.
 
-Before deploying the second app:
-
-- [ ] `service:` is unique.
-- [ ] Proxy host/path is unique.
-- [ ] DNS points at the server.
-- [ ] Secrets are service-prefixed.
-- [ ] Accessory names are service-prefixed.
-- [ ] Accessories use `network: <service>.network`.
-- [ ] Published accessory host ports do not collide.
-- [ ] `meridian check` passes.
+Plus the one thing Meridian cannot check for you: DNS for the new hostname has to
+point at the server before you deploy with `ssl: true`.

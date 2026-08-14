@@ -37,6 +37,7 @@ VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
 
 if [ -z "$VERSION" ]; then
   echo "error: Could not determine latest release version." >&2
+  echo "       Check https://github.com/${REPO}/releases for available builds." >&2
   exit 1
 fi
 echo "Latest version: ${VERSION}"

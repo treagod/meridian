@@ -18,12 +18,7 @@ Examples use `my-app`, `prod-01.example.com`, `my-app.example.com`, and
 | `ssh.keys` uses an absolute path | `rg -n '^\s+- /' .meridian/deploy.yml` | A relative key path works from one directory and fails from another. |
 | Local Podman has enough disk space | `podman system df` | `podman build`, `podman save`, or incremental export fails with no space left. |
 
-If the local Podman cache is too large:
-
-```bash
-podman system prune -af
-podman system df
-```
+`podman system prune -af` frees the cache if that last one is tight.
 
 ## App Code
 
@@ -34,8 +29,8 @@ podman system df
 | App listens on every interface, not only localhost | `podman run --rm -p 127.0.0.1:8000:8000 ghcr.io/acme/my-app:latest` then `curl -i http://127.0.0.1:8000/health` | Meridian's temporary probe container cannot reach the app container. |
 | App port matches `servers.web.proxy.app_port` | `rg -n 'app_port|PORT|port' .meridian/deploy.yml config src` | kamal-proxy routes to the wrong port and the healthcheck fails. |
 
-For Marten apps, define a cheap `/health` route yourself and make production
-bind to `0.0.0.0:<app_port>`.
+Most frameworks give you neither of these for free: define a cheap health route
+yourself, and make production bind `0.0.0.0:<app_port>` rather than localhost.
 
 ## Containerfile
 
@@ -46,12 +41,12 @@ bind to `0.0.0.0:<app_port>`.
 | Registry-free transfer has a local Podman image | `meridian check` | Missing local image is caught before any remote mutation. |
 | Build-time commands have dummy env vars when the framework validates settings | `rg -n 'ENV\.(fetch|\[)|collectassets|migrate|setup' Containerfile Dockerfile` | The image build fails, or generated assets are missing from the final image. |
 
-If the image is missing locally:
+If the image is missing locally, build it for the *server's* architecture, not your
+laptop's:
 
 ```bash
 podman build --platform linux/arm64 -t ghcr.io/acme/my-app:latest .
 podman image exists ghcr.io/acme/my-app:latest
-meridian check
 ```
 
 For the failure shape, see [image not known during stream or incremental transfer](/guide/troubleshooting#image-not-known-during-stream-or-incremental-transfer).
@@ -67,7 +62,8 @@ For the failure shape, see [image not known during stream or incremental transfe
 | Same-host services use per-service env and secret prefixes | `rg -n 'DATABASE|SECRET|PASSWORD|TOKEN' .meridian/deploy.yml` | Two apps on one host accidentally share secret names or env meaning. |
 | Accessories on the app network have readiness probes or inferable ports | `meridian plan` | The app starts before Postgres, Redis, or another accessory is reachable. |
 
-Start accessories before the first app deploy:
+Accessories have to be running before the first app deploy — `meridian deploy` never
+starts them:
 
 ```bash
 meridian accessory start postgres
@@ -76,6 +72,9 @@ meridian check
 ```
 
 ## Copy This Into Your Wiki
+
+The same checks in portable form, without the "failure you avoid" column. Paste it
+into your team wiki or a PR template.
 
 ```markdown
 # Meridian pre-flight checklist

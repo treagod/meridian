@@ -1,9 +1,11 @@
 # Multi-App On One Host
 
-Companion recipe for the [Multi-App Hosting guide](/guide/multi-app). This page
-shows two static Caddy services side by side, keeping the example focused on
-service names, proxy routes, and isolated runtime state. The guide explains the
-full workflow and collision checks.
+Two configs side by side, showing which keys must differ when two services share a
+host. Both apps are static Caddy sites, so nothing distracts from the naming.
+
+For one static site on its own, use the [static site recipe](/recipes/static-site).
+For the full workflow — DNS, secrets, setup order, collision checks — see the
+[Multi-App Hosting guide](/guide/multi-app).
 
 ## `my-app/.meridian/deploy.yml`
 
@@ -58,10 +60,13 @@ transfer:
 ```
 
 See [`service`](/reference/deploy-yml#service),
-[`servers.<role>.proxy`](/reference/deploy-yml#serversroleproxy), and the
+[`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy), and the
 [multi-app guide](/guide/multi-app).
 
-## `my-app/Containerfile`
+## `Containerfile`
+
+Both projects use the same image, differing only in the exposed port — `8000` for
+`my-app`, `3000` for `my-blog`. Those must match `app_port` above.
 
 ```dockerfile
 FROM caddy:2.8-alpine
@@ -72,7 +77,10 @@ COPY Caddyfile /etc/caddy/Caddyfile
 EXPOSE 8000
 ```
 
-## `my-app/Caddyfile`
+## `Caddyfile`
+
+Same story: port and health route follow the service's `deploy.yml`. `my-blog` listens
+on `:3000` and responds to `/up`.
 
 ```text
 :8000 {
@@ -82,41 +90,13 @@ EXPOSE 8000
 }
 ```
 
-## `my-blog/Containerfile`
-
-```dockerfile
-FROM caddy:2.8-alpine
-
-COPY public /srv
-COPY Caddyfile /etc/caddy/Caddyfile
-
-EXPOSE 3000
-```
-
-## `my-blog/Caddyfile`
-
-```text
-:3000 {
-	root * /srv
-	respond /up 200
-	file_server
-}
-```
-
 ## Commands
 
-Run from each project directory.
+Run these from each project directory in turn. The second `meridian setup` does not
+create a second proxy — it registers `my-blog`'s network against the shared one.
 
 ```bash
 podman build -t ghcr.io/example/my-app:latest .
-meridian setup
-meridian plan
-meridian check
-meridian deploy
-```
-
-```bash
-podman build -t ghcr.io/example/my-blog:latest .
 meridian setup
 meridian plan
 meridian check

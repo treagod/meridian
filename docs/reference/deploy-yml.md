@@ -97,7 +97,7 @@ servers:
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `hosts` | `Array(String)` | Optional, default `[]` | `["prod-01.example.com"]` | Commands have no targets if a role has no hosts. |
-| `proxy` | `ServerProxyConfig` | Optional | See [role proxy](#serversroleproxy) | Only supported on the `web` role, and only when `managed: true`. |
+| `proxy` | `ServerProxyConfig` | Optional | See [role proxy](#servers-role-proxy) | Only supported on the `web` role, and only when `managed: true`. |
 | `cmd` | `String` | Optional | `bin/jobs` | Appends a container command for managed roles; forbidden when `managed: false`. |
 | `image` | `String` | Optional | `ghcr.io/acme/my-worker:latest` | Overrides top-level `image` for this role. |
 | `managed` | `Bool` | Optional, default `true` | `false` | `false` switches to existing-unit compatibility mode. |
@@ -119,7 +119,7 @@ Managed roles use one of two unit models:
 ## `servers.<role>.proxy`
 
 Role-local proxy configuration enables blue/green cutover through kamal-proxy.
-Only `servers.web` may declare it — see [`servers.<role>`](#serversrole).
+Only `servers.web` may declare it — see [`servers.<role>`](#servers-role).
 
 ```yaml
 servers:

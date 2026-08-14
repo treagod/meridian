@@ -74,12 +74,6 @@ Omit `transfer:` to pull from the registry. See [`image`](/reference/deploy-yml#
 [`registry`](/reference/deploy-yml#registry), and
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness).
 
-## Upstream Image
-
-```text
-docker.io/vikunja/vikunja:2.3.0
-```
-
 ## Commands
 
 ```bash

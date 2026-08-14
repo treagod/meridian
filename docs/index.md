@@ -211,10 +211,6 @@ function copyInstall() {
       <div class="why-aside">
         <h3>· Why Podman</h3>
         <p>Rootless-first is the right default in 2026. Quadlets let systemd supervise containers natively - the same system that already supervises your SSH daemon and cron jobs.</p>
-        <h3>· Why registries are optional</h3>
-        <p>Use one if you have one. When you'd rather skip it, Meridian ships the image straight over SSH - piped with zstd, or rsync'd as an OCI layout so later deploys send only what changed.</p>
-        <h3>· Why framework-aware</h3>
-        <p><code class="inline-code">meridian init</code> recognizes Marten, Rails, Elixir, Go, and Node - sets the right <code class="inline-code">*_ENV</code> default, reuses your health route where it can find one, and writes a <code class="inline-code">deploy.yml</code> you can edit on the first try.</p>
         <h3>· Why Crystal</h3>
         <p>One compiled executable. No Ruby, no Python, no Node runtime on the server. Official Linux release builds can ship as a single file; local Crystal builds may still link shared libraries.</p>
       </div>
@@ -227,9 +223,6 @@ function copyInstall() {
     <div class="section-header">
       <span class="section-eyebrow">Feature set</span>
       <h2 class="section-title">Everything the job needs. <em>Nothing it doesn't.</em></h2>
-      <p class="section-sub">
-        Meridian ships a small, sharp feature surface aimed at the 80% deploy path - the remaining 20% is where you'd want Kubernetes anyway.
-      </p>
     </div>
     <div class="features-grid">
       <div class="feature">
@@ -350,6 +343,10 @@ function copyInstall() {
   <div class="container">
     <div class="stats-row">
       <div>
+        <div class="stat-label">Version</div>
+        <div class="stat-value"><em>v0.1.0</em></div>
+      </div>
+      <div>
         <div class="stat-label">License</div>
         <div class="stat-value">MIT</div>
       </div>
@@ -407,7 +404,7 @@ function copyInstall() {
     <details class="faq-item">
       <summary>Is it production-ready?</summary>
       <div class="answer">
-        Meridian is in early development and currently used on a handful of production workloads, but the API may still change. It ships with test coverage on every increment. If you need SOC2 and an on-call vendor, use Render or Fly.io. If you can read systemd logs, you'll be fine.
+        Yes. Meridian runs production workloads today. It ships with test coverage on every increment, and every deploy is health-gated with a single-command rollback. If you need SOC2 and an on-call vendor, use Render or Fly.io. If you can read systemd logs, you'll be fine.
       </div>
     </details>
     <details class="faq-item">
@@ -430,7 +427,6 @@ function copyInstall() {
 <section class="closing">
   <div class="container">
     <h2>Set your bearings. <em>Deploy.</em></h2>
-    <p>Meridian is open source and MIT-licensed. Try it on a staging box this weekend - the install is a single command.</p>
     <div class="cta-row" style="justify-content: center;">
       <a href="/guide/quickstart" class="btn btn-primary">Read the Quickstart →</a>
       <a href="https://github.com/treagod/meridian" class="btn btn-ghost" target="_blank" rel="noreferrer"><svg class="lucide lucide-star" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></svg>Star on GitHub</a>
@@ -447,7 +443,7 @@ function copyInstall() {
     <div class="links-row">
       <a href="https://github.com/treagod/meridian" target="_blank" rel="noreferrer">GitHub</a>
       <a href="/guide/">Docs</a>
-      <a href="#">Changelog</a>
+      <a href="https://github.com/treagod/meridian/releases" target="_blank" rel="noreferrer">Releases</a>
     </div>
     <div class="latitude">49.1° N · 9.2° E</div>
   </div>
