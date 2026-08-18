@@ -16,6 +16,7 @@ the resolved deploy intent without SSH or registry access.
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `service` | `String` | Required | `my-app` | Must start with a letter and contain only letters, digits, hyphens, and underscores. |
+| `strategy` | `blue_green \| recreate` | Optional, proxy-driven default | `recreate` | Omit to preserve the existing behavior; see [strategy](#strategy). |
 | `image` | `String` | Required | `ghcr.io/acme/my-app:latest` | Used by every role unless `servers.<role>.image` overrides it. |
 | `build` | `BuildConfig` | Optional, but unsupported | See [build](#build) | Any present `build:` block fails with `Config key build is not yet supported`. |
 | `servers` | map of role name to `ServerConfig` | Required, non-empty | `web: { hosts: [...] }` | Must define a `web` role; other role names are user-defined. `assets:` requires `servers.web.proxy`. |
@@ -42,6 +43,47 @@ service: my-app
 ```
 
 Validation: `service` must match `^[a-zA-Z][a-zA-Z0-9_-]*$`.
+
+## `strategy`
+
+Controls deployment ordering for the whole service.
+
+```yaml
+service: my-app
+strategy: recreate
+image: ghcr.io/acme/my-app:2026-08-17
+
+servers:
+  web:
+    hosts: [prod-01.example.com]
+    proxy:
+      host: my-app.example.com
+      ssl: true
+      app_port: 8000
+      healthcheck:
+        path: /health
+  cron:
+    hosts: [prod-01.example.com]
+    cmd: /cron.sh
+```
+
+Supported explicit values are `blue_green` and `recreate`. When omitted, a
+proxied web role continues to use Blue/Green and non-proxied roles continue to
+restart in place. Meridian never infers Recreate from volumes, accessories, or
+other statefulness heuristics. Explicit `blue_green` requires
+`servers.web.proxy`.
+
+`recreate` deliberately causes downtime so old and new app processes never
+share persistent state. It is intended for stateful single-instance services.
+This release requires `servers.web.proxy`, managed roles, and exactly one common
+host for every app role. It rejects `assets:` and selective `deploy --role` or
+`--host` invocations. Accessories remain running and are only checked for
+readiness.
+
+If a Recreate deploy fails after entering maintenance, Meridian does not restart
+the old image or resume the route automatically: migrations may have made the
+persistent data incompatible. Repair the new release or restore image, database,
+and volumes from a matching backup before resuming traffic manually.
 
 ## `image`
 
@@ -421,6 +463,14 @@ Remote phases under `hooks.remote`:
 | `after_switch` | `Array(RemoteHookConfig)` | `[]` | After kamal-proxy switches traffic. |
 | `after_deploy` | `Array(RemoteHookConfig)` | `[]` | After deploy state is recorded. |
 
+Under `strategy: recreate`, `before_transfer` and `after_transfer` retain their
+normal positions around image preparation, before maintenance. Keep these two
+hook phases non-destructive for Recreate services. File syncs and
+`after_upload` run only after active app units are stopped; each role's
+`before_start` and `after_start` still bracket that role's new unit. Secondary
+roles start only after the web healthcheck passes, and `after_deploy` runs after
+the route is resumed.
+
 Each remote hook entry has:
 
 | Key | Type | Required / default | Example | Rules |
@@ -474,6 +524,8 @@ assets:
 
 Validation: `assets:` requires `servers.web.proxy` because the asset server is
 published through the proxied web host.
+`strategy: recreate` rejects `assets:` in this release rather than publishing a
+partial asset transaction.
 
 The asset server always sends fingerprinted files with a long-lived
 `Cache-Control: public, max-age=31536000, immutable` header, and — unless

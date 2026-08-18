@@ -2,11 +2,35 @@ require "yaml"
 
 module Meridian
   module Config
+    enum DeploymentStrategy
+      BlueGreen
+      Recreate
+    end
+
+    module DeploymentStrategyConverter
+      def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : DeploymentStrategy?
+        node.raise("Deployment strategy must be blue_green or recreate") unless node.is_a?(YAML::Nodes::Scalar)
+
+        case node.value
+        when "blue_green" then DeploymentStrategy::BlueGreen
+        when "recreate"   then DeploymentStrategy::Recreate
+        else
+          node.raise("Unknown deployment strategy: #{node.value.inspect}, expected one of: blue_green, recreate")
+        end
+      end
+
+      def self.to_yaml(value : DeploymentStrategy?, yaml : YAML::Nodes::Builder)
+        yaml.scalar(value.try { |strategy| strategy.blue_green? ? "blue_green" : "recreate" } || "")
+      end
+    end
+
     struct DeployConfig
       include YAML::Serializable
       include YAML::Serializable::Strict
 
       getter service : String
+      @[YAML::Field(converter: Meridian::Config::DeploymentStrategyConverter)]
+      getter strategy : DeploymentStrategy?
       getter image : String
       getter build : BuildConfig?
       getter servers : Hash(String, ServerConfig)
@@ -25,6 +49,18 @@ module Meridian
 
       def resolved_proxy : ProxyConfig
         proxy || ProxyConfig.new
+      end
+
+      def effective_strategy : DeploymentStrategy?
+        strategy || (servers["web"]?.try(&.proxy) ? DeploymentStrategy::BlueGreen : nil)
+      end
+
+      def strategy_label : String
+        effective_strategy.try { |value| value.blue_green? ? "blue_green" : "recreate" } || "restart_in_place"
+      end
+
+      def recreate? : Bool
+        effective_strategy.try(&.recreate?) || false
       end
 
       protected def after_initialize
@@ -48,6 +84,36 @@ module Meridian
         servers.each do |role, server|
           validate_server_config!(role, server)
         end
+
+        validate_strategy!
+      end
+
+      private def validate_strategy! : Nil
+        selected = strategy
+        return unless selected
+
+        unless servers["web"].proxy
+          raise ValidationError.new("strategy: #{strategy_label} requires servers.web.proxy")
+        end
+        return unless selected.recreate?
+
+        if assets
+          raise ValidationError.new("strategy: recreate does not support assets: in this release")
+        end
+
+        servers.each do |role, server|
+          unless server.managed?
+            raise ValidationError.new("strategy: recreate requires every app role to be managed; servers.#{role} has managed: false")
+          end
+          unless server.hosts.size == 1
+            raise ValidationError.new("strategy: recreate requires every app role to use exactly one host; servers.#{role}.hosts has #{server.hosts.size}")
+          end
+        end
+
+        hosts = servers.values.map(&.hosts.first)
+        return if hosts.uniq.size == 1
+
+        raise ValidationError.new("strategy: recreate requires every app role to use the same single host")
       end
 
       private def validate_server_config!(role : String, server : ServerConfig) : Nil
@@ -423,7 +489,7 @@ module Meridian
     end
 
     module Loader
-      ROOT_KEYS           = {"service", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
+      ROOT_KEYS           = {"service", "strategy", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
       BUILD_KEYS          = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units"}
       SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path"}

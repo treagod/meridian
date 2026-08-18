@@ -13,6 +13,7 @@ describe "Meridian::Commands::Plan" do
       output = run_plan(MINIMAL_CONFIG)
 
       output.should contain("service:   myapp")
+      output.should contain("strategy:  restart_in_place")
       output.should contain("image:     registry.example.com/myorg/myapp")
       output.should contain("transfer:  registry")
       output.should contain("ssh user:  deploy")
@@ -77,6 +78,7 @@ describe "Meridian::Commands::Plan" do
       output = run_plan(FULL_CONFIG)
 
       output.should contain("transfer:  registry")
+      output.should contain("strategy:  blue_green")
       output.should contain("web (managed)")
       output.should contain("hosts:    192.168.1.10, 192.168.1.11")
       output.should contain("proxy:    host=myapp.example.com ssl=true app_port=3000 health=/health")
@@ -146,6 +148,21 @@ describe "Meridian::Commands::Plan" do
 
       run_plan(stream).should contain("transfer:  stream")
       run_plan(incremental).should contain("transfer:  incremental")
+    end
+
+    it "renders recreate as the effective strategy" do
+      content = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [prod.example.com]
+            proxy:
+              host: myapp.example.com
+        YAML
+
+      run_plan(content).should contain("strategy:  recreate")
     end
 
     it "marks unmanaged roles and lists their units without a proxy line" do

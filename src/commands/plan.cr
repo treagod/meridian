@@ -27,6 +27,7 @@ module Meridian
 
       private def write_header(plan : Deploy::Plan) : Nil
         write_field("service", plan.service)
+        write_field("strategy", plan.strategy)
         write_field("image", plan.default_image)
         write_field("transfer", plan.transfer_mode.try(&.to_s.downcase) || "registry")
         write_field("ssh user", plan.ssh_user)

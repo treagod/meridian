@@ -2,29 +2,57 @@
 
 Meridian is an imperative deploy tool: one CLI process connects over SSH,
 writes Podman Quadlets, asks user systemd to reload, and uses kamal-proxy for
-proxied blue/green cutovers. This page is the mental model for reading deploy
+proxied traffic. Blue/Green remains the default; `strategy: recreate` adds a
+deliberate-downtime path for stateful single-instance services. This page is the mental model for reading deploy
 logs, debugging failures, and running multiple apps on one host.
 
 ## Deploy Flow
 
-Proxied web deploys run this sequence on each selected host:
+### Default Blue/Green Flow
 
-1. Acquire the deploy lock before remote mutation starts.
-2. Verify the setup-created service network.
-3. Transfer the selected image by registry pull, `stream`, or `incremental`.
-4. Upload the new color `.container`, file syncs, and asset units.
-5. Run `systemctl --user daemon-reload`.
-6. Wait for co-network accessories to pass readiness probes.
-7. Run remote `before_start` hooks.
-8. Run the asset builder when `assets:` is configured.
-9. Start the inactive color, for example `my-app-green.service`.
-10. Poll the new container from a temporary probe container on `meridian-proxy` until `healthcheck.required_successes` consecutive HTTP successes pass.
-11. Run remote `before_switch` hooks.
-12. Run `kamal-proxy deploy` to atomically switch traffic to the new color.
-13. Run remote `after_switch` hooks.
-14. Stop the old color and remove its inactive Quadlet file.
-15. Record `active-color`, `release-state.json`, and `manifest.json`.
-16. Run remote `after_deploy` hooks and release the deploy lock.
+Proxied web deploys use Blue/Green when `strategy` is omitted and run this
+sequence on each selected host:
+
+1. Validate locally and run `pre_deploy`.
+2. Acquire the deploy lock before remote mutation starts.
+3. Verify the setup-created service network.
+4. Transfer the selected image by registry pull, `stream`, or `incremental`.
+5. Upload the new color `.container`, file syncs, and asset units.
+6. Run `systemctl --user daemon-reload`.
+7. Wait for co-network accessories to pass readiness probes.
+8. Run remote `before_start` hooks.
+9. Run the asset builder when `assets:` is configured.
+10. Start and directly healthcheck the inactive color.
+11. Run `kamal-proxy deploy` to atomically switch traffic.
+12. Stop the old color and remove its inactive Quadlet file.
+13. Record `active-color`, `release-state.json`, and `manifest.json`.
+14. Run final hooks and release the deploy lock.
+
+### Recreate Flow
+
+`strategy: recreate` is one serial transaction across every app role on one
+host. Images, networks, candidate Quadlets, systemd reload, and accessory
+readiness are prepared while the old release still runs. A first deploy has no
+existing route, so it skips maintenance.
+
+On a redeploy Meridian runs `kamal-proxy stop <service>`, stops all active
+secondary roles, and then stops the old web color. Only after those stops
+complete does it upload `files:`, run `after_upload`/`before_start`, and start
+the candidate web color. The web healthcheck must pass before cron, worker, or
+other secondary roles start. Meridian then updates the proxy target and runtime
+state while the route remains in maintenance, removes the old Quadlet, and
+finally runs `kamal-proxy resume <service>`.
+
+Old and new web colors are never active together. Accessories are not app roles:
+they remain running throughout the transaction and only participate through
+their readiness checks.
+
+If anything fails after maintenance begins, Meridian does not restart the old
+release, roll back an image, or resume traffic. Persistent data may already have
+been migrated. An unhealthy candidate is stopped; a healthy candidate is kept
+for diagnosis and repair. The route remains intentionally blocked until the
+operator repairs the service or restores image, database, and volumes from a
+matching backup, then resumes it manually.
 
 For field-level details, see [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness),
@@ -103,7 +131,7 @@ Meridian stores runtime state per service, not globally:
 | --- | --- | --- | --- |
 | `active-color` | Current proxied color, `blue` or `green`. | `status`, `exec`, `rollback` | proxied `deploy`, `rollback` |
 | `manifest.json` | Ownership manifest for proxy routes, assets, ports, accessories, generated files, and state paths. | `check`, `proxy remove` | `deploy` |
-| `release-state.json` | Current and previous rollback-safe proxied releases. | `status`, `rollback` | proxied `deploy`, `rollback` |
+| `release-state.json` | Current and previous proxied releases; only Blue/Green releases are image-rollback-safe. | `status`, `rollback` | proxied `deploy`, `rollback` |
 | `lock/meta.json` | Deploy lock holder, timestamp, and optional message. | `lock status`, `deploy` | `deploy`, `lock acquire`, `lock release` |
 | `audit.log` | Line-oriented history of deploy, rollback, proxy, accessory, and lock operations. | `audit` | mutating commands |
 
@@ -159,6 +187,15 @@ keeps the previous rollback-safe release. `meridian rollback` reads
 `release-state.json`, starts the previous color if needed, runs kamal-proxy in
 reverse, rewrites `active-color`, swaps current/previous release metadata, and
 records an audit entry.
+
+## Recreate
+
+Recreate reuses the same color-named Web Quadlets and healthcheck, but it changes
+their ordering: the old color is stopped before the candidate starts. This creates
+intentional downtime and prevents two versions from sharing a mutable database or
+volume. The first implementation is single-host-only, requires every app role to
+be managed, rejects `assets:`, and does not support selective deploys or automatic
+rollback.
 
 ## Non-Proxied Managed Roles
 

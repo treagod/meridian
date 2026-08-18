@@ -87,6 +87,14 @@ image to reconstruct the previous release.
 Every field, default, and validation rule is in the
 [`deploy.yml` reference](/reference/deploy-yml).
 
+Blue/Green remains the default for proxied applications. For a stateful
+single-instance service whose web and cron processes share mutable data, add
+top-level `strategy: recreate`. Recreate requires every app role on the same
+single host, keeps accessories running, and introduces intentional downtime so
+the old release is fully stopped before the new one starts. Do not add it merely
+because a config contains a volume; choose it explicitly when overlapping app
+versions are unsafe.
+
 ### Name The SSH Key, Then Build
 
 `meridian server bootstrap` installs your public key on the server, so `deploy.yml`
@@ -253,6 +261,10 @@ Only the image and color come from recorded state. Env, volumes, ports, and comm
 always come from your current `deploy.yml`. Rollback covers the proxied `web` role;
 secondary roles go back by deploying the previous image. See
 [Blue/Green](/guide/concepts#blue-green) and [`rollback`](/reference/cli#rollback).
+
+This rollback command is intentionally unavailable under `strategy: recreate`.
+An upgrade may have migrated persistent data, so a safe rollback must restore the
+matching image, database, and persistent volumes from backup together.
 
 ## Where To Go Next
 

@@ -41,6 +41,11 @@ module Meridian
 
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
           config = Config::Loader.load(@file)
+          if config.recreate? && !@selector.empty?
+            raise ArgumentError.new(
+              "strategy: recreate requires a full-service deploy; --role and --host cannot select a deployment subset"
+            )
+          end
           targets = @selector.empty? ? nil : @selector.resolve(config)
           orchestrator = ctx.orchestrator_factory.call(config, ctx.ssh_executor, ctx.output)
           orchestrator.deploy(targets)

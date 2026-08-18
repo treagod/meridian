@@ -55,6 +55,125 @@ describe "Meridian::Config::Loader" do
       config.image.should eq("registry.example.com/myorg/myapp")
     end
 
+    it "parses recreate and blue_green strategies" do
+      recreate = MINIMAL_CONFIG.sub("service: myapp", "service: myapp\n  strategy: recreate").sub(
+        "      hosts:",
+        "      proxy:\n        host: myapp.example.com\n      hosts:"
+      )
+      blue_green = recreate.sub("strategy: recreate", "strategy: blue_green")
+
+      Meridian::Config::Loader.parse(recreate).strategy.should eq(Meridian::Config::DeploymentStrategy::Recreate)
+      Meridian::Config::Loader.parse(blue_green).strategy.should eq(Meridian::Config::DeploymentStrategy::BlueGreen)
+    end
+
+    it "rejects an unknown deployment strategy" do
+      yaml = MINIMAL_CONFIG.sub("service: myapp", "service: myapp\n  strategy: rolling")
+
+      ex = expect_raises(YAML::ParseException) { Meridian::Config::Loader.parse(yaml) }
+      ex.message.to_s.should contain("blue_green, recreate")
+    end
+
+    it "keeps the legacy defaults when strategy is omitted" do
+      non_proxied = Meridian::Config::Loader.parse(MINIMAL_CONFIG)
+      proxied = Meridian::Config::Loader.parse(
+        MINIMAL_CONFIG.sub("      hosts:", "      proxy:\n        host: myapp.example.com\n      hosts:")
+      )
+
+      non_proxied.strategy.should be_nil
+      non_proxied.strategy_label.should eq("restart_in_place")
+      proxied.strategy.should be_nil
+      proxied.strategy_label.should eq("blue_green")
+    end
+
+    it "rejects recreate across multiple hosts" do
+      yaml = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [one.example.com, two.example.com]
+            proxy:
+              host: myapp.example.com
+        YAML
+
+      expect_raises(Meridian::Config::ValidationError, /exactly one host/) do
+        Meridian::Config::Loader.parse(yaml)
+      end
+    end
+
+    it "rejects recreate roles on different hosts" do
+      yaml = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [one.example.com]
+            proxy:
+              host: myapp.example.com
+          cron:
+            hosts: [two.example.com]
+            cmd: /cron.sh
+        YAML
+
+      expect_raises(Meridian::Config::ValidationError, /same single host/) do
+        Meridian::Config::Loader.parse(yaml)
+      end
+    end
+
+    it "rejects unmanaged roles under recreate" do
+      yaml = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [one.example.com]
+            proxy:
+              host: myapp.example.com
+          cron:
+            hosts: [one.example.com]
+            managed: false
+            units: [myapp-cron.service]
+        YAML
+
+      expect_raises(Meridian::Config::ValidationError, /every app role to be managed/) do
+        Meridian::Config::Loader.parse(yaml)
+      end
+    end
+
+    it "rejects recreate with assets" do
+      yaml = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [one.example.com]
+            proxy:
+              host: myapp.example.com
+        assets:
+          host: assets.example.com
+          command: bin/build-assets
+          output_dir: /app/public
+        YAML
+
+      expect_raises(Meridian::Config::ValidationError, /does not support assets/) do
+        Meridian::Config::Loader.parse(yaml)
+      end
+    end
+
+    it "requires a proxied web role for explicit strategies" do
+      {"blue_green", "recreate"}.each do |strategy|
+        yaml = MINIMAL_CONFIG.sub("service: myapp", "service: myapp\n  strategy: #{strategy}")
+
+        expect_raises(Meridian::Config::ValidationError, /requires servers.web.proxy/) do
+          Meridian::Config::Loader.parse(yaml)
+        end
+      end
+    end
+
     it "raises a validation error when build config is present" do
       yaml = <<-YAML
         service: myapp

@@ -204,5 +204,38 @@ describe "Meridian::Commands::Status" do
       output.to_s.should contain("legacy-app.service=active")
       output.to_s.should contain("legacy-worker.service=inactive")
     end
+
+    it "labels every app role as recreate without calling it blue/green" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_status_command(
+        content: <<-YAML,
+          service: myapp
+          strategy: recreate
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [prod.example.com]
+              proxy:
+                host: myapp.example.com
+            cron:
+              hosts: [prod.example.com]
+              cmd: /cron.sh
+          YAML
+        runner: runner,
+        output: output
+      )
+      runner.enqueue_results(
+        ssh_fail(1),
+        ssh_ok("Active: active (running)\n"),
+        ssh_fail(3, "Active: inactive (dead)\n"),
+        ssh_ok("Active: active (running)\n")
+      )
+
+      command.run
+
+      output.to_s.scan(/recreate/).size.should eq(2)
+      output.to_s.should_not contain("blue/green")
+    end
   end
 end

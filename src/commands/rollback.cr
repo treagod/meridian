@@ -17,6 +17,13 @@ module Meridian
       end
 
       def run : Nil
+        if @config.recreate?
+          raise Deploy::RollbackFailed.new(
+            "Rollback is disabled for strategy: recreate because releases may have migrated persistent data. " \
+            "An image-only rollback is unsafe; restore the image, database, and persistent volumes together from a matching backup."
+          )
+        end
+
         proxy = web_proxy
 
         hosts_for_role("web").sort.each do |host|
