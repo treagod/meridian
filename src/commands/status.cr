@@ -70,7 +70,7 @@ module Meridian
             role: role,
             host: host,
             release: release_label(host),
-            deployment: "blue/green",
+            deployment: @config.recreate? ? "recreate" : "blue/green",
             state: "blue=#{unit_state(host, service_unit(Quadlet::Color::Blue))},green=#{unit_state(host, service_unit(Quadlet::Color::Green))}"
           )
         else
@@ -79,7 +79,7 @@ module Meridian
             role: role,
             host: host,
             release: "-",
-            deployment: unit,
+            deployment: @config.recreate? ? "recreate" : unit,
             state: unit_state(host, unit)
           )
         end

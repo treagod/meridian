@@ -43,6 +43,7 @@ module Meridian
 
     struct Plan
       getter service : String
+      getter strategy : String
       getter default_image : String
       getter transfer_mode : Config::TransferMode?
       getter registry : Config::RegistryConfig?
@@ -58,6 +59,7 @@ module Meridian
 
       def initialize(
         @service : String,
+        @strategy : String,
         @default_image : String,
         @transfer_mode : Config::TransferMode?,
         @registry : Config::RegistryConfig?,
@@ -76,6 +78,7 @@ module Meridian
       def self.from(config : Config::DeployConfig) : Plan
         new(
           service: config.service,
+          strategy: config.strategy_label,
           default_image: config.image,
           transfer_mode: config.transfer.try(&.mode),
           registry: config.registry,

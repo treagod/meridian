@@ -169,14 +169,27 @@ meridian deploy
 meridian deploy --role web --host prod-01.example.com
 ```
 
-Accepts `--role` and `--host` from the [target selectors](#target-selectors).
+Accepts `--role` and `--host` from the [target selectors](#target-selectors),
+except under `strategy: recreate`, where any subset is rejected before SSH.
 
-Acquires the remote deploy lock, verifies the service network, runs hooks, transfers
-images, uploads app Quadlets/files/asset units, and starts new units. Proxied managed
+Runs local validation and `pre_deploy`, then acquires the remote deploy lock,
+verifies the service network, runs remote hooks, transfers images, uploads app
+Quadlets/files/asset units, and starts new units. Proxied managed
 roles then switch kamal-proxy and write `active-color` plus `release-state.json`;
 other managed roles restart their stable `<service>-<role>` unit without proxy state.
 Finally writes `manifest.json`, appends audit entries, and releases the lock in an
 `ensure` block.
+
+With `strategy: recreate`, Meridian first transfers every role image and uploads
+all new Quadlets on the service's single host. On a redeploy it then runs
+`kamal-proxy stop`, stops active secondary roles, and stops the old web colour
+before starting anything new. The new web colour must pass its direct container
+healthcheck before secondary roles start. Traffic resumes only after every role,
+the proxy target, and runtime state are ready. Accessories remain running.
+
+If Recreate fails after maintenance begins, Meridian deliberately leaves the route
+stopped and never restarts the old image. The error names the units and logs to
+inspect and prints the manual `kamal-proxy resume` command.
 
 Lock contention is reported as a normal failed deploy, not a separate numeric code.
 
@@ -220,6 +233,10 @@ Two limits decide whether rollback is available at all:
 Non-image configuration — env, volumes, ports, command — comes from the current
 config file, not from the previous release.
 
+`strategy: recreate` is rejected before SSH. Recreate releases may have migrated
+persistent data, so an image-only rollback is unsafe; restore the image, database,
+and persistent volumes together from a matching backup.
+
 See [`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy) and
 [`proxy`](/reference/deploy-yml#proxy).
 
@@ -238,6 +255,8 @@ Columns are `role`, `host`, `release`, `deployment`, and `state`. It reads user
 systemd state and, for proxied roles, service-scoped `release-state.json` when
 present. Non-proxied managed roles report their stable role unit; unmanaged roles
 summarize their configured units.
+Recreate services report `recreate` in the deployment column rather than
+`blue/green`, including their secondary role rows.
 
 See [`servers.<role>`](/reference/deploy-yml#servers-role) and
 [`boot`](/reference/deploy-yml#boot).
@@ -509,4 +528,6 @@ meridian plan --config config/production.yml
 ```
 
 It loads the same strict schema as `deploy`, so a config error shows up here first.
-Every field in [`deploy.yml`](/reference/deploy-yml) affects the output.
+The header includes the effective strategy: `blue_green`, `recreate`, or
+`restart_in_place`. Every field in [`deploy.yml`](/reference/deploy-yml) affects
+the output.

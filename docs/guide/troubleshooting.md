@@ -33,6 +33,39 @@ meridian deploy
 
 See the [`deploy.yml` healthcheck reference](/reference/deploy-yml#healthcheck) for field details.
 
+## Recreate Deploy Left The Route In Maintenance
+
+Problem: a `strategy: recreate` deploy reports that maintenance began and the
+service remains in maintenance.
+
+This is deliberate. Once Meridian has stopped old app processes, hooks or the new
+container may have migrated the database or persistent volumes. Meridian therefore
+does not restart the old image, perform an image-only rollback, or run
+`kamal-proxy resume` automatically.
+
+Diagnose every app role named in the deploy error:
+
+```bash
+ssh deploy@prod-01.example.com \
+  'systemctl --user status my-app-blue.service my-app-green.service my-app-cron.service'
+ssh deploy@prod-01.example.com \
+  'journalctl --user -u my-app-blue.service -u my-app-green.service -u my-app-cron.service -n 100 --no-pager'
+meridian audit --host prod-01.example.com --lines 50
+```
+
+Repair and verify the new release in place. If data restoration is required,
+restore the matching image, database, and persistent volumes from the same backup.
+Only after the service is healthy should you reopen traffic:
+
+```bash
+ssh deploy@prod-01.example.com \
+  'podman exec kamal-proxy kamal-proxy resume my-app'
+```
+
+Do not resume merely to clear the maintenance response: it exposes whichever
+target is currently registered. Recreate is single-host-only in this release, and
+Accessories remain active while the app route is stopped.
+
 ## `manifest-collisions: fail`
 
 Problem: `meridian check` reports `manifest-collisions: fail` for a host that already runs Meridian services.

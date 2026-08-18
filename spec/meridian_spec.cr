@@ -90,6 +90,33 @@ describe "Meridian::CLI" do
       end
     end
 
+    it "rejects a selective recreate deploy before constructing the orchestrator" do
+      constructed = false
+      orchestrator_factory = Meridian::CLI::OrchestratorFactory.new do |config, _ssh_executor, output|
+        constructed = true
+        FakeDeployOrchestrator.new(config, output: output).as(Meridian::Deploy::Orchestrator)
+      end
+      config = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [prod.example.com]
+            proxy:
+              host: myapp.example.com
+        YAML
+
+      result = run_cli(
+        ["deploy", "--role", "web", "--config", write_config(config)],
+        orchestrator_factory: orchestrator_factory
+      )
+
+      result.exit_code.should eq(1)
+      result.output.should contain("full-service deploy")
+      constructed.should be_false
+    end
+
     it "exits non-zero naming a missing files: source before touching any host" do
       with_tempdir do |path|
         missing_path = File.join(path, "nginx.conf")

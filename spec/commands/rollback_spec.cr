@@ -113,6 +113,29 @@ end
 
 describe "Meridian::Commands::Rollback" do
   describe "#run" do
+    it "rejects recreate before contacting the host" do
+      runner = FakeSSHRunner.new
+      content = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: registry.example.com/myorg/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: myapp.example.com
+        YAML
+      command = build_rollback_command(content: content, runner: runner)
+
+      ex = expect_raises(Meridian::Deploy::RollbackFailed, /persistent data/) do
+        command.run
+      end
+
+      ex.message.to_s.should contain("database")
+      ex.message.to_s.should contain("persistent volumes")
+      runner.invocations.should be_empty
+    end
+
     it "reads the active colour from the service-scoped state path on each host when no release state is present" do
       runner = FakeSSHRunner.new
       command = build_rollback_command(runner: runner)

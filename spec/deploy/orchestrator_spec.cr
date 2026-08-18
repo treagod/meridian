@@ -499,6 +499,90 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probe
   )
 end
 
+RECREATE_WEB_CONFIG = <<-YAML
+  service: myapp
+  strategy: recreate
+  image: registry.example.com/myorg/myapp:2
+  servers:
+    web:
+      hosts: [prod.example.com]
+      proxy:
+        host: myapp.example.com
+        app_port: 3000
+        healthcheck:
+          interval: 0
+          retries: 1
+          required_successes: 1
+  YAML
+
+RECREATE_CRON_CONFIG = <<-YAML
+  service: myapp
+  strategy: recreate
+  image: registry.example.com/myorg/myapp:2
+  servers:
+    web:
+      hosts: [prod.example.com]
+      proxy:
+        host: myapp.example.com
+        app_port: 3000
+        healthcheck:
+          interval: 0
+          retries: 1
+          required_successes: 1
+    cron:
+      hosts: [prod.example.com]
+      cmd: /cron.sh
+  YAML
+
+class RecreateSSHRunner < FakeSSHRunner
+  getter active_units : Set(String)
+  property fail_matching : String?
+  property? health_fails : Bool = false
+
+  def initialize(old_color : String? = nil, secondary_active : Bool = false)
+    super()
+    @old_color = old_color
+    @active_units = Set(String).new
+    @active_units << "myapp-#{old_color}.service" if old_color
+    @active_units << "myapp-cron.service" if secondary_active
+  end
+
+  def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
+    invocation = FakeSSHInvocation.new(command: command, args: args, input: input)
+    self.next_result = result_for(invocation.remote_command.to_s)
+    super
+  end
+
+  private def result_for(remote : String) : Meridian::SSH::Result
+    if match = fail_matching
+      return ssh_fail(1, "", "forced failure\n") if remote.includes?(match)
+    end
+
+    case remote
+    when "cat .local/state/meridian/services/myapp/active-color"
+      @old_color ? ssh_ok("#{@old_color}\n") : ssh_fail(1, "", "missing\n")
+    when "cat .config/containers/systemd/.meridian-color"
+      ssh_fail(1, "", "missing\n")
+    when "cat .local/state/meridian/services/myapp/release-state.json"
+      ssh_fail(1, "", "missing\n")
+    else
+      if match = /systemctl --user is-active (\S+)/.match(remote)
+        @active_units.includes?(match[1]) ? ssh_ok("active\n") : ssh_fail(3, "inactive\n")
+      elsif match = /systemctl --user start (\S+)/.match(remote)
+        @active_units << match[1]
+        ssh_ok
+      elsif match = /systemctl --user stop (\S+)/.match(remote)
+        @active_units.delete(match[1])
+        ssh_ok
+      elsif remote.starts_with?("podman run --rm --network=meridian-proxy")
+        health_fails? ? ssh_fail(1, "", "unhealthy\n") : ssh_ok("ok\n")
+      else
+        ssh_ok
+      end
+    end
+  end
+end
+
 def run_deploy_async(orchestrator : Meridian::Deploy::Orchestrator) : Channel(Exception?)
   finished = Channel(Exception?).new
 
@@ -1663,6 +1747,267 @@ describe "Meridian::Deploy::Orchestrator" do
   end
 
   describe "#deploy" do
+    it "performs a first recreate deploy without entering or resuming maintenance" do
+      runner = RecreateSSHRunner.new
+      audit = FakeAuditLogger.new(load_config(RECREATE_WEB_CONFIG))
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        audit_logger: audit
+      )
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner)
+      commands.should contain("systemctl --user start myapp-green.service")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy stop myapp")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000")).should be_true
+      audit.recorded.none?(&.action.==("maintenance")).should be_true
+    end
+
+    it "prepares a web recreate before stopping the proxy and never overlaps colours" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      audit = FakeAuditLogger.new(load_config(RECREATE_WEB_CONFIG))
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        audit_logger: audit
+      )
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner)
+      pull_index = commands.index("podman pull registry.example.com/myorg/myapp:2") || raise "Expected image pull"
+      quadlet_index = commands.index("cat > .config/containers/systemd/myapp-blue.container") || raise "Expected candidate Quadlet"
+      maintenance_index = commands.index("podman exec kamal-proxy kamal-proxy stop myapp") || raise "Expected maintenance"
+      old_stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old stop"
+      new_start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected candidate start"
+      resume_index = commands.index("podman exec kamal-proxy kamal-proxy resume myapp") || raise "Expected resume"
+
+      pull_index.should be < maintenance_index
+      quadlet_index.should be < maintenance_index
+      maintenance_index.should be < old_stop_index
+      old_stop_index.should be < new_start_index
+      new_start_index.should be < resume_index
+      runner.active_units.should contain("myapp-blue.service")
+      runner.active_units.should_not contain("myapp-green.service")
+      audit.recorded.map(&.detail).should contain("begin old=green new=blue")
+      audit.recorded.map(&.detail).should contain("end active=blue")
+    end
+
+    it "stops secondary roles before the old web colour and restarts them after web health" do
+      runner = RecreateSSHRunner.new(old_color: "green", secondary_active: true)
+      orchestrator = build_orchestrator(content: RECREATE_CRON_CONFIG, runner: runner)
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner)
+      maintenance_index = commands.index("podman exec kamal-proxy kamal-proxy stop myapp") || raise "Expected maintenance"
+      cron_stop_index = commands.index("systemctl --user stop myapp-cron.service") || raise "Expected cron stop"
+      web_stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected web stop"
+      web_start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected web start"
+      health_index = commands.index { |command| health_command?(command, "myapp-blue") } || raise "Expected health check"
+      cron_start_index = commands.index("systemctl --user start myapp-cron.service") || raise "Expected cron start"
+      cron_active_index = commands.rindex("systemctl --user is-active myapp-cron.service") || raise "Expected cron active check"
+      switch_index = commands.index { |command| command.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000") } || raise "Expected proxy switch"
+      manifest_index = commands.index("cat > .local/state/meridian/services/myapp/manifest.json") || raise "Expected manifest upload"
+      cleanup_index = commands.index("rm -f .config/containers/systemd/myapp-green.container") || raise "Expected old Quadlet cleanup"
+      resume_index = commands.index("podman exec kamal-proxy kamal-proxy resume myapp") || raise "Expected resume"
+
+      maintenance_index.should be < cron_stop_index
+      cron_stop_index.should be < web_stop_index
+      web_stop_index.should be < web_start_index
+      health_index.should be < cron_start_index
+      cron_start_index.should be < cron_active_index
+      cron_active_index.should be < switch_index
+      switch_index.should be < resume_index
+      manifest_index.should be < resume_index
+      cleanup_index.should be < resume_index
+      commands.count(&.==("podman pull registry.example.com/myorg/myapp:2")).should eq(2)
+      value!(commands.index("cat > .config/containers/systemd/myapp-cron.container")).should be < maintenance_index
+    end
+
+    it "keeps accessories running throughout recreate" do
+      config = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp:2
+        servers:
+          web:
+            hosts: [prod.example.com]
+            proxy:
+              host: myapp.example.com
+              healthcheck:
+                interval: 0
+                retries: 1
+                required_successes: 1
+        accessories:
+          cache:
+            image: docker.io/library/redis:7
+            host: prod.example.com
+            network: myapp.network
+            ready:
+              tcp: 6379
+        YAML
+      runner = RecreateSSHRunner.new(old_color: "green")
+      orchestrator = build_orchestrator(content: config, runner: runner)
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner)
+      commands.any?(&.includes?("until nc -z cache 6379")).should be_true
+      commands.none?(&.includes?("stop cache.service")).should be_true
+      commands.none?(&.includes?("stop myapp-cache.service")).should be_true
+    end
+
+    it "defers file syncs and after_upload hooks until the old web unit is stopped" do
+      config = <<-YAML
+        service: myapp
+        strategy: recreate
+        image: example.com/myapp:2
+        servers:
+          web:
+            hosts: [prod.example.com]
+            proxy:
+              host: myapp.example.com
+              healthcheck:
+                interval: 0
+                retries: 1
+                required_successes: 1
+        files:
+          - source: config/runtime.conf
+            destination: .config/myapp/runtime.conf
+            roles: [web]
+        hooks:
+          remote:
+            before_transfer:
+              - command: test -n "$USER"
+                roles: [web]
+            after_upload:
+              - command: systemctl --user start --wait myapp-migrate.service
+                roles: [web]
+        YAML
+      runner = RecreateSSHRunner.new(old_color: "green")
+      orchestrator = build_orchestrator(
+        content: config,
+        runner: runner,
+        file_reader: ->(_path : String) { "runtime=true\n" }
+      )
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner)
+      transfer_hook_index = value!(commands.index("sh -lc 'test -n \"$USER\"'"))
+      maintenance_index = value!(commands.index("podman exec kamal-proxy kamal-proxy stop myapp"))
+      old_stop_index = value!(commands.index("systemctl --user stop myapp-green.service"))
+      upload_index = value!(commands.index("cat > .config/myapp/runtime.conf"))
+      upload_hook_index = value!(commands.index("sh -lc 'systemctl --user start --wait myapp-migrate.service'"))
+      new_start_index = value!(commands.index("systemctl --user start myapp-blue.service"))
+
+      transfer_hook_index.should be < maintenance_index
+      old_stop_index.should be < upload_index
+      upload_index.should be < upload_hook_index
+      upload_hook_index.should be < new_start_index
+    end
+
+    it "rejects direct selective recreate targets before lock or SSH" do
+      runner = RecreateSSHRunner.new
+      config = load_config(RECREATE_WEB_CONFIG)
+      lock = FakeLockManager.new(config)
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        lock_manager: lock
+      )
+      targets = [Meridian::CLI::TargetSelector::Target.new(role: "web", host: "prod.example.com")]
+
+      expect_raises(Meridian::Deploy::DeployFailed, /full-service deploy/) do
+        orchestrator.deploy(targets)
+      end
+
+      lock.acquire_calls.should eq(0)
+      runner.invocations.should be_empty
+    end
+
+    it "leaves the old release untouched when preparation fails" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      runner.fail_matching = "podman pull"
+      orchestrator = build_orchestrator(content: RECREATE_WEB_CONFIG, runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /forced failure/) do
+        orchestrator.deploy
+      end
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy stop myapp")
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.active_units.should contain("myapp-green.service")
+    end
+
+    it "does not restart the old release or resume after a recreate health failure" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      runner.health_fails = true
+      output = IO::Memory.new
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        output: output
+      )
+
+      ex = expect_raises(Meridian::Deploy::DeployFailed, /remains in maintenance/) do
+        orchestrator.deploy
+      end
+
+      commands = remote_commands_for(runner)
+      commands.count(&.==("systemctl --user stop myapp-blue.service")).should eq(1)
+      commands.should_not contain("systemctl --user start myapp-green.service")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      ex.message.to_s.should contain("persistent data may have been migrated")
+      ex.message.to_s.should contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.active_units.should be_empty
+    end
+
+    it "does not swallow an old web stop failure or start the candidate" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      runner.fail_matching = "systemctl --user stop myapp-green.service"
+      orchestrator = build_orchestrator(content: RECREATE_WEB_CONFIG, runner: runner)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /remains in maintenance/) do
+        orchestrator.deploy
+      end
+
+      commands = remote_commands_for(runner)
+      commands.should contain("systemctl --user stop myapp-green.service")
+      commands.should_not contain("systemctl --user start myapp-blue.service")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.active_units.should contain("myapp-green.service")
+    end
+
+    it "keeps a healthy web candidate and maintenance when a secondary role fails" do
+      runner = RecreateSSHRunner.new(old_color: "green", secondary_active: true)
+      runner.fail_matching = "systemctl --user start myapp-cron.service"
+      audit = FakeAuditLogger.new(load_config(RECREATE_CRON_CONFIG))
+      orchestrator = build_orchestrator(
+        content: RECREATE_CRON_CONFIG,
+        runner: runner,
+        audit_logger: audit
+      )
+
+      ex = expect_raises(Meridian::Deploy::DeployFailed, /remains in maintenance/) do
+        orchestrator.deploy
+      end
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("systemctl --user start myapp-green.service")
+      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.active_units.should contain("myapp-blue.service")
+      audit.recorded.any? { |entry| entry.action == "maintenance" && entry.detail.starts_with?("failed:") }.should be_true
+      ex.message.to_s.should contain("myapp-cron.service")
+    end
+
     it "uses the zero-downtime path for web roles with proxy config" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success_for_host(runner, "192.168.1.10")

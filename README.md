@@ -58,8 +58,8 @@ meridian deploy
 | [`setup`](https://meridian-deploy.dev/reference/cli#setup) | Install the service network and kamal-proxy on web hosts |
 | [`check`](https://meridian-deploy.dev/reference/cli#check) | Read-only preflight against every configured host |
 | [`plan`](https://meridian-deploy.dev/reference/cli#plan) | Print what Meridian resolved from `deploy.yml`, touching no server |
-| [`deploy`](https://meridian-deploy.dev/reference/cli#deploy) | Rolling deploy across all roles |
-| [`rollback`](https://meridian-deploy.dev/reference/cli#rollback) | Restore the previous release on proxied web hosts |
+| [`deploy`](https://meridian-deploy.dev/reference/cli#deploy) | Deploy all roles with the resolved service strategy |
+| [`rollback`](https://meridian-deploy.dev/reference/cli#rollback) | Restore the previous blue/green web release |
 | [`status`](https://meridian-deploy.dev/reference/cli#status) / [`logs`](https://meridian-deploy.dev/reference/cli#logs) | Inspect deployed state, stream `journalctl` |
 | [`exec`](https://meridian-deploy.dev/reference/cli#exec) / [`run`](https://meridian-deploy.dev/reference/cli#run) | Run a command in the live container, or in a fresh one-off container |
 | [`quadlet`](https://meridian-deploy.dev/reference/cli#quadlet) | Generate `.container` files locally for inspection or review |
@@ -69,19 +69,23 @@ meridian deploy
 | [`audit`](https://meridian-deploy.dev/reference/cli#audit) | Tail the per-host audit log written by deploys and rollbacks |
 | [`proxy remove`](https://meridian-deploy.dev/reference/cli#proxy-remove) | Drop this service's proxy routes and manifest |
 
-`deploy`, `status`, and `logs` take `--role` and `--host` to narrow what they act on. The [CLI reference](https://meridian-deploy.dev/reference/cli) has exact usage, flags, side effects, and exit codes for all of them. Three are worth explaining here.
+`deploy`, `status`, and `logs` take `--role` and `--host` to narrow what they act on. Recreate deploys are the exception: they reject selectors because every app role must participate in the same service transaction. The [CLI reference](https://meridian-deploy.dev/reference/cli) has exact usage, flags, side effects, and exit codes for all of them. Three are worth explaining here.
 
 ### deploy
 
-Rolling deploy across `servers.web` in batches of `boot.limit`. Secondary roles start releasing as soon as the first web host finishes, rather than waiting for every batch. With a `proxy` block configured, each host gets a blue/green swap through the shared kamal-proxy and the active colour is recorded under `~/.local/state/meridian/services/<service>/active-color`. Without one, you get a stop/start and a short gap.
+With no explicit `strategy`, proxied web apps keep Meridian's blue/green default: web hosts roll in `boot.limit` batches, and secondary roles start releasing as soon as the first web host finishes. Apps without a web proxy keep the existing stop/start path.
 
-Before touching any host, `deploy` takes a remote deploy lock — an atomic `mkdir` on the first web host — and releases it at the end. A second deploy started while the first is running exits non-zero and prints who's holding it.
+`strategy: recreate` is the deliberate-downtime option for stateful, single-instance services. Meridian prepares every role first, puts the route into maintenance, stops secondary roles and then the old web colour, starts and health-checks the new web colour, starts secondary roles, switches the route, and resumes traffic only after the whole transaction succeeds. This first version requires one shared host, managed roles, and a web proxy; accessories stay running, and `assets:` is rejected. A post-maintenance failure intentionally leaves the route blocked for operator recovery instead of attempting an unsafe fallback.
+
+After local validation and `pre_deploy`, `deploy` takes a remote deploy lock — an atomic `mkdir` on the first web host — and releases it at the end. A second deploy started while the first is running exits non-zero and prints who's holding it.
 
 ### rollback
 
 The old container doesn't survive a successful deploy: its unit is stopped and its Quadlet removed. So `rollback` rebuilds the previous release from `~/.local/state/meridian/services/<service>/release-state.json`, regenerating the Quadlet for the recorded image and colour, then starting and health-checking it exactly like a deploy. Traffic moves back only after the health check passes; a failed rollback tears the candidate down and leaves the current release serving.
 
 This needs the previous image to still exist on the host, so **tag every release uniquely**. With a reused tag like `:latest`, the next deploy retags the name and prunes the old image — rollback then refuses rather than quietly serving the wrong code. Only image and colour come from the recorded release; env, volumes, ports, and command always come from your current `deploy.yml`. Rollback covers the proxied web role; secondary roles roll back by deploying the previous image.
+
+Rollback is rejected for `strategy: recreate`: a deployment may have migrated persistent data, so restoring only an image is unsafe. Recover the image, database, and persistent volumes together from a matching backup.
 
 ### check
 
@@ -168,7 +172,7 @@ boot:
   wait: 10
 ```
 
-That's a working config. Everything else is opt-in: `volumes`, `ports`, `transfer`, `files` (upload supporting config, optionally ECR-templated), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static assets served by a Caddy sidecar on its own subdomain).
+That's a working config. Everything else is opt-in: `strategy`, `volumes`, `ports`, `transfer`, `files` (upload supporting config, optionally ECR-templated), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static assets served by a Caddy sidecar on its own subdomain). `strategy: recreate` cannot currently be combined with `assets:`.
 
 Per-role `image:` overrides the global one, which helps when your worker image differs from your web image. Unknown keys fail fast instead of being silently ignored. `build:` is reserved but not implemented, so bring your own image for now.
 
@@ -196,7 +200,7 @@ If you're already happy on Kamal, stay on Kamal. The reason to look at Meridian 
 Full docs live at [meridian-deploy.dev](https://meridian-deploy.dev).
 
 - [Quickstart](https://meridian-deploy.dev/guide/quickstart) — install through first deploy
-- [Concepts](https://meridian-deploy.dev/guide/concepts) — deploy flow, Quadlets, runtime state, blue/green
+- [Concepts](https://meridian-deploy.dev/guide/concepts) — deploy flow, Quadlets, runtime state, blue/green, and recreate
 - [Multi-app hosting](https://meridian-deploy.dev/guide/multi-app) — a second service on a host that already runs one
 - [Recipes](https://meridian-deploy.dev/recipes/) — working starters for Marten, Rails, Go, Kemal, and static sites
 - [Troubleshooting](https://meridian-deploy.dev/guide/troubleshooting) — failure messages mapped to diagnostic commands
