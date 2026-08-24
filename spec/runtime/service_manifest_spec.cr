@@ -1,0 +1,246 @@
+require "../spec_helper"
+
+private def manifest_config(
+  service : String,
+  accessory_host : String = "server.example.com",
+  image : String = "docker.io/library/postgres:18-alpine",
+  network : String = "postgres",
+  volume : String = "postgres-data:/var/lib/postgresql/data",
+  accessory : String = "postgres",
+) : Meridian::Config::DeployConfig
+  load_config(<<-YAML)
+      service: #{service}
+      image: registry.example.com/myorg/#{service}
+
+      servers:
+        web:
+          hosts:
+            - 192.168.1.10
+
+      accessories:
+        #{accessory}:
+          image: #{image}
+          host: #{accessory_host}
+          network: #{network}
+          volumes:
+            - #{volume}
+    YAML
+end
+
+private def manifest_for(**options) : Meridian::Runtime::ServiceManifest
+  Meridian::Runtime::ServiceManifest.from_config(manifest_config(**options))
+end
+
+private def accessory_collisions(
+  left : Meridian::Runtime::ServiceManifest,
+  right : Meridian::Runtime::ServiceManifest,
+) : Array(String)
+  left.accessory_collisions_with(right)
+end
+
+describe Meridian::Runtime::ServiceManifest do
+  describe "accessory identity" do
+    it "records host and fingerprint per accessory" do
+      manifest = manifest_for(service: "freshrss")
+      ref = manifest.accessories["postgres"]
+
+      ref.host.should eq("server.example.com")
+      value!(ref.fingerprint).should_not be_empty
+      ref.definition["image"].should eq("docker.io/library/postgres:18-alpine")
+      ref.definition["network"].should eq("postgres")
+    end
+
+    it "treats the same name, host, and definition as one shared resource" do
+      freshrss = manifest_for(service: "freshrss")
+      nextcloud = manifest_for(service: "nextcloud")
+
+      accessory_collisions(nextcloud, freshrss).should be_empty
+      nextcloud.collisions_with(freshrss).should be_empty
+    end
+
+    it "conflicts on a different image" do
+      freshrss = manifest_for(service: "freshrss")
+      nextcloud = manifest_for(service: "nextcloud", image: "docker.io/library/postgres:17-alpine")
+
+      collisions = accessory_collisions(nextcloud, freshrss)
+
+      collisions.size.should eq(1)
+      collisions.first.should contain("accessory postgres")
+      collisions.first.should contain("freshrss")
+    end
+
+    it "conflicts on a different volume configuration" do
+      freshrss = manifest_for(service: "freshrss")
+      nextcloud = manifest_for(service: "nextcloud", volume: "pgdata:/var/lib/postgresql/data")
+
+      accessory_collisions(nextcloud, freshrss).size.should eq(1)
+    end
+
+    it "conflicts on a different network" do
+      freshrss = manifest_for(service: "freshrss")
+      nextcloud = manifest_for(service: "nextcloud", network: "shared-db")
+
+      accessory_collisions(nextcloud, freshrss).size.should eq(1)
+    end
+
+    it "does not collide when the same name is pinned to different hosts" do
+      freshrss = manifest_for(service: "freshrss", accessory_host: "one.example.com")
+      nextcloud = manifest_for(service: "nextcloud", accessory_host: "two.example.com")
+
+      accessory_collisions(nextcloud, freshrss).should be_empty
+      nextcloud.collisions_with(freshrss).should be_empty
+    end
+
+    it "reports which services share a compatible accessory" do
+      freshrss = manifest_for(service: "freshrss")
+      vaultwarden = manifest_for(service: "vaultwarden")
+      nextcloud = manifest_for(service: "nextcloud")
+
+      nextcloud.services_sharing("postgres", [freshrss, vaultwarden]).should eq(["freshrss", "vaultwarden"])
+      nextcloud.services_conflicting("postgres", [freshrss, vaultwarden]).should be_empty
+    end
+
+    it "reports which services conflict" do
+      freshrss = manifest_for(service: "freshrss", image: "docker.io/library/postgres:17-alpine")
+      nextcloud = manifest_for(service: "nextcloud")
+
+      nextcloud.services_conflicting("postgres", [freshrss]).should eq(["freshrss"])
+      nextcloud.services_sharing("postgres", [freshrss]).should be_empty
+    end
+
+    it "keeps accessory networks out of the generated network set" do
+      manifest = manifest_for(service: "nextcloud")
+
+      manifest.networks.should_not contain("postgres")
+      manifest.networks.should contain("nextcloud")
+    end
+  end
+
+  describe "schema compatibility" do
+    it "declares schema version 2" do
+      manifest_for(service: "freshrss").schema_version.should eq(2)
+    end
+
+    it "round-trips through JSON" do
+      manifest = manifest_for(service: "freshrss")
+
+      parsed = Meridian::Runtime::ServiceManifest.from_json(manifest.to_json)
+
+      parsed.accessories["postgres"].fingerprint.should eq(manifest.accessories["postgres"].fingerprint)
+      parsed.accessories["postgres"].definition.should eq(manifest.accessories["postgres"].definition)
+    end
+
+    it "serializes to a single line, as the remote listing contract requires" do
+      manifest_for(service: "freshrss").to_json.lines.size.should eq(1)
+    end
+
+    # A schema-1 manifest recorded accessory names only. It still parses, but an
+    # unknown definition never compares equal, so it stays a conflict until that
+    # service redeploys - exactly the pre-shared-accessory behaviour.
+    it "parses a schema 1 manifest and treats its accessories conservatively" do
+      legacy = Meridian::Runtime::ServiceManifest.from_json(<<-JSON)
+          {
+            "schema_version": 1,
+            "service": "freshrss",
+            "proxy_routes": [],
+            "asset_host": null,
+            "ports": [],
+            "accessories": ["postgres"],
+            "networks": ["freshrss"],
+            "generated_files": [],
+            "active_color_path": ".local/state/meridian/services/freshrss/active-color",
+            "release_state_path": ".local/state/meridian/services/freshrss/release-state.json",
+            "lock_path": ".local/state/meridian/services/freshrss/lock",
+            "audit_path": ".local/state/meridian/services/freshrss/audit.log",
+            "incremental_cache_path": "/tmp/meridian-oci/freshrss"
+          }
+        JSON
+
+      legacy.accessories.keys.should eq(["postgres"])
+      legacy.accessories["postgres"].fingerprint.should be_nil
+      legacy.accessories["postgres"].definition.should be_empty
+
+      # nil host on the legacy side, so it reads as a different resource rather
+      # than a false conflict against a host-pinned accessory.
+      nextcloud = manifest_for(service: "nextcloud")
+      accessory_collisions(nextcloud, legacy).should be_empty
+
+      # Same host on both sides and no recorded definition: conservative conflict.
+      unpinned = Meridian::Runtime::ServiceManifest.from_json(
+        manifest_for(service: "nextcloud", accessory_host: "").to_json
+      )
+      accessory_collisions(unpinned, legacy).size.should eq(1)
+    end
+  end
+
+  describe "existing collision rules" do
+    it "still reports overlapping proxy routes" do
+      left = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: one
+          image: registry.example.com/myorg/one
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: app.example.com
+        YAML
+      right = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: two
+          image: registry.example.com/myorg/two
+          servers:
+            web:
+              hosts:
+                - 192.168.1.11
+              proxy:
+                host: app.example.com
+        YAML
+
+      left.collisions_with(right).any?(&.includes?("proxy route")).should be_true
+    end
+
+    it "still reports published host port overlap" do
+      left = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: one
+          image: registry.example.com/myorg/one
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          ports:
+            - "8080:80"
+        YAML
+      right = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: two
+          image: registry.example.com/myorg/two
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+          ports:
+            - "8080:3000"
+        YAML
+
+      left.collisions_with(right).any?(&.includes?("published host port 8080")).should be_true
+    end
+  end
+
+  describe ".list_command" do
+    it "reads every manifest under the services directory" do
+      command = Meridian::Runtime::ServiceManifest.list_command.join(" ")
+
+      command.should contain(".local/state/meridian/services")
+      command.should contain("-name manifest.json")
+    end
+  end
+
+  describe ".parse_all" do
+    it "skips blank lines" do
+      manifest = manifest_for(service: "freshrss")
+
+      parsed = Meridian::Runtime::ServiceManifest.parse_all("\n#{manifest.to_json}\n\n")
+
+      parsed.map(&.service).should eq(["freshrss"])
+    end
+  end
+end

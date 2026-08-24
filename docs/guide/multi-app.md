@@ -96,9 +96,30 @@ accessories:
 Notice the names:
 
 - `service: my-app` owns `~/.local/state/meridian/services/my-app/`.
-- The accessory is `my-app-postgres`, not `postgres`.
+- The accessory is `my-app-postgres`, not `postgres` — this database belongs to
+  one app. See [Private Or Shared Accessories](#private-or-shared-accessories)
+  for the other case.
 - Secrets are `MY_APP_*`, not generic names such as `DATABASE_PASSWORD`.
 - The accessory joins `my-app.network`, not `meridian-proxy.network`.
+
+### Private Or Shared Accessories {#private-or-shared-accessories}
+
+An accessory name maps directly to a host container and unit name, so the name
+you choose decides whether it is private or shared:
+
+- **One app owns it** — prefix it with the service (`my-app-postgres`) and put
+  it on the app's own network (`network: my-app`). No other project can reach
+  or disturb it.
+- **Several apps share one instance** — use the bare name (`postgres`) and a
+  shared network (`network: postgres`), and repeat the *identical* declaration
+  in every project that depends on it. Meridian verifies the declarations match
+  and refuses to overwrite one with another. See
+  [sharing an accessory](/reference/deploy-yml#shared-accessories).
+
+Both are first-class. Prefixing is the safer default for anything holding one
+app's data; sharing is worth it for a single database server several apps
+connect to. Sharing the server does not share databases or users — you still
+create those per application.
 
 ## Add The Second App
 

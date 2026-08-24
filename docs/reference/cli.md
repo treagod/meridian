@@ -358,12 +358,25 @@ meridian accessory start postgres
 meridian accessory start dragonfly
 ```
 
-For accessories that reference `network: <service>.network`, it first verifies that
-[`setup`](#setup) has materialized the service network. Then it uploads the accessory
-Quadlet to the accessory host, reloads user systemd, starts `<name>.service`, and
-appends an audit entry. App `active-color` and `release-state.json` are untouched.
+The command is idempotent, and any service declaring the accessory may run it.
+Before touching the host it checks the service manifests there: if another
+service already declares this accessory with a different definition, it fails
+without modifying anything.
+
+Then, in order:
+
+1. **Network.** An accessory on the app's own `<service>` network requires
+   [`setup`](#setup) to have materialized it. A custom accessory network such as
+   `network: postgres` is created here if it does not exist.
+2. **Unit.** An existing Quadlet that matches is reused. One that differs while
+   another service references the accessory is left alone and the command fails
+   — Meridian never overwrites a shared definition.
+3. **Start.** Uploads the Quadlet, reloads user systemd, starts
+   `<name>.service`, and appends an audit entry. App `active-color` and
+   `release-state.json` are untouched.
 
 See [`accessories`](/reference/deploy-yml#accessories),
+[sharing an accessory](/reference/deploy-yml#shared-accessories),
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness), and
 [`Hostname Lookup ... Try Again`](/guide/troubleshooting#hostname-lookup-try-again-in-app-logs)
 for readiness and DNS symptoms.
@@ -375,9 +388,48 @@ file and the app's runtime state are left alone.
 
 ```bash
 meridian accessory stop postgres
+meridian accessory stop postgres --force
 ```
 
-See [`accessories`](/reference/deploy-yml#accessories).
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--force` | off | Skip the confirmation when other services share this accessory. |
+
+When other services on that host declare the same accessory, the command lists
+them and asks for confirmation, defaulting to No. Declining changes nothing and
+exits `1`. A closed or piped stdin counts as No, so automation never blocks —
+pass `--force` for unattended runs. An accessory only this service uses stops
+without any extra output.
+
+`--force` means only "I understand this is shared". It never overwrites
+conflicting definitions, ignores missing requirements, or deletes data.
+
+See [`accessories`](/reference/deploy-yml#accessories) and
+[sharing an accessory](/reference/deploy-yml#shared-accessories).
+
+## `accessory remove` {#accessory-remove}
+
+Stops the accessory and deletes its Quadlet unit from the host.
+
+```bash
+meridian accessory remove postgres
+meridian accessory remove postgres --force
+```
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--force` | off | Skip the confirmation when other services share this accessory. |
+
+Named volumes, images, and the accessory's Podman network are **not** removed.
+Other services may still depend on the network, and persistent data is never
+deleted on your behalf. Remove those yourself with `podman volume rm` and
+`podman network rm` once you are sure nothing else needs them.
+
+The shared-accessory confirmation works exactly as it does for
+[`accessory stop`](#accessory-stop).
+
+See [`accessories`](/reference/deploy-yml#accessories) and
+[sharing an accessory](/reference/deploy-yml#shared-accessories).
 
 ## `accessory logs` {#accessory-logs}
 

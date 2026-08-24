@@ -118,7 +118,7 @@ module Meridian
             4. Open SSH (port #{@config.port}), HTTP, and HTTPS in UFW and enable the firewall.
             5. #{@config.passwordless_sudo ? "Grant passwordless sudo to '#{@config.deploy_user}'." : "Keep normal sudo rules for '#{@config.deploy_user}'."}
             6. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
-            7. #{@config.enable_auto_updates ? "Enable unattended security updates." : "Disable unattended automatic updates."}
+            7. #{@config.enable_auto_updates ? "Enable unattended security updates, excluding openssh-server." : "Disable unattended automatic updates."}
             8. Verify key-based SSH login for '#{@config.deploy_user}'.
             9. Create rootless Podman directories for '#{@config.deploy_user}'.
             10. Disable root SSH login and SSH password authentication.
@@ -126,6 +126,16 @@ module Meridian
           Notes:
             - The first SSH/SCP steps will prompt for the #{@config.root_user} password interactively.
             - After phase 1, the script validates deploy-key login before hardening SSH.
+          TEXT
+      end
+
+      private def auto_update_caveat : String
+        return "" unless @config.enable_auto_updates
+
+        <<-TEXT
+
+          openssh-server is excluded from unattended upgrades, so patch it yourself:
+            sudo apt update && sudo apt install --only-upgrade openssh-server
           TEXT
       end
 
@@ -141,6 +151,7 @@ module Meridian
             - Verify the firewall rules: sudo ufw status
             - Verify rootless Podman as #{@config.deploy_user}: podman info
             - Run: meridian setup
+          #{auto_update_caveat}
           TEXT
       end
 
@@ -302,7 +313,17 @@ module Meridian
           APT::Periodic::AutocleanInterval "7";
           APT::Periodic::Unattended-Upgrade "1";
           EOF
+
+            # SSH is meridian's only control plane. An unattended openssh-server
+            # upgrade that leaves sshd broken locks meridian out of its own
+            # server, with no recovery path. Everything else still auto-patches.
+            cat > /etc/apt/apt.conf.d/51meridian-ssh-blacklist <<'EOF'
+          Unattended-Upgrade::Package-Blacklist {
+              "openssh-server";
+          };
+          EOF
           else
+            rm -f /etc/apt/apt.conf.d/51meridian-ssh-blacklist
             cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
           APT::Periodic::Update-Package-Lists "0";
           APT::Periodic::Download-Upgradeable-Packages "0";

@@ -24,6 +24,8 @@ module Meridian
       end
     end
 
+    EMPTY_ACCESSORIES = {} of String => AccessoryConfig
+
     struct DeployConfig
       include YAML::Serializable
       include YAML::Serializable::Strict
@@ -49,6 +51,45 @@ module Meridian
 
       def resolved_proxy : ProxyConfig
         proxy || ProxyConfig.new
+      end
+
+      # Accessories the app depends on: every accessory that declares a network,
+      # because the app automatically joins that network. Replaces the older
+      # "accessory sits on <service>.network" rule.
+      def dependent_accessories : Hash(String, AccessoryConfig)
+        (accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network_name }
+      end
+
+      # Logical Podman network names declared by accessories, deduplicated.
+      def accessory_networks : Array(String)
+        names = dependent_accessories.each_value.compact_map(&.network_name).to_a
+        names.uniq!
+        names.sort!
+        names
+      end
+
+      # Every logical network a role's container joins: its private service
+      # network, the shared proxy network when the role is proxied, and each
+      # accessory network it depends on.
+      def app_networks(server : ServerConfig) : Array(String)
+        networks = [service]
+        networks << Runtime::Paths::SHARED_PROXY_NETWORK if server.proxy
+        networks.concat(accessory_networks)
+        networks.uniq!
+        networks
+      end
+
+      # True when Meridian generates the `.network` Quadlet unit for this
+      # network. Everything else is a pre-existing Podman network referenced by
+      # its bare name.
+      def generated_network?(logical : String) : Bool
+        logical == service || logical == Runtime::Paths::SHARED_PROXY_NETWORK
+      end
+
+      # `Network=` value for a Quadlet file: a unit reference for networks
+      # Meridian generates, the raw Podman network name otherwise.
+      def network_ref(logical : String) : String
+        generated_network?(logical) ? "#{logical}.network" : logical
       end
 
       def effective_strategy : DeploymentStrategy?
@@ -397,6 +438,16 @@ module Meridian
       getter secrets : Array(String) = [] of String
       getter depends_on : String?
       getter ready : AccessoryReadinessConfig?
+
+      # The logical Podman network this accessory joins. `postgres` and the
+      # legacy Quadlet-unit form `postgres.network` name the same network; this
+      # is the single place that distinction is collapsed.
+      def network_name : String?
+        value = network.try(&.strip)
+        return if value.nil? || value.empty?
+
+        value.ends_with?(".network") ? value.rchop(".network") : value
+      end
 
       # Resolves the readiness contract: the explicit `ready:` block when given,
       # otherwise a sensible default inferred from the image. Raises

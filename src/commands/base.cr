@@ -3,6 +3,8 @@ module Meridian
     abstract class Base
       LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
 
+      private EMPTY_MANIFESTS = [] of Runtime::ServiceManifest
+
       protected getter config : Config::DeployConfig
       protected getter output : IO
       protected getter error : IO
@@ -14,6 +16,7 @@ module Meridian
         @output : IO = STDOUT,
         @error : IO = STDERR,
         audit_logger : ::Meridian::Audit::Logger? = nil,
+        @input : IO = STDIN,
       )
         @audit_logger = audit_logger || ::Meridian::Audit::Logger.new(@config, @ssh_executor)
       end
@@ -254,6 +257,39 @@ module Meridian
         raise ArgumentError.new(Runtime::ServiceNetwork.missing_message(@config.service, host, command))
       rescue ex : SSH::ConnectionError
         raise ArgumentError.new(ex.message || "Failed to inspect service network on #{host}")
+      end
+
+      # Every other Meridian service registered on this host. The host-scoped
+      # manifests are the only record of who else depends on a shared resource.
+      protected def other_service_manifests(host : String) : Array(Runtime::ServiceManifest)
+        result = run_ssh(host, Runtime::ServiceManifest.list_command)
+        return EMPTY_MANIFESTS unless result.exit_code.zero?
+
+        Runtime::ServiceManifest.parse_all(result.stdout).reject { |manifest| manifest.service == @config.service }
+      rescue ex : JSON::ParseException
+        raise ArgumentError.new("Invalid Meridian service manifest on #{host}: #{ex.message}")
+      rescue ex : SSH::ConnectionError
+        raise ArgumentError.new(ex.message || "Failed to read service manifests on #{host}")
+      end
+
+      # Contents of a remote file, or nil when it does not exist. Used to
+      # compare a shared resource's on-host definition with the requested one.
+      protected def remote_file(host : String, path : String) : String?
+        result = run_ssh(host, ["cat", path])
+        result.exit_code.zero? ? result.stdout : nil
+      rescue ex : SSH::ConnectionError
+        raise ArgumentError.new(ex.message || "Failed to read #{path} on #{host}")
+      end
+
+      # Interactive y/N confirmation defaulting to No. End of input - a closed
+      # or piped stdin - counts as No, so automation declines rather than
+      # blocking forever.
+      protected def confirm?(question : String) : Bool
+        @output.print "#{question} [y/N] "
+        answer = @input.gets
+        return false unless answer
+
+        answer.strip.downcase.in?("y", "yes")
       end
 
       protected def container_exists?(host : String, container_name : String) : Bool

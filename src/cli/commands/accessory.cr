@@ -18,6 +18,7 @@ module Meridian
           [
             {"start", "Upload and start an accessory service"},
             {"stop", "Stop an accessory service"},
+            {"remove", "Remove an accessory service unit"},
             {"logs", "Stream logs for an accessory service"},
           ]
         end
@@ -65,6 +66,27 @@ module Meridian
         end
       end
 
+      # Lifecycle actions that may disrupt other services sharing the accessory.
+      # `--force` acknowledges that shared impact and nothing else.
+      abstract class SharedAccessoryAction < AccessoryAction
+        @force = false
+
+        def configure(parser : OptionParser) : Nil
+          super
+          parser.on("--force", "Skip the confirmation when other services share this accessory") { @force = true }
+        end
+
+        protected def accessory_command(ctx : Context, config : Config::DeployConfig) : ::Meridian::Commands::Accessory
+          ::Meridian::Commands::Accessory.new(
+            config,
+            ssh_executor: ctx.ssh_executor,
+            output: ctx.output,
+            error: ctx.error,
+            input: ctx.input
+          )
+        end
+      end
+
       class AccessoryStart < AccessoryAction
         def name : String
           "accessory start"
@@ -92,7 +114,7 @@ module Meridian
         end
       end
 
-      class AccessoryStop < AccessoryAction
+      class AccessoryStop < SharedAccessoryAction
         def name : String
           "accessory stop"
         end
@@ -106,7 +128,8 @@ module Meridian
         end
 
         def description : String
-          "Stop the accessory service on its configured host."
+          "Stop the accessory service on its configured host.\n" \
+          "Warns first when other services on that host share the accessory."
         end
 
         def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
@@ -114,8 +137,35 @@ module Meridian
           return 1 unless accessory_name
 
           config = Config::Loader.load(@file)
-          ::Meridian::Commands::Accessory.new(config, ssh_executor: ctx.ssh_executor, output: ctx.output, error: ctx.error).stop(accessory_name)
-          0
+          accessory_command(ctx, config).stop(accessory_name, force: @force) ? 0 : 1
+        end
+      end
+
+      class AccessoryRemove < SharedAccessoryAction
+        def name : String
+          "accessory remove"
+        end
+
+        def summary : String
+          "Remove an accessory service unit"
+        end
+
+        def usage : String
+          "Usage: meridian accessory remove NAME [options]"
+        end
+
+        def description : String
+          "Stop the accessory and delete its Quadlet unit from the host.\n" \
+          "Named volumes, images, and the accessory network are left in place.\n" \
+          "Warns first when other services on that host share the accessory."
+        end
+
+        def call(ctx : Context, positionals : Array(String), remote_command : Array(String)) : Int32
+          accessory_name = require_name(ctx, positionals)
+          return 1 unless accessory_name
+
+          config = Config::Loader.load(@file)
+          accessory_command(ctx, config).remove(accessory_name, force: @force) ? 0 : 1
         end
       end
 

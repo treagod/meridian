@@ -445,6 +445,102 @@ describe "Meridian::CLI" do
       end
     end
 
+    it "runs the accessory remove subcommand with the loaded config" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(
+        runner: runner,
+        streaming_runner: FakeSSHStreamingRunner.new
+      )
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "remove", "db", "--config", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        commands = runner.invocations.compact_map(&.remote_command)
+        commands.should contain("systemctl --user stop db.service")
+        commands.should contain("rm -f .config/containers/systemd/db.container")
+        commands.should contain("systemctl --user daemon-reload")
+      end
+    end
+
+    it "accepts --force on accessory stop" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: FakeSSHStreamingRunner.new)
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "stop", "db", "--force", "--config", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+        runner.invocations.compact_map(&.remote_command).should contain("systemctl --user stop db.service")
+      end
+    end
+
+    it "accepts --force on accessory remove" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: FakeSSHStreamingRunner.new)
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "remove", "db", "--force", "--config", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(0)
+      end
+    end
+
+    it "rejects --force on accessory start, which has no shared-impact prompt" do
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, FULL_CONFIG)
+
+        result = run_cli(["accessory", "start", "db", "--force", "--config", config_path])
+
+        result.exit_code.should eq(1)
+        result.output.should contain("Unknown arguments: --force")
+      end
+    end
+
+    it "exits non-zero when a shared-accessory confirmation is declined" do
+      runner = FakeSSHRunner.new
+      shared = <<-YAML
+        service: nextcloud
+        image: registry.example.com/myorg/nextcloud
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+        accessories:
+          postgres:
+            image: docker.io/library/postgres:18-alpine
+            host: 192.168.1.10
+            network: postgres
+        YAML
+      other = Meridian::Runtime::ServiceManifest.from_config(
+        load_config(shared.sub("service: nextcloud", "service: freshrss"))
+      )
+      runner.enqueue_results(ssh_ok("#{other.to_json}\n"))
+      executor = Meridian::SSH::Executor.new(runner: runner, streaming_runner: FakeSSHStreamingRunner.new)
+
+      with_tempdir do |path|
+        config_path = File.join(path, "deploy.yml")
+        File.write(config_path, shared)
+
+        result = run_cli(["accessory", "stop", "postgres", "--config", config_path], ssh_executor: executor)
+
+        result.exit_code.should eq(1)
+        result.output.should contain("Accessory 'postgres' is shared by 2 services:")
+        result.output.should contain("Aborted.")
+        runner.invocations.compact_map(&.remote_command).should_not contain("systemctl --user stop postgres.service")
+      end
+    end
+
     it "runs the accessory logs subcommand with the loaded config" do
       runner = FakeSSHRunner.new
       streaming_runner = FakeSSHStreamingRunner.new
@@ -612,6 +708,20 @@ describe "Meridian::CLI" do
       result.exit_code.should eq(0)
       result.output.should contain("Usage: meridian accessory stop NAME [options]")
       result.output.should contain("--config PATH")
+    end
+
+    it "prints help for the accessory remove subcommand" do
+      result = run_cli(["accessory", "remove", "--help"])
+
+      result.exit_code.should eq(0)
+      result.output.should contain("Usage: meridian accessory remove NAME [options]")
+      result.output.should contain("--force")
+    end
+
+    it "lists remove among the accessory subcommands" do
+      result = run_cli(["accessory", "--help"])
+
+      result.output.should contain("remove")
     end
 
     it "prints help for the accessory logs subcommand" do

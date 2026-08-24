@@ -334,7 +334,7 @@ describe "Meridian::Proxy::Manager" do
 
       manager.setup
 
-      runner.invocations.first.args.should eq([
+      runner.invocations.first.args.should eq(mux_args + [
         "-p",
         "2222",
         "-i",

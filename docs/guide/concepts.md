@@ -95,6 +95,11 @@ that needs the private service network; deploys, one-off runs, and
 service-networked accessories verify that the materialized Podman network
 `<service>` exists before they use it.
 
+Custom accessory networks are different. A `network: postgres` on an accessory
+names a plain shared Podman network with no Quadlet unit, so
+`meridian accessory start` creates it if it is missing. `deploy` requires it to
+already exist and tells you which accessory to start.
+
 ## Deploy-Managed Static Assets
 
 When `deploy.yml` declares an `assets:` block, Meridian publishes your built
@@ -161,9 +166,16 @@ shared `meridian-proxy` network, where one kamal-proxy can reach all apps.
 ```
 
 Accessories attach to their app's private network, not to `meridian-proxy`,
-unless you explicitly configure something else. `manifest.json` collision
-checks make `meridian check` fail if two services claim the same proxy host/path,
-asset host, published host port, accessory name, generated file, or state path.
+unless you explicitly configure something else. An app automatically joins every
+network its accessories declare, so an accessory on a shared `postgres` network
+puts the app on `postgres` alongside its own private network.
+
+`manifest.json` collision checks make `meridian check` fail if two services claim
+the same proxy host/path, asset host, published host port, generated file, or
+state path. Accessory names are the exception: two services may name the same
+accessory on the same host as long as their definitions match, which is how
+[shared accessories](/reference/deploy-yml#shared-accessories) work. Differing
+definitions are still a hard conflict.
 
 For a worked setup, see [Multi-App Hosting](/guide/multi-app).
 

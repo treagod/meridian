@@ -95,7 +95,7 @@ describe "Meridian::Transfer::Stream" do
       stream.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       captured_request = request.as(Meridian::Transfer::Stream::PipelineRequest)
-      captured_request.ssh_args.should eq([
+      captured_request.ssh_args.should eq(mux_args + [
         "-p",
         "2222",
         "-i",
@@ -124,7 +124,7 @@ describe "Meridian::Transfer::Stream" do
       stream.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       captured_request = request.as(Meridian::Transfer::Stream::PipelineRequest)
-      captured_request.ssh_args.should eq([
+      captured_request.ssh_args.should eq(mux_args + [
         "-J",
         "bastion.example.com",
         "-o",

@@ -106,11 +106,9 @@ module Meridian
 
       private def service_network_hosts : Array(String)
         hosts = @config.servers.values.flat_map(&.hosts)
-        ref = Runtime::ServiceNetwork.file(@config.service)
-
-        (@config.accessories || {} of String => Config::AccessoryConfig).each_value do |accessory|
+        (@config.accessories || Config::EMPTY_ACCESSORIES).each_value do |accessory|
           host = accessory.host.to_s.strip
-          hosts << host if accessory.network == ref && !host.empty?
+          hosts << host if accessory.network_name == @config.service && !host.empty?
         end
 
         hosts.uniq!
@@ -209,19 +207,10 @@ module Meridian
       end
 
       private def other_service_manifests(host : String) : Array(Runtime::ServiceManifest)
-        command = "if test -d #{Process.quote_posix(Runtime::Paths::SERVICES_DIRECTORY)}; then " \
-                  "find #{Process.quote_posix(Runtime::Paths::SERVICES_DIRECTORY)} -mindepth 2 -maxdepth 2 -name manifest.json " \
-                  "-exec cat {} \\; -exec printf '\\n' \\;; fi"
-        result = run_ssh(host, ["sh", "-lc", command])
+        result = run_ssh(host, Runtime::ServiceManifest.list_command)
         return [] of Runtime::ServiceManifest unless result.exit_code.zero?
 
-        result.stdout.lines.compact_map do |line|
-          text = line.strip
-          next if text.empty?
-
-          manifest = Runtime::ServiceManifest.from_json(text)
-          manifest.service == @config.service ? nil : manifest
-        end
+        Runtime::ServiceManifest.parse_all(result.stdout).reject { |manifest| manifest.service == @config.service }
       rescue ex : JSON::ParseException
         raise RemoveFailed.new("Invalid Meridian service manifest on #{host}: #{ex.message}")
       end

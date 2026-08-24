@@ -80,12 +80,16 @@ def enqueue_zero_downtime_success(
   health_successes : Int32 = 3,
   health_results : Array(Meridian::SSH::Result)? = nil,
   accessory_probes : Int32 = 0,
+  accessory_preflight : Int32 = 0,
   accessory_probe_result : Meridian::SSH::Result = ssh_ok,
   before_start_hooks : Int32 = 0,
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
   results << ssh_ok # service network precheck
+  # One manifest listing per host, when the service declares an accessory
+  # whose network the app joins.
+  accessory_preflight.times { results << ssh_ok }
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
@@ -166,11 +170,15 @@ def enqueue_zero_downtime_success_for_host(
   health_successes : Int32 = 3,
   health_results : Array(Meridian::SSH::Result)? = nil,
   accessory_probes : Int32 = 0,
+  accessory_preflight : Int32 = 0,
   accessory_probe_result : Meridian::SSH::Result = ssh_ok,
   prune_result : Meridian::SSH::Result = ssh_ok,
 )
   results = [] of Meridian::SSH::Result
   results << ssh_ok # service network precheck
+  # One manifest listing per host, when the service declares an accessory
+  # whose network the app joins.
+  accessory_preflight.times { results << ssh_ok }
 
   if stored_marker = marker
     results << ssh_ok("#{stored_marker}\n")
@@ -452,7 +460,7 @@ def file_sync_config(source : String, roles : String? = nil) : String
     YAML
 end
 
-def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probes : Int32 = 0)
+def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probes : Int32 = 0, accessory_preflight : Int32 = 0)
   results = [
     ssh_ok,                            # service network precheck
     ssh_fail(1, "", "No such file\n"), # cat service active-color
@@ -472,6 +480,9 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probe
     ssh_ok,                            # upload assets-server.container Quadlet
     ssh_ok,                            # daemon-reload
   ]
+  # One manifest listing per host, when the service declares an accessory whose
+  # network the app joins. It runs right after the service network precheck.
+  results.insert(1, ssh_ok) if accessory_preflight > 0
   accessory_probes.times { results << ssh_ok }
   results.concat([
     ssh_ok,                            # restart assets-builder.service
@@ -798,7 +809,7 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.deploy_to_host("192.168.1.10", "web")
 
       invocation = runner.invocations.find(&.remote_command.==("podman pull registry.example.com/myorg/myapp")) || raise "Expected image pull"
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-p",
         "2222",
         "-i",
@@ -1544,7 +1555,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
     it "waits for co-network accessories before starting the new color" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_success(runner, green_active: true, health_successes: 1, accessory_probes: 1)
+      enqueue_zero_downtime_success(runner, green_active: true, health_successes: 1, accessory_probes: 1, accessory_preflight: 1)
       orchestrator = build_orchestrator(content: accessory_gate_config, runner: runner)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
@@ -1581,6 +1592,7 @@ describe "Meridian::Deploy::Orchestrator" do
         green_active: true,
         health_successes: 1,
         accessory_probes: 1,
+        accessory_preflight: 1,
         before_start_hooks: 1
       )
       orchestrator = build_orchestrator(content: config, runner: runner)
@@ -1600,6 +1612,7 @@ describe "Meridian::Deploy::Orchestrator" do
       # probe is the first `sh -c timeout` command and must fail to abort the deploy.
       runner.enqueue_results(
         ssh_ok,                            # service network precheck
+        ssh_ok,                            # accessory preflight manifest listing
         ssh_fail(1, "", "No such file\n"), # cat service active-color
         ssh_fail(1, "", "No such file\n"), # cat legacy .meridian-color
         ssh_fail(3, "inactive\n"),         # is-active blue
@@ -2603,7 +2616,7 @@ describe "Meridian::Deploy::Orchestrator" do
               ready:
                 tcp: 6379
         YAML
-      enqueue_zero_downtime_assets_success(runner, accessory_probes: 1)
+      enqueue_zero_downtime_assets_success(runner, accessory_probes: 1, accessory_preflight: 1)
       orchestrator = build_orchestrator(content: config, runner: runner)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
@@ -3042,5 +3055,101 @@ describe "Meridian::Deploy::Orchestrator host failure propagation" do
 
     lock.acquire_calls.should eq(0)
     runner.invocations.should be_empty
+  end
+end
+
+describe "Meridian::Deploy::Orchestrator shared accessory preflight" do
+  # A service joining a shared `postgres` network it does not own.
+  shared_accessory_config = <<-YAML
+    service: nextcloud
+    image: registry.example.com/myorg/nextcloud
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+        proxy:
+          host: nextcloud.example.com
+    accessories:
+      postgres:
+        image: docker.io/library/postgres:18-alpine
+        host: 192.168.1.10
+        network: postgres
+    YAML
+
+  it "aborts before any mutation when the accessory network is missing" do
+    runner = FakeSSHRunner.new
+    runner.enqueue_results(
+      ssh_ok,     # service network precheck
+      ssh_ok(""), # manifest listing: no other service
+      ssh_fail(1) # podman network exists postgres
+    )
+    orchestrator = build_orchestrator(content: shared_accessory_config, runner: runner)
+
+    expect_raises(Meridian::Deploy::DeployFailed, /Required network 'postgres' is not available on 192.168.1.10/) do
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+    end
+
+    commands = remote_commands_for(runner, "192.168.1.10")
+    commands.last.should eq("podman network exists postgres")
+    commands.any?(&.starts_with?("cat > ")).should be_false
+    commands.any?(&.includes?("systemctl --user start")).should be_false
+  end
+
+  it "points at `meridian accessory start` rather than at check" do
+    runner = FakeSSHRunner.new
+    runner.enqueue_results(ssh_ok, ssh_ok(""), ssh_fail(1))
+    orchestrator = build_orchestrator(content: shared_accessory_config, runner: runner)
+
+    message = expect_raises(Meridian::Deploy::DeployFailed) do
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+    end.message.to_s
+
+    message.should contain("meridian accessory start postgres")
+    message.should contain("meridian check")
+  end
+
+  it "aborts when another service declares the accessory differently" do
+    runner = FakeSSHRunner.new
+    conflicting = Meridian::Runtime::ServiceManifest.from_config(
+      load_config(shared_accessory_config
+        .sub("service: nextcloud", "service: freshrss")
+        .sub("postgres:18-alpine", "postgres:17-alpine")
+        .sub("host: nextcloud.example.com", "host: freshrss.example.com"))
+    )
+    runner.enqueue_results(ssh_ok, ssh_ok("#{conflicting.to_json}\n"))
+    orchestrator = build_orchestrator(content: shared_accessory_config, runner: runner)
+
+    expect_raises(Meridian::Deploy::DeployFailed, /Accessory conflict on 192.168.1.10/) do
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+    end
+
+    remote_commands_for(runner, "192.168.1.10").any?(&.starts_with?("cat > ")).should be_false
+  end
+
+  it "proceeds when another service declares the accessory identically" do
+    runner = FakeSSHRunner.new
+    compatible = Meridian::Runtime::ServiceManifest.from_config(
+      load_config(shared_accessory_config
+        .sub("service: nextcloud", "service: freshrss")
+        .sub("host: nextcloud.example.com", "host: freshrss.example.com"))
+    )
+    runner.enqueue_results(ssh_ok, ssh_ok("#{compatible.to_json}\n"), ssh_fail(1))
+    orchestrator = build_orchestrator(content: shared_accessory_config, runner: runner)
+
+    # Gets past the conflict check and stops at the missing network instead.
+    expect_raises(Meridian::Deploy::DeployFailed, /Required network 'postgres'/) do
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+    end
+  end
+
+  it "skips the preflight entirely for accessories with no network" do
+    runner = FakeSSHRunner.new
+    enqueue_zero_downtime_success(runner, green_active: true, health_successes: 3)
+    orchestrator = build_orchestrator(runner: runner)
+
+    orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+    commands = remote_commands_for(runner, "192.168.1.10")
+    commands.any?(&.includes?("-name manifest.json")).should be_false
   end
 end

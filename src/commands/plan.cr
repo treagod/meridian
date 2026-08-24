@@ -143,6 +143,9 @@ module Meridian
           if port = accessory.port
             parts << "port=#{port}"
           end
+          if network = accessory.network
+            parts << "network=#{network}"
+          end
           if depends_on = accessory.depends_on
             parts << "depends_on=#{depends_on}"
           end
@@ -165,6 +168,9 @@ module Meridian
         @output.puts "  active_color:  #{manifest.active_color_path}"
         @output.puts "  manifest:      #{Runtime::Paths.manifest_file(@config.service)}"
         @output.puts "  proxy_network: #{Runtime::Paths::SHARED_PROXY_NETWORK}"
+        @config.servers.each do |role, server|
+          @output.puts "  networks[#{role}]: #{@config.app_networks(server).join(", ")}"
+        end
         if manifest.proxy_routes.empty?
           @output.puts "  routes:        (none)"
         else

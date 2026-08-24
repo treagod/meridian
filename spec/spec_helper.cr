@@ -412,6 +412,19 @@ def ssh_fail(exit_code : Int32 = 1, stdout : String = "", stderr : String = "") 
   Meridian::SSH::Result.new(exit_code: exit_code, stdout: stdout, stderr: stderr)
 end
 
+# Multiplexing options are prepended to every ssh invocation. Kept here so the
+# arg-order specs assert on one definition instead of eleven copies.
+def mux_args : Array(String)
+  [
+    "-o",
+    "ControlMaster=auto",
+    "-o",
+    "ControlPath=#{Meridian::SSH::Executor::CONTROL_SOCKET_DIR}/%C",
+    "-o",
+    "ControlPersist=#{Meridian::SSH::Executor::CONTROL_PERSIST}",
+  ]
+end
+
 def remote_commands_for(runner : FakeSSHRunner, host : String? = nil) : Array(String)
   invocations =
     if host
