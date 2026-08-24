@@ -89,6 +89,32 @@ def accessory_generator_config : String
     YAML
 end
 
+# Nextcloud declaring a `postgres` accessory on a shared Podman network - the
+# canonical shared-accessory shape.
+def shared_network_config(proxied : Bool = false) : String
+  # Interpolated text is not dedented with the heredoc, so it carries the final
+  # indentation: `proxy:` is a sibling of `hosts:` under `web:`.
+  proxy_block = proxied ? "\n    proxy:\n      host: nextcloud.example.com" : ""
+
+  <<-YAML
+    service: nextcloud
+    image: registry.example.com/myorg/nextcloud
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10#{proxy_block}
+
+    accessories:
+      postgres:
+        image: docker.io/library/postgres:18-alpine
+        host: 192.168.1.10
+        network: postgres
+        volumes:
+          - postgres-data:/var/lib/postgresql/data
+    YAML
+end
+
 describe "Meridian::Quadlet::Generator" do
   describe "#container_file" do
     it "includes the [Container] section header" do
@@ -256,11 +282,116 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("After=cache.service")
     end
 
-    it "omits accessory dependencies when no accessory shares the service network" do
+    it "omits accessory dependencies when no accessory declares a network" do
       config = load_config(FULL_CONFIG)
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
 
       output.should_not contain("Wants=db.service")
+    end
+
+    it "declares systemd dependencies on accessories using a shared network" do
+      config = load_config(shared_network_config)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.should contain("Wants=postgres.service")
+      output.should contain("After=postgres.service")
+    end
+
+    it "joins the accessory network alongside the private service network" do
+      config = load_config(shared_network_config)
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      # `nextcloud.network` is a Quadlet unit Meridian generates; `postgres` is a
+      # pre-existing Podman network referenced by its bare name.
+      output.should contain("Network=nextcloud.network")
+      output.should contain("Network=postgres")
+      output.should_not contain("Network=postgres.network")
+    end
+
+    it "keeps the shared proxy network for proxied roles" do
+      config = load_config(shared_network_config(proxied: true))
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      network_lines = output.lines.select(&.starts_with?("Network="))
+
+      network_lines.should eq(["Network=nextcloud.network", "Network=meridian-proxy.network", "Network=postgres"])
+    end
+
+    it "emits each accessory network once when several accessories share it" do
+      config = load_config(<<-YAML)
+          service: nextcloud
+          image: registry.example.com/myorg/nextcloud
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            postgres:
+              image: docker.io/library/postgres:18-alpine
+              host: 192.168.1.10
+              network: postgres
+            pgbouncer:
+              image: docker.io/edoburu/pgbouncer:1
+              host: 192.168.1.10
+              network: postgres
+              ready:
+                tcp: 6432
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.lines.count("Network=postgres").should eq(1)
+    end
+
+    it "joins every distinct accessory network" do
+      config = load_config(<<-YAML)
+          service: nextcloud
+          image: registry.example.com/myorg/nextcloud
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            postgres:
+              image: docker.io/library/postgres:18-alpine
+              host: 192.168.1.10
+              network: postgres
+            redis:
+              image: docker.io/library/redis:7
+              host: 192.168.1.10
+              network: cache
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.lines.select(&.starts_with?("Network=")).should eq([
+        "Network=nextcloud.network",
+        "Network=cache",
+        "Network=postgres",
+      ])
+    end
+
+    it "does not duplicate the private service network when an accessory names it" do
+      config = load_config(<<-YAML)
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          accessories:
+            cache:
+              image: docker.io/library/redis:7
+              host: 192.168.1.10
+              network: myapp
+        YAML
+      output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)
+
+      output.lines.select(&.starts_with?("Network=")).should eq(["Network=myapp.network"])
     end
 
     it "emits Volume= lines when volumes are configured" do

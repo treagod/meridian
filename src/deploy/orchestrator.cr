@@ -7,6 +7,7 @@ module Meridian
       LEGACY_ACTIVE_COLOR_FILE = Runtime::Paths::LEGACY_ACTIVE_COLOR_FILE
       DEPLOY_LOCK_MESSAGE      = "meridian deploy"
       EMPTY_ACCESSORIES        = {} of String => Config::AccessoryConfig
+      EMPTY_CONFLICTS          = [] of String
 
       private record HostDeployResult,
         role : String,
@@ -110,6 +111,7 @@ module Meridian
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
         require_service_network!(host, "meridian deploy")
+        require_accessory_preflight!(host)
 
         deployed_service_name = role_service_name(role)
         service_unit = role_service_unit(role)
@@ -159,6 +161,7 @@ module Meridian
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
         require_service_network!(host, "meridian deploy")
+        require_accessory_preflight!(host)
 
         proxy = server.proxy || raise DeployFailed.new("Missing proxy configuration for role: #{role}")
         stored_color = stored_active_color_entry(host)
@@ -418,6 +421,7 @@ module Meridian
           @output.puts "Deploying #{@config.service} with recreate strategy on #{host}"
           require_service_network!(host, "meridian deploy")
           require_proxy_network!(host)
+          require_accessory_preflight!(host)
 
           roles.each do |role|
             server = server_config(role)
@@ -624,10 +628,11 @@ module Meridian
         raise DeployFailed.new(ex.message || "Failed to inspect service state for #{host}")
       end
 
-      # Blocks until every accessory sharing this service's network answers its
-      # readiness probe, so the app container does not start before aardvark-dns
-      # can resolve its dependencies. Probes run from a pinned sidecar on the
-      # service network (tcp/http) or via `podman exec` against the accessory (cmd).
+      # Blocks until every accessory the app depends on answers its readiness
+      # probe, so the app container does not start before aardvark-dns can
+      # resolve its dependencies. Probes run from a pinned sidecar on the
+      # accessory's own network (tcp/http) or via `podman exec` against the
+      # accessory (cmd).
       private def wait_for_accessories(host : String) : Nil
         accessories = co_network_accessories
         return if accessories.empty?
@@ -638,11 +643,11 @@ module Meridian
         end
       end
 
-      # Accessories sharing the app's service network, and therefore gated on before
-      # the app starts. Shared by the readiness wait and its pre-lock validation.
+      # Accessories the app depends on - those whose network it automatically
+      # joins - and therefore gated on before the app starts. Shared by the
+      # readiness wait and its pre-lock validation.
       private def co_network_accessories : Hash(String, Config::AccessoryConfig)
-        ref = "#{@config.service}.network"
-        (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
+        @config.dependent_accessories
       end
 
       private def wait_for_accessory(host : String, name : String, accessory : Config::AccessoryConfig) : Nil
@@ -651,7 +656,8 @@ module Meridian
         @output.puts "[#{host}] Waiting for #{name} on #{ready.summary}…"
 
         started = Time.instant
-        result = run_ssh(host, accessory_wait_command(name, ready, budget))
+        network = accessory.network_name || @config.service
+        result = run_ssh(host, accessory_wait_command(name, ready, budget, network))
         elapsed = (Time.instant - started).total_seconds.round(1)
 
         unless result.exit_code.zero?
@@ -668,10 +674,14 @@ module Meridian
       # bounded by `timeout`. tcp/http run a single sidecar with the retry loop
       # inside the container (one `podman run`, not one per attempt); cmd loops a
       # host-side `podman exec` against the already-running accessory.
-      private def accessory_wait_command(name : String, ready : Config::AccessoryReadinessConfig, budget : Int32) : Array(String)
+      private def accessory_wait_command(
+        name : String,
+        ready : Config::AccessoryReadinessConfig,
+        budget : Int32,
+        network : String,
+      ) : Array(String)
         interval = ready.interval
         image = Config::HealthcheckConfig::DEFAULT_PROBE_IMAGE
-        network = @config.service
         guard = ["timeout", "-k", "5", budget.to_s]
 
         if ports = ready.tcp
@@ -1121,6 +1131,57 @@ module Meridian
         raise DeployFailed.new(Runtime::ServiceNetwork.missing_message(@config.service, host, command))
       rescue ex : SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Failed to inspect service network on #{host}")
+      end
+
+      # Every accessory network the app joins must already exist on the host:
+      # the app container declares `Network=` for it, so a missing network is a
+      # start failure rather than a degraded deploy. Deploy never creates it -
+      # `meridian accessory start` does.
+      private def require_accessory_networks!(host : String) : Nil
+        @config.dependent_accessories.each do |name, accessory|
+          network = accessory.network_name
+          next if network.nil? || @config.generated_network?(network)
+
+          result = run_ssh(host, Runtime::ServiceNetwork.network_exists_command(network))
+          next if result.exit_code.zero?
+
+          raise DeployFailed.new(
+            Runtime::ServiceNetwork.missing_accessory_network_message(network, host, name)
+          )
+        end
+      rescue ex : SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Failed to inspect accessory networks on #{host}")
+      end
+
+      # Refuses to deploy against a host where another service already declares
+      # one of these accessories with a different definition. Narrower than the
+      # full `meridian check` collision report on purpose: deploy verifies only
+      # what it needs to start the app safely.
+      private def reject_accessory_conflicts!(host : String) : Nil
+        result = run_ssh(host, Runtime::ServiceManifest.list_command)
+        return unless result.exit_code.zero?
+
+        current = Runtime::ServiceManifest.from_config(@config)
+        conflicts = Runtime::ServiceManifest.parse_all(result.stdout).flat_map do |manifest|
+          manifest.service == @config.service ? EMPTY_CONFLICTS : current.accessory_collisions_with(manifest)
+        end
+        return if conflicts.empty?
+
+        raise DeployFailed.new("Accessory conflict on #{host}: #{conflicts.join("; ")}")
+      rescue ex : JSON::ParseException
+        raise DeployFailed.new("Invalid Meridian service manifest on #{host}: #{ex.message}")
+      rescue ex : SSH::ConnectionError
+        raise DeployFailed.new(ex.message || "Failed to inspect service manifests on #{host}")
+      end
+
+      # Deploy verifies only the accessories it actually depends on: those whose
+      # network the app joins. An accessory with no network is not part of the
+      # rollout, so `meridian check` is where it gets reported.
+      private def require_accessory_preflight!(host : String) : Nil
+        return if @config.dependent_accessories.empty?
+
+        reject_accessory_conflicts!(host)
+        require_accessory_networks!(host)
       end
 
       private def require_proxy_network!(host : String) : Nil

@@ -40,6 +40,29 @@ module Meridian
 
       MAX_OUTPUT_TAIL = 4096
 
+      # Connection multiplexing: every remote operation reuses one master
+      # connection per (host, port, user) instead of paying a fresh TCP + auth
+      # handshake. A single health check alone opens `retries` connections.
+      #
+      # Image streams also share the master, so a long transfer occupies it and
+      # interrupts in-flight sessions if the master drops. Let Transfer::Stream
+      # opt out of multiplexing if that becomes disruptive.
+      CONTROL_SOCKET_DIR = File.expand_path("~/.ssh/meridian", home: true)
+      CONTROL_PERSIST    = "60s"
+
+      @@control_dir_ready = false
+
+      # %C hashes (local host, remote host, port, user), keeping the socket
+      # path well inside the ~104 byte sun_path limit.
+      private def control_path : String
+        unless @@control_dir_ready
+          Dir.mkdir_p(CONTROL_SOCKET_DIR, 0o700)
+          @@control_dir_ready = true
+        end
+
+        File.join(CONTROL_SOCKET_DIR, "%C")
+      end
+
       def initialize(
         @runner : Runner = ProcessRunner.new,
         @streaming_runner : StreamingRunner = ProcessStreamingRunner.new,
@@ -330,6 +353,13 @@ module Meridian
         batch_mode : Bool?,
       ) : Array(String)
         args = [] of String
+
+        args << "-o"
+        args << "ControlMaster=auto"
+        args << "-o"
+        args << "ControlPath=#{control_path}"
+        args << "-o"
+        args << "ControlPersist=#{CONTROL_PERSIST}"
 
         if port
           args << "-p"

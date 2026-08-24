@@ -234,6 +234,34 @@ describe Meridian::Server::Bootstrapper do
   end
 
   describe "#bootstrap — script content" do
+    it "excludes openssh-server from unattended upgrades when auto updates are on" do
+      with_temp_keys do |priv, pub|
+        runner = ContentCapturingRunner.new
+        run_bootstrap(
+          build_config(public_key_file: pub, private_key_file: priv, enable_auto_updates: true),
+          runner
+        )
+
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        phase1.should contain("/etc/apt/apt.conf.d/51meridian-ssh-blacklist")
+        phase1.should contain("Unattended-Upgrade::Package-Blacklist")
+        phase1.should contain(%("openssh-server";))
+      end
+    end
+
+    it "removes the openssh blacklist when auto updates are off" do
+      with_temp_keys do |priv, pub|
+        runner = ContentCapturingRunner.new
+        run_bootstrap(
+          build_config(public_key_file: pub, private_key_file: priv, enable_auto_updates: false),
+          runner
+        )
+
+        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
+        phase1.should contain("rm -f /etc/apt/apt.conf.d/51meridian-ssh-blacklist")
+      end
+    end
+
     it "phase 1 script contains apt-get install with podman" do
       with_temp_keys do |priv, pub|
         runner = ContentCapturingRunner.new

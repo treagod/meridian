@@ -331,15 +331,15 @@ podman load`; `incremental` exports an OCI layout and syncs changed layers.
 
 ## `accessories`
 
-Accessories are independent services such as databases and caches. They get
-their own Quadlet and lifecycle commands.
+Accessories are declarative host-local resources: databases, caches, and other
+services your app depends on. They get their own Quadlet and lifecycle commands.
 
 ```yaml
 accessories:
   postgres:
     image: docker.io/library/postgres:18-alpine
     host: prod-01.example.com
-    network: my-app.network          # reachable by container name on this network; no host port
+    network: postgres                # reachable by container name on this network; no host port
     volumes:
       - my-app-pgdata:/var/lib/postgresql
     env:
@@ -365,7 +365,7 @@ as a Postgres environment variable. See the
 | `volumes` | `Array(String)` | Optional, default `[]` | `["pgdata:/var/lib/postgresql"]` | Accessory `Volume=` entries. |
 | `env` | `EnvConfig` | Optional | `clear: { POSTGRES_USER: app }` | Same shape as top-level `env`; official images can consume file-mounted secrets through variables such as `POSTGRES_PASSWORD_FILE`. |
 | `cmd` | `String` | Optional | `postgres -c max_connections=200` | Container command for the accessory. |
-| `network` | `String` | Optional | `my-app.network` | Put co-dependent accessories on the app service network. |
+| `network` | `String` | Optional | `postgres` | Podman network the accessory joins. The app automatically joins it too. The older `<name>.network` form still works and means the same network. |
 | `secrets` | `Array(String)` | Optional, default `[]` | `[MY_APP_POSTGRES_PASSWORD]` | Extra Podman secrets for the accessory. |
 | `depends_on` | `String` | Optional | `postgres` | Adds systemd ordering between accessories. |
 | `ready` | `AccessoryReadinessConfig` | Optional | See below | Explicit readiness probe; otherwise Meridian tries to infer one. |
@@ -399,9 +399,128 @@ If `ready:` is omitted, Meridian infers defaults for common images:
 | `mysql`, `mariadb` | `cmd: ["mysqladmin", "ping", "--silent"]` |
 | anything else | `tcp` on the first declared `port`; if no port exists, validation asks for explicit `ready:`. |
 
-The generated app Quadlet gains `Wants=` and `After=` for co-network
-accessories. Accessories are not auto-started; run `meridian accessory start
+The generated app Quadlet gains `Wants=` and `After=` for every accessory it
+depends on. Accessories are not auto-started; run `meridian accessory start
 NAME` before the first app deploy.
+
+### Sharing an accessory between services {#shared-accessories}
+
+Declaring an accessory means "this application depends on this resource". Two
+services may declare the same one. FreshRSS:
+
+```yaml
+service: freshrss
+
+accessories:
+  postgres:
+    image: docker.io/library/postgres:18-alpine
+    host: server.example.com
+    network: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+```
+
+Nextcloud, independently:
+
+```yaml
+service: nextcloud
+
+accessories:
+  postgres:
+    image: docker.io/library/postgres:18-alpine
+    host: server.example.com
+    network: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+```
+
+Both declarations refer to the **same** `postgres` container on
+`server.example.com`. There is no owner and no consumer syntax — repeating the
+declaration is the whole mechanism.
+
+**The definitions must match.** Identity is the accessory name, its host, and
+its effective definition (image, port, network, volumes, environment, secrets,
+command, `depends_on`, and readiness). Meridian normalizes that into a canonical
+form and fingerprints it, so YAML key order and formatting are irrelevant while
+any field that changes the container is not. Matching definitions on the same
+host are one shared resource; differing ones are a conflict:
+
+```
+Accessory 'postgres' conflicts with the definition already registered by service 'freshrss'.
+
+Different fields:
+  image:
+    current:  docker.io/library/postgres:17-alpine
+    existing: docker.io/library/postgres:18-alpine
+```
+
+Meridian never silently picks one definition or overwrites another service's.
+
+**Both apps automatically join the `postgres` network.** Nextcloud's generated
+Quadlet contains both its private service network and the accessory's:
+
+```ini
+Network=nextcloud.network
+Network=postgres
+```
+
+You do not declare that network anywhere else — the accessory declaration
+implies it. Accessories using several networks add each one once.
+
+**Either project may start it**, and starting is idempotent:
+
+```bash
+meridian accessory start postgres
+```
+
+`start` verifies no other service declares `postgres` differently, creates the
+`postgres` network if it is missing, reuses an existing compatible unit, and
+refuses to overwrite an incompatible one.
+
+The usual first-time sequence:
+
+```bash
+meridian setup
+meridian accessory start postgres
+meridian check
+meridian deploy
+```
+
+A second application declaring the same PostgreSQL normally needs only:
+
+```bash
+meridian setup
+meridian check
+meridian deploy
+```
+
+**Stopping or removing a shared accessory affects every service that declares
+it**, so Meridian warns and defaults to No:
+
+```
+Accessory 'postgres' is shared by 3 services:
+  freshrss
+  nextcloud
+  vaultwarden
+
+Stopping it will affect all of them.
+Continue? [y/N]
+```
+
+`--force` acknowledges that warning. It does not overwrite conflicting
+definitions, bypass missing requirements, or delete anything extra.
+`meridian accessory remove` deletes the Quadlet unit only — named volumes,
+images, and the shared network are left in place, because other services may
+still depend on them.
+
+Two caveats:
+
+- Podman networks and accessory containers are **host-local**. Two services
+  naming the same accessory on *different* hosts are two separate resources and
+  do not conflict.
+- Sharing a PostgreSQL instance does **not** create separate databases and
+  users for each application. Provisioning those remains PostgreSQL and
+  application configuration.
 
 ## `volumes`
 

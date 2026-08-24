@@ -28,8 +28,7 @@ module Meridian
       private def app_container_file(server : Config::ServerConfig, suffix : String, image : String? = nil) : String
         environment = @config.env.try(&.clear) || EMPTY_ENV
         secrets = (@config.env.try(&.secret) || EMPTY_SECRETS).map { |name| "#{name},type=env,target=#{name}" }
-        networks = [@config.service]
-        networks << Runtime::Paths::SHARED_PROXY_NETWORK if server.proxy
+        networks = @config.app_networks(server).map { |network| @config.network_ref(network) }
 
         ContainerTemplate.new(
           name: "#{@config.service}-#{suffix}",
@@ -45,15 +44,11 @@ module Meridian
         ).to_s
       end
 
-      # Service units of accessories that share this service's network, so the
-      # app Quadlet can declare a systemd dependency (Wants=/After=) on them.
+      # Service units of the accessories this app depends on - those whose
+      # network it automatically joins - so the app Quadlet can declare a
+      # systemd dependency (Wants=/After=) on them.
       private def co_network_accessory_units : Array(String)
-        ref = "#{@config.service}.network"
-        (@config.accessories || EMPTY_ACCESSORIES)
-          .select { |_, accessory| accessory.network == ref }
-          .keys
-          .sort!
-          .map { |name| "#{name}.service" }
+        @config.dependent_accessories.keys.sort!.map { |name| "#{name}.service" }
       end
 
       def network_file : String
@@ -91,7 +86,7 @@ module Meridian
           volumes: accessory.volumes,
           environment: environment,
           secrets: secrets,
-          network: accessory.network,
+          network: accessory.network_name.try { |logical| @config.network_ref(logical) },
           depends_on: accessory.depends_on,
           command: accessory.cmd,
           health_cmd: ready.cmd.try(&.join(" ")),

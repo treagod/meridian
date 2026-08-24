@@ -216,19 +216,30 @@ rescue
         end
 
         results << same_host_readiness(host_context.host, 40)
-        results << check_manifest_collisions(host_context.host, 41)
+
+        # One listing feeds both manifest checks: collisions and shared-accessory
+        # agreement read the same host-scoped state.
+        manifests =
+          begin
+            run_ssh(host_context.host, Runtime::ServiceManifest.list_command, batch_mode: true)
+          rescue ex : SSH::ConnectionError
+            SSH::Result.new(exit_code: 1, stdout: "", stderr: ex.message || "manifest listing failed")
+          end
+        results << check_manifest_collisions(host_context.host, 41, manifests)
+        results.concat(accessory_networks_probes(host_context.host))
+        results.concat(shared_accessory_probes(host_context.host, manifests))
         results.concat(accessory_readiness_probes(host_context.host))
 
         results
       end
 
-      # Accessories sharing the app's service network, and therefore gated on
-      # before the app starts. Mirrors `Deploy::Orchestrator#co_network_accessories`,
-      # which selects on the network alone - `host:` is optional and does not
-      # narrow what a deploy waits for.
+      # Accessories the app depends on - those whose network it automatically
+      # joins - and therefore gated on before the app starts. Mirrors
+      # `Deploy::Orchestrator#co_network_accessories`, which selects on the
+      # network alone: `host:` is optional and does not narrow what a deploy
+      # waits for.
       private def co_network_accessories : Hash(String, Config::AccessoryConfig)
-        ref = "#{@config.service}.network"
-        (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.network == ref }
+        @config.dependent_accessories
       end
 
       # Resolving a readiness contract is pure and local - the same thing the
@@ -248,6 +259,65 @@ rescue
         end
       end
 
+      # Podman networks are host-local, so every checked host running the app
+      # needs each accessory network the app joins to exist there.
+      private def accessory_networks_probes(host : String) : Array(ProbeResult)
+        accessory_by_network = {} of String => String
+        @config.dependent_accessories.each do |name, accessory|
+          network = accessory.network_name
+          next if network.nil? || @config.generated_network?(network)
+
+          accessory_by_network[network] ||= name
+        end
+
+        accessory_by_network.keys.sort!.map_with_index do |network, index|
+          accessory_network_probe(host, network, accessory_by_network[network], 42 + index)
+        end
+      end
+
+      private def accessory_network_probe(host : String, network : String, accessory : String, position : Int32) : ProbeResult
+        result = run_ssh(host, Runtime::ServiceNetwork.network_exists_command(network), batch_mode: true)
+        return pass(host, "network:#{network}", position, "exists") if result.exit_code.zero?
+
+        fail(host, "network:#{network}", position, "network does not exist; run `meridian accessory start #{accessory}`")
+      rescue ex : SSH::ConnectionError
+        fail(host, "network:#{network}", position, ex.message || "network check failed")
+      end
+
+      # Whether other services on this host agree with our definition of each
+      # accessory pinned here. Same fingerprint means one shared resource; a
+      # different one means somebody would be overwriting somebody else.
+      private def shared_accessory_probes(host : String, result : SSH::Result) : Array(ProbeResult)
+        accessories = (@config.accessories || EMPTY_ACCESSORIES).select { |_, accessory| accessory.host == host }
+        return [] of ProbeResult if accessories.empty?
+
+        current = Runtime::ServiceManifest.from_config(@config)
+        others =
+          if result.exit_code.zero?
+            Runtime::ServiceManifest.parse_all(result.stdout).reject { |manifest| manifest.service == @config.service }
+          else
+            [] of Runtime::ServiceManifest
+          end
+
+        accessories.keys.sort!.map_with_index do |name, index|
+          position = 60 + index
+          probe = "accessory:#{name}"
+          conflicting = current.services_conflicting(name, others)
+
+          if conflicting.empty?
+            shared = current.services_sharing(name, others)
+            detail = shared.empty? ? "definition matches" : "shared with #{shared.join(", ")}"
+            pass(host, probe, position, detail)
+          else
+            fail(host, probe, position, "conflicts with service #{conflicting.join(", ")}")
+          end
+        end
+      rescue ex : JSON::ParseException
+        [fail(host, "accessory", 60, "invalid manifest: #{ex.message}")]
+      rescue ex : SSH::ConnectionError
+        [fail(host, "accessory", 60, ex.message || "accessory check failed")]
+      end
+
       # The live probe stays host-scoped: unlike resolution, it needs somewhere
       # to run.
       private def accessory_readiness_probes(host : String) : Array(ProbeResult)
@@ -260,16 +330,20 @@ rescue
           probe = "accessory-readiness:#{name}"
           begin
             ready = accessory.effective_ready(name)
-            command_probe(host, probe, position, accessory_probe_argv(name, ready), ready.summary)
+            network = accessory.network_name || @config.service
+            command_probe(host, probe, position, accessory_probe_argv(name, ready, network), ready.summary)
           rescue ex : Config::ValidationError
             fail(host, probe, position, ex.message || "unresolved readiness")
           end
         end
       end
 
-      private def accessory_probe_argv(name : String, ready : Config::AccessoryReadinessConfig) : Array(String)
+      private def accessory_probe_argv(
+        name : String,
+        ready : Config::AccessoryReadinessConfig,
+        network : String,
+      ) : Array(String)
         probe_image = Config::HealthcheckConfig::DEFAULT_PROBE_IMAGE
-        network = @config.service
 
         if tcp = ready.tcp
           checks = tcp.map { |port| "nc -z #{name} #{port}" }.join(" && ")
@@ -341,12 +415,11 @@ rescue
         pass(host, "same-host", position, detail)
       end
 
-      private def check_manifest_collisions(host : String, position : Int32) : ProbeResult
-        result = run_ssh(host, ["sh", "-lc", manifest_list_command], batch_mode: true)
+      private def check_manifest_collisions(host : String, position : Int32, result : SSH::Result) : ProbeResult
         return fail(host, "manifest-collisions", position, failure_detail(result)) unless result.exit_code.zero?
 
         current = Runtime::ServiceManifest.from_config(@config)
-        collisions = remote_manifests(result.stdout).flat_map { |manifest| current.collisions_with(manifest) }
+        collisions = Runtime::ServiceManifest.parse_all(result.stdout).flat_map { |manifest| current.collisions_with(manifest) }
 
         if collisions.empty?
           pass(host, "manifest-collisions", position, "none")
@@ -408,20 +481,6 @@ rescue
         return false unless host_context.roles.includes?("web")
 
         !!@config.servers["web"]?.try(&.proxy)
-      end
-
-      private def manifest_list_command : String
-        dir = Process.quote_posix(Runtime::Paths::SERVICES_DIRECTORY)
-        "if test -d #{dir}; then find #{dir} -mindepth 2 -maxdepth 2 -name manifest.json -exec cat {} \\; -exec printf '\\n' \\;; fi"
-      end
-
-      private def remote_manifests(output : String) : Array(Runtime::ServiceManifest)
-        output.lines.compact_map do |line|
-          text = line.strip
-          next if text.empty?
-
-          Runtime::ServiceManifest.from_json(text)
-        end
       end
 
       private def pass(host : String, probe : String, position : Int32, detail : String) : ProbeResult

@@ -32,6 +32,49 @@ def check_config : String
     YAML
 end
 
+# One host, one `postgres` accessory on a shared Podman network - the shape a
+# second Meridian service on the same host would declare identically.
+def shared_accessory_check_config(
+  service : String = "nextcloud",
+  image : String = "docker.io/library/postgres:18-alpine",
+) : String
+  <<-YAML
+    service: #{service}
+    image: registry.example.com/myorg/#{service}
+
+    servers:
+      web:
+        hosts:
+          - 192.168.1.10
+
+    accessories:
+      postgres:
+        image: #{image}
+        host: 192.168.1.10
+        network: postgres
+        volumes:
+          - postgres-data:/var/lib/postgresql/data
+    YAML
+end
+
+def shared_accessory_manifest(service : String, image : String = "docker.io/library/postgres:18-alpine") : String
+  config = load_config(shared_accessory_check_config(service: service, image: image))
+  "#{Meridian::Runtime::ServiceManifest.from_config(config).to_json}\n"
+end
+
+# Probe order per host: connectivity, podman, lingering, quadlet-dir, manifest
+# listing, accessory network, then accessory readiness.
+def shared_accessory_results(manifests : String, network : Meridian::SSH::Result) : Array(Meridian::SSH::Result)
+  [
+    ssh_ok,                           # connectivity
+    ssh_ok("podman version 4.4.0\n"), # podman version
+    ssh_ok,                           # lingering
+    ssh_ok,                           # quadlet-dir
+    ssh_ok(manifests),                # manifest listing
+    network,                          # accessory network
+  ]
+end
+
 def build_check_command(
   content : String = check_config,
   runner : FakeSSHRunner = FakeSSHRunner.new,
@@ -865,6 +908,108 @@ describe "Meridian::Commands::Check" do
       command.run(targets).should be_true
 
       output.to_s.should_not contain("file:")
+    end
+  end
+
+  describe "shared accessories" do
+    it "reports a compatible shared accessory and names the service sharing it" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(content: shared_accessory_check_config, runner: runner, output: output)
+      runner.queued_results.concat(shared_accessory_results(shared_accessory_manifest("freshrss"), ssh_ok))
+
+      command.run.should be_true
+
+      text = output.to_s
+      text.should contain("accessory:postgres")
+      text.should contain("shared with freshrss")
+    end
+
+    it "reports a matching definition when no other service declares it" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(content: shared_accessory_check_config, runner: runner, output: output)
+      runner.queued_results.concat(shared_accessory_results("", ssh_ok))
+
+      command.run.should be_true
+
+      output.to_s.should contain("definition matches")
+    end
+
+    it "fails when another service declares the accessory differently" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(content: shared_accessory_check_config, runner: runner, output: output)
+      runner.queued_results.concat(
+        shared_accessory_results(
+          shared_accessory_manifest("freshrss", image: "docker.io/library/postgres:17-alpine"),
+          ssh_ok
+        )
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("accessory:postgres")
+      text.should contain("conflicts with service freshrss")
+      text.should contain("Check failed")
+    end
+
+    it "fails with an actionable hint when the accessory network is missing" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(content: shared_accessory_check_config, runner: runner, output: output)
+      runner.queued_results.concat(shared_accessory_results("", ssh_fail(1)))
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("network:postgres")
+      text.should contain("network does not exist; run `meridian accessory start postgres`")
+    end
+
+    it "passes when the accessory network exists" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(content: shared_accessory_check_config, runner: runner, output: output)
+      runner.queued_results.concat(shared_accessory_results("", ssh_ok))
+
+      command.run.should be_true
+
+      output.to_s.should contain("network:postgres")
+    end
+
+    it "does not probe for the private service network, which setup owns" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      content = shared_accessory_check_config.sub("network: postgres", "network: nextcloud")
+      command = build_check_command(content: content, runner: runner, output: output)
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok(""),
+      )
+
+      command.run
+
+      output.to_s.should_not contain("network:nextcloud")
+    end
+
+    it "runs the readiness probe on the accessory's own network" do
+      runner = FakeSSHRunner.new
+      content = shared_accessory_check_config.sub(
+        "image: docker.io/library/postgres:18-alpine",
+        "image: docker.io/library/redis:7"
+      )
+      command = build_check_command(content: content, runner: runner)
+      runner.queued_results.concat(shared_accessory_results("", ssh_ok))
+
+      command.run
+
+      probe = remote_commands_for(runner).find(&.includes?("nc -z postgres 6379"))
+      value!(probe).should contain("--network=postgres")
     end
   end
 end

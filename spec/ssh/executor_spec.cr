@@ -67,7 +67,7 @@ describe "Meridian::SSH::Executor" do
 
       invocation = runner.invocations.last
       invocation.command.should eq("ssh")
-      invocation.args.should eq(["-p", "2222", "-i", "/tmp/id_ed25519", "deploy@1.2.3.4", "uptime"])
+      invocation.args.should eq(mux_args + ["-p", "2222", "-i", "/tmp/id_ed25519", "deploy@1.2.3.4", "uptime"])
     end
 
     it "adds proxy jump and connect timeout options" do
@@ -82,7 +82,7 @@ describe "Meridian::SSH::Executor" do
       )
 
       invocation = runner.invocations.last
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-J",
         "bastion.example.com",
         "-o",
@@ -104,7 +104,7 @@ describe "Meridian::SSH::Executor" do
       )
 
       invocation = runner.invocations.last
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-o",
         "ServerAliveInterval=45",
         "-o",
@@ -125,7 +125,7 @@ describe "Meridian::SSH::Executor" do
       )
 
       invocation = runner.invocations.last
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-o",
         "ServerAliveInterval=0",
         "1.2.3.4",
@@ -144,12 +144,29 @@ describe "Meridian::SSH::Executor" do
       )
 
       invocation = runner.invocations.last
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-o",
         "BatchMode=yes",
         "1.2.3.4",
         "true",
       ])
+    end
+
+    it "multiplexes connections so repeated commands reuse one master" do
+      runner = FakeSSHRunner.new
+      executor = Meridian::SSH::Executor.new(runner: runner)
+
+      executor.run("1.2.3.4", ["uptime"])
+
+      runner.invocations.last.args[0, 6].should eq([
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPath=#{Meridian::SSH::Executor::CONTROL_SOCKET_DIR}/%C",
+        "-o",
+        "ControlPersist=60s",
+      ])
+      Dir.exists?(Meridian::SSH::Executor::CONTROL_SOCKET_DIR).should be_true
     end
 
     it "orders SSH options before the target host consistently" do
@@ -169,7 +186,7 @@ describe "Meridian::SSH::Executor" do
       )
 
       invocation = runner.invocations.last
-      invocation.args.should eq([
+      invocation.args.should eq(mux_args + [
         "-p",
         "2222",
         "-i",
@@ -292,7 +309,7 @@ describe "Meridian::SSH::Executor" do
 
       invocation = runner.invocations.last
       invocation.command.should eq("ssh")
-      invocation.args.should eq(["1.2.3.4", "cat > /opt/meridian/config.env"])
+      invocation.args.should eq(mux_args + ["1.2.3.4", "cat > /opt/meridian/config.env"])
       invocation.input.should eq("TOKEN=secret\n")
     end
 

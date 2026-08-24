@@ -60,7 +60,9 @@ For the failure shape, see [image not known during stream or incremental transfe
 | `servers.web.proxy.ssl: true` is only set after DNS is live | `dig +short my-app.example.com` | Lets Encrypt issuance hangs during deploy. |
 | Each accessory declares `host:` | `rg -n '^\s+host:' .meridian/deploy.yml` | Accessory commands cannot decide which host to mutate. |
 | Same-host services use per-service env and secret prefixes | `rg -n 'DATABASE|SECRET|PASSWORD|TOKEN' .meridian/deploy.yml` | Two apps on one host accidentally share secret names or env meaning. |
-| Accessories on the app network have readiness probes or inferable ports | `meridian plan` | The app starts before Postgres, Redis, or another accessory is reachable. |
+| Accessories with a `network:` have readiness probes or inferable ports | `meridian plan` | The app starts before Postgres, Redis, or another accessory is reachable. |
+| Accessory networks exist on every app host | `meridian check` | `deploy` refuses to start an app whose declared accessory network is missing. |
+| Shared accessory definitions match across services | `meridian check` | Two services declaring the same accessory differently is a hard conflict. |
 
 Accessories have to be running before the first app deploy — `meridian deploy` never
 starts them:

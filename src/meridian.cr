@@ -3,6 +3,7 @@ require "./errors"
 require "./paths"
 require "./defaults"
 require "./config/loader"
+require "./config/accessory_identity"
 require "./quadlet/generator"
 require "./runtime/paths"
 require "./runtime/service_network"
@@ -62,6 +63,7 @@ module Meridian
       Commands::Accessory,
       Commands::AccessoryStart,
       Commands::AccessoryStop,
+      Commands::AccessoryRemove,
       Commands::AccessoryLogs,
       Commands::Secret,
       Commands::SecretGen,

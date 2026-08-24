@@ -22,15 +22,58 @@ module Meridian
       end
     end
 
+    # One service's reference to a host-local accessory. Two services naming the
+    # same accessory on the same host with the same fingerprint are referring to
+    # the same container; a differing fingerprint is a conflict.
+    struct AccessoryRef
+      include JSON::Serializable
+
+      getter host : String?
+      # nil on manifests written before schema 2, where the definition was not
+      # recorded. Never compares equal, so a stale manifest stays conservative.
+      getter fingerprint : String?
+      # The canonical field map the fingerprint is derived from, so a conflict
+      # can report which fields differ without reading another project's config.
+      getter definition : Hash(String, String) = {} of String => String
+
+      def initialize(@host : String?, @fingerprint : String?, @definition = {} of String => String)
+      end
+
+      def compatible_with?(other : AccessoryRef) : Bool
+        return false unless host == other.host
+
+        !!fingerprint && fingerprint == other.fingerprint
+      end
+    end
+
+    # Reads both manifest shapes: schema 2 stores accessories as a name to
+    # `AccessoryRef` map, schema 1 stored a bare name list.
+    module AccessoryRefsConverter
+      def self.from_json(pull : JSON::PullParser) : Hash(String, AccessoryRef)
+        if pull.kind.begin_array?
+          return Array(String).new(pull).to_h { |name| {name, AccessoryRef.new(host: nil, fingerprint: nil)} }
+        end
+
+        Hash(String, AccessoryRef).new(pull)
+      end
+
+      def self.to_json(value : Hash(String, AccessoryRef), json : JSON::Builder) : Nil
+        value.to_json(json)
+      end
+    end
+
     struct ServiceManifest
       include JSON::Serializable
+
+      SCHEMA_VERSION = 2
 
       getter schema_version : Int32
       getter service : String
       getter proxy_routes : Array(ProxyRoute)
       getter asset_host : String?
       getter ports : Array(String)
-      getter accessories : Array(String)
+      @[JSON::Field(converter: Meridian::Runtime::AccessoryRefsConverter)]
+      getter accessories : Hash(String, AccessoryRef)
       getter networks : Array(String)
       getter generated_files : Array(String)
       getter active_color_path : String
@@ -44,7 +87,7 @@ module Meridian
         @proxy_routes : Array(ProxyRoute),
         @asset_host : String?,
         @ports : Array(String),
-        @accessories : Array(String),
+        @accessories : Hash(String, AccessoryRef),
         @networks : Array(String),
         @generated_files : Array(String),
         @active_color_path : String,
@@ -53,7 +96,7 @@ module Meridian
         @audit_path : String,
         @incremental_cache_path : String,
       )
-        @schema_version = 1
+        @schema_version = SCHEMA_VERSION
       end
 
       def self.from_config(config : Config::DeployConfig) : ServiceManifest
@@ -76,7 +119,10 @@ module Meridian
           )
         end
 
-        accessories = (config.accessories || {} of String => Config::AccessoryConfig).keys.sort!
+        accessories = accessory_refs(config)
+        # Accessory networks are deliberately absent: they are pre-existing
+        # shared Podman networks, not networks this service generates, so they
+        # must not read as a generated-network collision.
         networks = [config.service]
         networks << Paths::SHARED_PROXY_NETWORK if proxy_routes.present?
         generated_files = generated_files_for(config)
@@ -95,6 +141,41 @@ module Meridian
           audit_path: Paths.audit_log(config.service),
           incremental_cache_path: Paths.incremental_oci_directory(config.service)
         )
+      end
+
+      private def self.accessory_refs(config : Config::DeployConfig) : Hash(String, AccessoryRef)
+        accessories = config.accessories || Config::EMPTY_ACCESSORIES
+
+        accessories.keys.sort!.to_h do |name|
+          accessory = accessories[name]
+          ref = AccessoryRef.new(
+            host: accessory.host.try(&.strip).presence,
+            fingerprint: Config::AccessoryIdentity.fingerprint(name, accessory),
+            definition: Config::AccessoryIdentity.definition(name, accessory)
+          )
+          {name, ref}
+        end
+      end
+
+      # Remote command listing every Meridian service manifest on a host, one
+      # JSON document per line. Shared by check, proxy removal, and the
+      # accessory lifecycle so they all read the same host-scoped state.
+      def self.list_command : Array(String)
+        dir = Process.quote_posix(Paths::SERVICES_DIRECTORY)
+        [
+          "sh", "-lc",
+          "if test -d #{dir}; then find #{dir} -mindepth 2 -maxdepth 2 -name manifest.json " \
+          "-exec cat {} \\; -exec printf '\\n' \\;; fi",
+        ]
+      end
+
+      def self.parse_all(output : String) : Array(ServiceManifest)
+        output.lines.compact_map do |line|
+          text = line.strip
+          next if text.empty?
+
+          ServiceManifest.from_json(text)
+        end
       end
 
       def self.normalize_path(path : String?) : String
@@ -137,9 +218,7 @@ module Meridian
           collisions << "published host port #{port} is already used by #{other.service}"
         end
 
-        (accessories & other.accessories).each do |name|
-          collisions << "accessory name #{name} is already used by #{other.service}"
-        end
+        collisions.concat(accessory_collisions_with(other))
 
         shared_networks = [Paths::SHARED_PROXY_NETWORK]
         ((networks - shared_networks) & (other.networks - shared_networks)).each do |network|
@@ -163,6 +242,50 @@ module Meridian
         end
 
         collisions
+      end
+
+      # Accessory names are intentionally shared: the same name, host, and
+      # definition mean the same host resource. Only a differing definition on
+      # the same host is a conflict, and a different host is a different
+      # resource entirely.
+      def accessory_collisions_with(other : ServiceManifest) : Array(String)
+        accessories.compact_map do |name, ref|
+          other_ref = other.accessories[name]?
+          next if other_ref.nil? || ref.host != other_ref.host
+          next if ref.compatible_with?(other_ref)
+
+          "accessory #{name} on #{ref.host || "-"} conflicts with the definition registered by #{other.service}"
+        end
+      end
+
+      # Services referencing the same accessory as a compatible shared resource.
+      def services_sharing(name : String, others : Array(ServiceManifest)) : Array(String)
+        partition_accessory(name, others).first
+      end
+
+      # Services claiming the same accessory on the same host with a different
+      # definition. One of them would have to overwrite the other.
+      def services_conflicting(name : String, others : Array(ServiceManifest)) : Array(String)
+        partition_accessory(name, others).last
+      end
+
+      private def partition_accessory(name : String, others : Array(ServiceManifest)) : {Array(String), Array(String)}
+        ref = accessories[name]?
+        return {[] of String, [] of String} unless ref
+
+        shared = [] of String
+        conflicting = [] of String
+
+        others.each do |other|
+          next if other.service == service
+
+          other_ref = other.accessories[name]?
+          next if other_ref.nil? || ref.host != other_ref.host
+
+          (ref.compatible_with?(other_ref) ? shared : conflicting) << other.service
+        end
+
+        {shared.uniq!.sort!, conflicting.uniq!.sort!}
       end
 
       private def same_owner?(other : ServiceManifest) : Bool

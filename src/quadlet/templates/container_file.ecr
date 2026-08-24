@@ -9,7 +9,7 @@ After=<%= @accessory_units.join(" ") %>
 Image=<%= @image %>
 ContainerName=<%= @name %>
 <% @networks.each do |network| %>
-Network=<%= network %>.network
+Network=<%= network %>
 <% end %>
 <% @environment.each do |key, value| %>
 Environment=<%= key %>=<%= value %>
