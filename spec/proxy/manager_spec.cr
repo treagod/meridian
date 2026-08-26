@@ -212,7 +212,7 @@ describe "Meridian::Proxy::Manager" do
       uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/kamal-proxy.container"))
       uploads.each do |upload|
         upload_input = upload.input || raise "Expected upload input"
-        upload_input.should contain("Volume=/var/lib/kamal-proxy:/var/lib/kamal-proxy")
+        upload_input.should contain("Volume=%h/.local/share/kamal-proxy:%h/.local/share/kamal-proxy")
       end
     end
 
@@ -223,8 +223,8 @@ describe "Meridian::Proxy::Manager" do
       manager.setup
 
       commands = runner.invocations.select { |invocation| invocation.host == "192.168.1.10" }.compact_map(&.remote_command)
-      commands.should contain("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy")
-      commands.index!("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy").should be < commands.index!("systemctl --user start kamal-proxy.service")
+      commands.should contain("sh -c 'mkdir -p $HOME/.local/share/kamal-proxy'")
+      commands.index!("sh -c 'mkdir -p $HOME/.local/share/kamal-proxy'").should be < commands.index!("systemctl --user start kamal-proxy.service")
     end
 
     it "uses default proxy settings when the root proxy block is omitted" do
@@ -251,7 +251,7 @@ describe "Meridian::Proxy::Manager" do
       upload_input.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
       upload_input.should contain("PublishPort=80:80")
       upload_input.should contain("PublishPort=443:443")
-      runner.invocations.compact_map(&.remote_command).should contain("sudo install -d -m 0755 -o deploy -g deploy /var/lib/kamal-proxy")
+      runner.invocations.compact_map(&.remote_command).should contain("sh -c 'mkdir -p $HOME/.local/share/kamal-proxy'")
     end
 
     it "uses a custom data_dir in the uploaded Quadlet when configured" do
@@ -280,7 +280,7 @@ describe "Meridian::Proxy::Manager" do
         upload_input = upload.input || raise "Expected upload input"
         upload_input.should contain("Volume=/custom/proxy-data:/custom/proxy-data")
       end
-      runner.invocations.compact_map(&.remote_command).should contain("sudo install -d -m 0755 -o deploy -g deploy /custom/proxy-data")
+      runner.invocations.compact_map(&.remote_command).should contain("sh -c 'mkdir -p /custom/proxy-data'")
     end
 
     it "raises SetupFailed when the proxy probe fails" do

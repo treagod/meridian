@@ -31,8 +31,6 @@ module Meridian
         @root_user = "root"
         @deploy_user : String? = nil
         @accept_new_host_key = true
-        @enable_auto_updates = true
-        @passwordless_sudo = true
         @rootless_low_ports = true
         @rootless_port_start = 80
         @file = Meridian::Paths::CONFIG_FILE
@@ -64,12 +62,6 @@ module Meridian
           parser.on("--deploy-user USER", "User to create (default: from deploy.yml ssh.user)") { |v| @deploy_user = v }
           parser.on("--accept-new-host-key", "Trust new host keys (default)") { @accept_new_host_key = true }
           parser.on("--no-accept-new-host-key", "Require known host key") { @accept_new_host_key = false }
-          parser.on("--enable-auto-updates BOOL", "Unattended security updates (default: yes)") do |v|
-            @enable_auto_updates = parse_bool_flag(v, "--enable-auto-updates")
-          end
-          parser.on("--passwordless-sudo BOOL", "Passwordless sudo for deploy user (default: yes)") do |v|
-            @passwordless_sudo = parse_bool_flag(v, "--passwordless-sudo")
-          end
           parser.on("--rootless-low-ports BOOL", "Allow rootless low-port binding (default: yes)") do |v|
             @rootless_low_ports = parse_bool_flag(v, "--rootless-low-ports")
           end
@@ -92,8 +84,6 @@ module Meridian
             root_user: @root_user,
             deploy_user: @deploy_user,
             accept_new_host_key: @accept_new_host_key,
-            enable_auto_updates: @enable_auto_updates,
-            passwordless_sudo: @passwordless_sudo,
             rootless_low_ports: @rootless_low_ports,
             rootless_port_start: @rootless_port_start,
             file: @file,

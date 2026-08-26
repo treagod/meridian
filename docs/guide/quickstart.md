@@ -133,14 +133,18 @@ Fresh Debian or Ubuntu box:
 meridian server bootstrap --host 1.2.3.4
 ```
 
-It expects root SSH with password login still enabled — it prompts for that password,
-then turns both off when it is done. Pass `--root-user` if the privileged user is not
-`root`, and `--deploy-user` to override the `ssh.user` from `deploy.yml`.
+It expects root SSH with password login still enabled — it prompts for that password.
+Pass `--root-user` if the privileged user is not `root`, and `--deploy-user` to override
+the `ssh.user` from `deploy.yml`.
 
-Bootstrap installs Podman, UFW, and the transfer tools your `transfer.mode` needs,
-creates the deploy user with your public key, enables lingering so rootless units
-survive logout, prepares `~/.config/containers/systemd/`, and finally hardens SSH by
-disabling root login and password authentication.
+Bootstrap installs Podman, rootless helpers, and the transfer tools your `transfer.mode`
+needs, creates the deploy user with your public key, enables lingering so rootless units
+survive logout, and prepares `~/.config/containers/systemd/`.
+
+That is all it does. Firewall rules, sshd hardening, sudo policy, and unattended
+upgrades are yours — Meridian does not touch them. If you set up a firewall, open
+inbound SSH plus 80/443 for the proxy, and add a rule for any accessory that publishes
+a host port.
 
 ### Set Secrets
 

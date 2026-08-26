@@ -39,7 +39,9 @@ module Meridian
           upload_ssh(host, quadlet_path, proxy_quadlet)
 
           log(host, "Ensuring proxy data directory exists")
-          run_ssh!(host, ["sudo", "install", "-d", "-m", "0755", "-o", ssh_user, "-g", ssh_user, proxy.data_dir])
+          # data_dir carries systemd's %h specifier for the Quadlet Volume= line; the
+          # shell needs $HOME instead, and run_ssh quotes every argument.
+          run_ssh!(host, ["sh", "-c", "mkdir -p #{proxy.data_dir.sub("%h", "$HOME")}"])
 
           log(host, "Reloading user systemd")
           run_ssh!(host, ["systemctl", "--user", "daemon-reload"])

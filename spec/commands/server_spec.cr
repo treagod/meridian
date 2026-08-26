@@ -37,8 +37,6 @@ private def make_invocation(
   root_user : String = "root",
   deploy_user : String? = nil,
   accept_new_host_key : Bool = true,
-  enable_auto_updates : Bool = true,
-  passwordless_sudo : Bool = true,
   rootless_low_ports : Bool = true,
   rootless_port_start : Int32 = 80,
   file : String = ".meridian/deploy.yml",
@@ -49,8 +47,6 @@ private def make_invocation(
     root_user: root_user,
     deploy_user: deploy_user,
     accept_new_host_key: accept_new_host_key,
-    enable_auto_updates: enable_auto_updates,
-    passwordless_sudo: passwordless_sudo,
     rootless_low_ports: rootless_low_ports,
     rootless_port_start: rootless_port_start,
     file: file,
@@ -374,8 +370,8 @@ describe Meridian::Commands::Server do
         command = build_server_command(content: config_yaml, runner: runner)
         command.bootstrap(make_invocation)
 
-        phase1 = value!(runner.captured_scripts.find { |k, _| k.includes?("phase1") }.try(&.[1]))
-        install_line = phase1.lines.find!(&.includes?("apt-get install -y"))
+        script = value!(runner.captured_scripts.values.first?)
+        install_line = script.lines.find!(&.includes?("apt-get install -y"))
         install_line.should contain(%("zstd"))
         install_line.should contain(%("rsync"))
         install_line.should contain(%("skopeo"))

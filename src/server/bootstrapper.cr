@@ -11,24 +11,18 @@ module Meridian
       public_key_file : String,
       private_key_file : String,
       accept_new_host_key : Bool,
-      enable_auto_updates : Bool,
-      passwordless_sudo : Bool,
       rootless_low_ports : Bool,
       rootless_port_start : Int32,
       transfer_mode : Config::TransferMode?
 
     class Bootstrapper
       BASE_PACKAGES = [
-        "sudo",
         "ca-certificates",
         "curl",
-        "openssh-server",
         "podman",
         "uidmap",
         "slirp4netns",
         "fuse-overlayfs",
-        "unattended-upgrades",
-        "ufw",
       ]
 
       abstract class Runner
@@ -67,44 +61,27 @@ module Meridian
         raise BootstrapError.new("Public key file is empty: #{@config.public_key_file}") if public_key.empty?
         public_key_b64 = Base64.strict_encode(public_key)
 
-        phase1_local = write_temp_script("meridian-bootstrap-phase1", phase1_script(public_key_b64))
-        phase2_local = write_temp_script("meridian-bootstrap-phase2", phase2_script)
-        phase1_remote = "/tmp/#{File.basename(phase1_local)}"
-        phase2_remote = "/tmp/#{File.basename(phase2_local)}"
+        script_local = write_temp_script("meridian-bootstrap", provision_script(public_key_b64))
+        script_remote = "/tmp/#{File.basename(script_local)}"
 
         print_banner
 
         begin
-          upload_as_root(phase1_local, phase1_remote)
-          execute_as_root(phase1_remote, "Run phase 1 bootstrap as #{@config.root_user}")
+          upload_as_root(script_local, script_remote)
+          execute_as_root(script_remote, "Provision #{@config.host} as #{@config.root_user}")
 
           unless test_deploy_login
             raise BootstrapError.new(
-              "Deploy SSH login test failed — " \
-              "root SSH is still enabled, safe to fix the key and rerun"
+              "Deploy SSH login test failed — nothing about SSH access was changed, " \
+              "safe to fix the key and rerun"
             )
           end
 
           create_deploy_directories
 
-          if @config.passwordless_sudo
-            upload_as_deploy(phase2_local, phase2_remote)
-            execute_as_deploy_with_sudo(phase2_remote, "Run phase 2 hardening as #{@config.deploy_user} via sudo")
-          else
-            upload_as_root(phase2_local, phase2_remote)
-            execute_as_root(phase2_remote, "Run phase 2 hardening as #{@config.root_user}")
-          end
-
-          unless test_deploy_login
-            raise BootstrapError.new(
-              "Final deploy SSH login test failed — use the server console to inspect"
-            )
-          end
-
           print_success_summary
         ensure
-          FileUtils.rm_rf(phase1_local)
-          FileUtils.rm_rf(phase2_local)
+          FileUtils.rm_rf(script_local)
         end
       end
 
@@ -113,29 +90,15 @@ module Meridian
 
           This script will:
             1. Connect to #{@config.root_user}@#{@config.host} for the initial bootstrap (password prompt).
-            2. Update the system and install Podman, rootless helpers, UFW, and #{transfer_package_summary}.
+            2. Install Podman, rootless helpers, and #{transfer_package_summary}.
             3. Create '#{@config.deploy_user}', install your SSH public key, and enable lingering.
-            4. Open SSH (port #{@config.port}), HTTP, and HTTPS in UFW and enable the firewall.
-            5. #{@config.passwordless_sudo ? "Grant passwordless sudo to '#{@config.deploy_user}'." : "Keep normal sudo rules for '#{@config.deploy_user}'."}
-            6. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
-            7. #{@config.enable_auto_updates ? "Enable unattended security updates, excluding openssh-server." : "Disable unattended automatic updates."}
-            8. Verify key-based SSH login for '#{@config.deploy_user}'.
-            9. Create rootless Podman directories for '#{@config.deploy_user}'.
-            10. Disable root SSH login and SSH password authentication.
+            4. #{@config.rootless_low_ports ? "Allow rootless services to bind ports >= #{@config.rootless_port_start}." : "Leave low-port binding unchanged."}
+            5. Verify key-based SSH login for '#{@config.deploy_user}'.
+            6. Create rootless Podman directories for '#{@config.deploy_user}'.
 
           Notes:
             - The first SSH/SCP steps will prompt for the #{@config.root_user} password interactively.
-            - After phase 1, the script validates deploy-key login before hardening SSH.
-          TEXT
-      end
-
-      private def auto_update_caveat : String
-        return "" unless @config.enable_auto_updates
-
-        <<-TEXT
-
-          openssh-server is excluded from unattended upgrades, so patch it yourself:
-            sudo apt update && sudo apt install --only-upgrade openssh-server
+            - Firewall rules, SSH hardening, and unattended upgrades are left untouched — see below.
           TEXT
       end
 
@@ -147,11 +110,14 @@ module Meridian
           You can now log in with:
             ssh -i #{@config.private_key_file} #{@config.deploy_user}@#{@config.host}
 
+          Meridian deliberately left your server policy alone. It did not configure a
+          firewall, change any sshd setting, or enable unattended upgrades. If you want
+          those, set them up yourself — the proxy needs inbound 80/443, and Meridian
+          needs inbound #{@config.port}/tcp for SSH.
+
           Recommended next steps:
-            - Verify the firewall rules: sudo ufw status
             - Verify rootless Podman as #{@config.deploy_user}: podman info
             - Run: meridian setup
-          #{auto_update_caveat}
           TEXT
       end
 
@@ -211,23 +177,6 @@ module Meridian
         @runner.run_interactive("ssh", args, step)
       end
 
-      private def upload_as_deploy(local : String, remote : String) : Nil
-        args = scp_base_options
-        args.concat(deploy_key_options)
-        args << local
-        args << "#{@config.deploy_user}@#{@config.host}:#{remote}"
-        @runner.run_interactive("scp", args, "Upload #{File.basename(local)} as #{@config.deploy_user}")
-      end
-
-      private def execute_as_deploy_with_sudo(remote : String, step : String) : Nil
-        args = ssh_base_options
-        args << "-tt"
-        args.concat(deploy_key_options)
-        args << "#{@config.deploy_user}@#{@config.host}"
-        args << "sudo -n bash #{remote} && rm -f #{remote}"
-        @runner.run_interactive("ssh", args, step)
-      end
-
       private def test_deploy_login : Bool
         args = ssh_base_options
         args.concat(deploy_key_options)
@@ -236,7 +185,7 @@ module Meridian
         @runner.run_check("ssh", args, "Test SSH key login for #{@config.deploy_user}")
       end
 
-      private def phase1_script(public_key_b64 : String) : String
+      private def provision_script(public_key_b64 : String) : String
         <<-BASH
           #!/usr/bin/env bash
           set -euo pipefail
@@ -245,26 +194,15 @@ module Meridian
 
           DEPLOY_USER=#{@config.deploy_user.inspect}
           PUBKEY_B64=#{public_key_b64.inspect}
-          ENABLE_AUTO_UPDATES=#{(@config.enable_auto_updates ? "yes" : "no").inspect}
-          PASSWORDLESS_SUDO=#{(@config.passwordless_sudo ? "yes" : "no").inspect}
           ROOTLESS_LOW_PORTS=#{(@config.rootless_low_ports ? "yes" : "no").inspect}
           ROOTLESS_PORT_START=#{@config.rootless_port_start.to_s.inspect}
 
           apt-get update
-          apt-get -y upgrade
           apt-get install -y #{package_install_list}
-
-          systemctl enable --now ssh
-          ufw allow #{@config.port}/tcp
-          ufw allow 80/tcp
-          ufw allow 443/tcp
-          ufw --force enable
 
           if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
             useradd --create-home --shell /bin/bash "$DEPLOY_USER"
           fi
-
-          usermod -aG sudo "$DEPLOY_USER"
 
           HOME_DIR="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
           SSH_DIR="$HOME_DIR/.ssh"
@@ -296,41 +234,7 @@ module Meridian
             echo "${DEPLOY_USER}:100000:65536" >> /etc/subgid
           fi
 
-          if [ "$PASSWORDLESS_SUDO" = "yes" ]; then
-            cat > "/etc/sudoers.d/90-${DEPLOY_USER}" <<EOF
-          ${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL
-          EOF
-            chmod 440 "/etc/sudoers.d/90-${DEPLOY_USER}"
-            visudo -cf "/etc/sudoers.d/90-${DEPLOY_USER}"
-          fi
-
           loginctl enable-linger "$DEPLOY_USER"
-
-          if [ "$ENABLE_AUTO_UPDATES" = "yes" ]; then
-            cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-          APT::Periodic::Update-Package-Lists "1";
-          APT::Periodic::Download-Upgradeable-Packages "1";
-          APT::Periodic::AutocleanInterval "7";
-          APT::Periodic::Unattended-Upgrade "1";
-          EOF
-
-            # SSH is meridian's only control plane. An unattended openssh-server
-            # upgrade that leaves sshd broken locks meridian out of its own
-            # server, with no recovery path. Everything else still auto-patches.
-            cat > /etc/apt/apt.conf.d/51meridian-ssh-blacklist <<'EOF'
-          Unattended-Upgrade::Package-Blacklist {
-              "openssh-server";
-          };
-          EOF
-          else
-            rm -f /etc/apt/apt.conf.d/51meridian-ssh-blacklist
-            cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-          APT::Periodic::Update-Package-Lists "0";
-          APT::Periodic::Download-Upgradeable-Packages "0";
-          APT::Periodic::AutocleanInterval "0";
-          APT::Periodic::Unattended-Upgrade "0";
-          EOF
-          fi
 
           if [ "$ROOTLESS_LOW_PORTS" = "yes" ]; then
             cat > /etc/sysctl.d/99-rootless-low-ports.conf <<EOF
@@ -339,42 +243,16 @@ module Meridian
             sysctl --system >/dev/null
           fi
 
-          /usr/sbin/sshd -t
-
           echo
-          echo "Phase 1 complete. Deploy user '$DEPLOY_USER' is prepared."
-          BASH
-      end
-
-      private def phase2_script : String
-        <<-BASH
-          #!/usr/bin/env bash
-          set -euo pipefail
-
-          mkdir -p /etc/ssh/sshd_config.d
-
-          cat > /etc/ssh/sshd_config.d/99-bootstrap-hardening.conf <<'EOF'
-          PermitRootLogin no
-          PasswordAuthentication no
-          KbdInteractiveAuthentication no
-          ChallengeResponseAuthentication no
-          PubkeyAuthentication yes
-          UsePAM yes
-          EOF
-
-          /usr/sbin/sshd -t
-          systemctl reload ssh
-
-          echo
-          echo "Phase 2 complete. Root SSH login and SSH password auth are disabled."
+          echo "Provisioning complete. Deploy user '$DEPLOY_USER' is prepared."
           BASH
       end
 
       private def package_install_list : String
-        phase1_packages.map(&.inspect).join(" ")
+        provision_packages.map(&.inspect).join(" ")
       end
 
-      private def phase1_packages : Array(String)
+      private def provision_packages : Array(String)
         transfer_mode = @config.transfer_mode
 
         if transfer_mode.try(&.stream?)
