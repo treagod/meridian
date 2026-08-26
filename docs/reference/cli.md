@@ -56,8 +56,8 @@ See [`service`](/reference/deploy-yml#service), [`image`](/reference/deploy-yml#
 ## `server bootstrap` {#server-bootstrap}
 
 Provisions a fresh Debian or Ubuntu server so later commands can run as the deploy
-user. Expects root SSH with password login still enabled, and turns both off when it
-finishes.
+user. Expects root SSH with password login still enabled. It does not change your SSH
+configuration — see the note below.
 
 ```bash
 meridian server bootstrap --host 203.0.113.10
@@ -72,14 +72,20 @@ meridian server bootstrap --host prod-01.example.com --root-user ubuntu --deploy
 | `--deploy-user USER` | `ssh.user` | User to create for future Meridian commands. |
 | `--accept-new-host-key` | enabled | Trust new SSH host keys. |
 | `--no-accept-new-host-key` | disabled | Require the host key to already be known. |
-| `--enable-auto-updates BOOL` | `yes` | Enable unattended security updates. |
-| `--passwordless-sudo BOOL` | `yes` | Allow passwordless sudo for the deploy user. |
 | `--rootless-low-ports BOOL` | `yes` | Allow rootless containers to bind ports such as 80 and 443. |
 | `--rootless-port-start PORT` | `80` | Lowest port rootless containers may bind. |
 
-Installs Podman, UFW, transfer tools, and rootless prerequisites; creates the deploy
-user; installs your SSH key; enables lingering; configures low-port binding and SSH
-hardening. It writes no service runtime state.
+Installs Podman, rootless prerequisites, and the transfer tools your `transfer.mode`
+needs; creates the deploy user; installs your SSH key; writes `/etc/subuid` and
+`/etc/subgid` entries; enables lingering; and configures low-port binding. It writes no
+service runtime state.
+
+Bootstrap deliberately leaves server policy to you. It installs no firewall, changes no
+sshd setting, grants no sudo rights, and enables no unattended upgrades — those are
+yours to decide, and Meridian has no business overriding them on a machine it does not
+own. If you want a firewall, the proxy needs inbound 80/443 and Meridian needs inbound
+SSH; note that any accessory publishing a host port needs its own rule too. Root login
+and password authentication stay exactly as you left them.
 
 See [`ssh`](/reference/deploy-yml#ssh), [`transfer`](/reference/deploy-yml#transfer),
 and [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)

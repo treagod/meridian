@@ -213,7 +213,7 @@ proxy:
   image: docker.io/basecamp/kamal-proxy:v0.9.2
   http_port: 80
   https_port: 443
-  data_dir: /var/lib/kamal-proxy
+  data_dir: "%h/.local/share/kamal-proxy"
 ```
 
 | Key | Type | Required / default | Example | Rules |
@@ -221,7 +221,18 @@ proxy:
 | `image` | `String` | Optional, runtime default `docker.io/basecamp/kamal-proxy:v0.9.2` | `docker.io/basecamp/kamal-proxy:v0.9.2` | Leave unset to use Meridian's pinned default. |
 | `http_port` | `Int32` | Optional, default `80` | `80` | Rootless low-port binding must be enabled on the host. |
 | `https_port` | `Int32` | Optional, default `443` | `443` | Same low-port requirement as `http_port`. |
-| `data_dir` | `String` | Optional, default `/var/lib/kamal-proxy` | `/var/lib/kamal-proxy` | Mounted into the proxy container for certificate/state data. |
+| `data_dir` | `String` | Optional, default `%h/.local/share/kamal-proxy` | `"%h/.local/share/kamal-proxy"` | Mounted into the proxy container for certificate/state data. `%h` is systemd's specifier for the deploy user's home. |
+
+The `data_dir` default lives under the deploy user's home so that nothing in Meridian
+needs root on the host. Servers bootstrapped before this change used
+`/var/lib/kamal-proxy`; to keep that path, set it explicitly:
+
+```yaml
+proxy:
+  data_dir: /var/lib/kamal-proxy
+```
+
+A root-owned path requires you to create it yourself — Meridian will not use `sudo`.
 
 If port binding fails, see [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80).
 

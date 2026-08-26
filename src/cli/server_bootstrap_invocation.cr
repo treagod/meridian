@@ -6,8 +6,6 @@ module Meridian
       root_user : String,
       deploy_user : String?,
       accept_new_host_key : Bool,
-      enable_auto_updates : Bool,
-      passwordless_sudo : Bool,
       rootless_low_ports : Bool,
       rootless_port_start : Int32,
       file : String

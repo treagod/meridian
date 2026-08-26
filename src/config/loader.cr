@@ -223,13 +223,13 @@ module Meridian
       getter image : String?
       getter http_port : Int32 = 80
       getter https_port : Int32 = 443
-      getter data_dir : String = "/var/lib/kamal-proxy"
+      getter data_dir : String = "%h/.local/share/kamal-proxy"
 
       def initialize(
         @image : String? = nil,
         @http_port : Int32 = 80,
         @https_port : Int32 = 443,
-        @data_dir : String = "/var/lib/kamal-proxy",
+        @data_dir : String = "%h/.local/share/kamal-proxy",
       )
       end
     end

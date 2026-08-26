@@ -28,8 +28,6 @@ module Meridian
           public_key_file: pub,
           private_key_file: private_key,
           accept_new_host_key: invocation.accept_new_host_key,
-          enable_auto_updates: invocation.enable_auto_updates,
-          passwordless_sudo: invocation.passwordless_sudo,
           rootless_low_ports: invocation.rootless_low_ports,
           rootless_port_start: invocation.rootless_port_start,
           transfer_mode: config.transfer.try(&.mode),

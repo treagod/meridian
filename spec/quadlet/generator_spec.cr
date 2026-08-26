@@ -497,7 +497,7 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
       output.should contain("PublishPort=80:80")
       output.should contain("PublishPort=443:443")
-      output.should contain("Volume=/var/lib/kamal-proxy:/var/lib/kamal-proxy")
+      output.should contain("Volume=%h/.local/share/kamal-proxy:%h/.local/share/kamal-proxy")
     end
 
     it "publishes port 80" do
