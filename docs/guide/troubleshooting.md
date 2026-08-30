@@ -40,8 +40,7 @@ service remains in maintenance.
 
 This is deliberate. Once Meridian has stopped old app processes, hooks or the new
 container may have migrated the database or persistent volumes. Meridian therefore
-does not restart the old image, perform an image-only rollback, or run
-`kamal-proxy resume` automatically.
+does not restart the old image, perform an image-only rollback, or replace the persisted Caddy 503 route automatically.
 
 Diagnose every app role named in the deploy error:
 
@@ -55,15 +54,13 @@ meridian audit --host prod-01.example.com --lines 50
 
 Repair and verify the new release in place. If data restoration is required,
 restore the matching image, database, and persistent volumes from the same backup.
-Only after the service is healthy should you reopen traffic:
+Only after the service is healthy should you rerun the deploy, which atomically replaces maintenance with the verified target:
 
 ```bash
-ssh deploy@prod-01.example.com \
-  'podman exec kamal-proxy kamal-proxy resume my-app'
+meridian deploy
 ```
 
-Do not resume merely to clear the maintenance response: it exposes whichever
-target is currently registered. Recreate is single-host-only in this release, and
+Do not edit the fragment merely to clear the maintenance response. Recreate is single-host-only in this release, and
 Accessories remain active while the app route is stopped.
 
 ## `manifest-collisions: fail`
@@ -147,17 +144,17 @@ meridian deploy
 
 The accessory readiness gate waits before starting the new app color; see [Accessory readiness](/reference/deploy-yml#accessory-readiness).
 
-## kamal-proxy `bind: permission denied` On Port 80
+## Caddy `bind: permission denied` On Port 80
 
-Problem: `meridian setup` or kamal-proxy startup fails with `bind: permission denied` for `:80`.
+Problem: `meridian setup` or Caddy startup fails with `bind: permission denied` for `:80`.
 
-Root cause: rootless containers need low-port binding enabled on the server before kamal-proxy can listen on ports 80 and 443.
+Root cause: rootless containers need low-port binding enabled before Caddy can listen on ports 80 and 443.
 
 Diagnose:
 
 ```bash
-ssh deploy@prod-01.example.com 'systemctl --user status kamal-proxy.service'
-ssh deploy@prod-01.example.com 'journalctl --user -u kamal-proxy.service -n 100 --no-pager'
+ssh deploy@prod-01.example.com 'systemctl --user status meridian-caddy.service'
+ssh deploy@prod-01.example.com 'journalctl --user -u meridian-caddy.service -n 100 --no-pager'
 ssh deploy@prod-01.example.com 'sysctl net.ipv4.ip_unprivileged_port_start'
 ```
 
@@ -176,7 +173,7 @@ already-provisioned host is safe. `setup` then writes and starts the proxy Quadl
 
 Problem: deploy reaches the proxy switch but HTTPS certificate issuance appears to hang or fail.
 
-Root cause: `proxy.host` and, when configured, `assets.host` must already resolve to the server before kamal-proxy asks Lets Encrypt for certificates.
+Root cause: `proxy.host` and, when configured, `assets.host` must already resolve to the server before Caddy asks Let's Encrypt for certificates.
 
 Diagnose:
 
@@ -184,7 +181,7 @@ Diagnose:
 dig +short my-app.example.com
 dig +short assets.my-app.example.com
 ssh deploy@prod-01.example.com 'curl -I http://my-app.example.com'
-ssh deploy@prod-01.example.com 'journalctl --user -u kamal-proxy.service -n 100 --no-pager'
+ssh deploy@prod-01.example.com 'journalctl --user -u meridian-caddy.service -n 100 --no-pager'
 ```
 
 Fix:

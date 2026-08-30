@@ -1,9 +1,19 @@
+require "json"
+
 module Meridian
   module Proxy
     class Manager
-      PROXY_CONTAINER       = "kamal-proxy.container"
-      PROXY_SERVICE         = "kamal-proxy.service"
+      PROXY_CONTAINER       = "meridian-caddy.container"
+      PROXY_SERVICE         = "meridian-caddy.service"
+      PROXY_NAME            = "meridian-caddy"
       PROXY_NETWORK_SERVICE = "#{Runtime::Paths::SHARED_PROXY_NETWORK}-network.service"
+      CONFIG_DIR            = File.join(".config", "containers", PROXY_NAME)
+      ROUTES_DIR            = File.join(CONFIG_DIR, "routes")
+      CADDYFILE             = File.join(CONFIG_DIR, "Caddyfile")
+      ADMIN_SOCKET          = File.join(CONFIG_DIR, "admin.sock")
+      RELOAD_LOCK           = File.join(CONFIG_DIR, "reload.lock")
+      VERSION_CHECK         = "version=$(podman exec #{PROXY_NAME} caddy version) || exit; " \
+                              "printf '%s\\n' \"$version\" | awk -F. 'BEGIN { ok=0 } { gsub(/^v/, \"\", $1); ok=($1 > 2 || ($1 == 2 && ($2 > 11 || ($2 == 11 && $3 >= 2)))) } END { exit !ok }'"
 
       def initialize(
         @config : Config::DeployConfig,
@@ -11,6 +21,7 @@ module Meridian
         quadlet_generator : Quadlet::Generator? = nil,
         @output : IO = STDOUT,
         audit_logger : Audit::Logger? = nil,
+        @drain_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
       )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
         @audit_logger = audit_logger || Audit::Logger.new(@config, @ssh_executor)
@@ -23,48 +34,66 @@ module Meridian
         proxy_network_quadlet = @quadlet_generator.proxy_network_file
         proxy_quadlet = @quadlet_generator.proxy_container_file
         proxy_url = "http://127.0.0.1:#{proxy.http_port}/"
+        web_proxy = @config.servers["web"].proxy || raise SetupFailed.new("Missing proxy configuration for role: web")
 
-        service_network_hosts.each do |host|
-          setup_service_network(host, network_quadlet)
-        end
+        hosts.each { |host| reject_legacy_proxy!(host) }
+        service_network_hosts.each { |host| setup_service_network(host, network_quadlet) }
 
         hosts.each do |host|
-          log(host, "Ensuring Quadlet directory exists")
-          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+          log(host, "Ensuring Caddy directories exist")
+          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY, ROUTES_DIR])
+          data_dir_command = "path=$1; case \"$path\" in %h*) path=$HOME${path#%h};; esac; mkdir -p -- \"$path\""
+          run_ssh!(host, ["sh", "-lc", data_dir_command, "meridian", proxy.data_dir])
+          run_ssh!(host, ["sh", "-lc", "command -v flock >/dev/null"])
 
           log(host, "Uploading shared proxy network Quadlet")
           upload_ssh(host, proxy_network_path, proxy_network_quadlet)
-
-          log(host, "Uploading proxy Quadlet")
+          log(host, "Uploading Caddy configuration")
+          upload_ssh(host, CADDYFILE, @quadlet_generator.proxy_caddyfile)
+          ensure_initial_route(host, web_proxy)
+          log(host, "Uploading Caddy Quadlet")
           upload_ssh(host, quadlet_path, proxy_quadlet)
 
-          log(host, "Ensuring proxy data directory exists")
-          # data_dir carries systemd's %h specifier for the Quadlet Volume= line; the
-          # shell needs $HOME instead, and run_ssh quotes every argument.
-          run_ssh!(host, ["sh", "-c", "mkdir -p #{proxy.data_dir.sub("%h", "$HOME")}"])
-
-          log(host, "Reloading user systemd")
           run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-
-          log(host, "Ensuring shared proxy network exists")
           ensure_shared_proxy_network(host)
-
-          log(host, "Connecting running proxy to shared proxy network")
-          connect_running_proxy_to_shared_network(host)
-
-          log(host, "Starting #{PROXY_SERVICE}")
-          run_ssh!(host, ["systemctl", "--user", "start", PROXY_SERVICE])
+          log(host, "Restarting #{PROXY_SERVICE}")
+          run_ssh!(host, ["systemctl", "--user", "restart", PROXY_SERVICE])
+          verify_caddy!(host)
 
           log(host, "Checking proxy reachability at #{proxy_url}")
           run_ssh!(host, [
-            "curl", "--silent", "--show-error", "--output", "/dev/null",
+            "curl", "--silent", "--show-error", "--retry", "10", "--retry-delay", "1", "--retry-all-errors", "--output", "/dev/null",
             "--write-out", "%{http_code}", "--head", proxy_url,
           ])
-
           @audit_logger.record(host, "proxy", "setup")
         end
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError
-        raise SetupFailed.new(ex.message || "Proxy setup failed")
+        raise SetupFailed.new(ex.message || "Caddy setup failed")
+      end
+
+      def switch(host : String, proxy : Config::ServerProxyConfig, target : String) : Nil
+        activate_route(host, @config.service, @quadlet_generator.proxy_route(proxy, target), expected_target: target)
+      end
+
+      def maintenance(host : String, proxy : Config::ServerProxyConfig, old_target : String) : Nil
+        activate_route(host, @config.service, @quadlet_generator.proxy_maintenance_route(proxy), removed_target: old_target)
+      end
+
+      def register_assets(host : String) : Nil
+        assets = @config.assets || raise RouteFailed.new("Missing assets configuration")
+        target = "#{@config.service}-assets-server:80"
+        activate_route(host, "#{@config.service}-assets", @quadlet_generator.proxy_asset_route(assets.host, target), expected_target: target)
+      end
+
+      def drain(host : String, target : String) : Nil
+        timeout = @config.resolved_proxy.drain_timeout
+        timeout.times do |elapsed|
+          return if upstream_drained?(host, target)
+
+          @drain_sleeper.call(1.second) if elapsed < timeout - 1
+        end
+
+        log(host, "Warning: #{target} still has in-flight requests after #{timeout}s; stopping it anyway")
       end
 
       def remove(force : Bool = false) : Nil
@@ -83,15 +112,127 @@ module Meridian
 
           log(host, "Stopping #{PROXY_SERVICE}")
           run_ssh!(host, ["systemctl", "--user", "stop", PROXY_SERVICE])
-
-          log(host, "Removing proxy Quadlet")
+          log(host, "Removing Caddy Quadlet")
           run_ssh!(host, ["rm", "-f", quadlet_path])
-
-          log(host, "Reloading user systemd")
           run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
         end
-      rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError
-        raise RemoveFailed.new(ex.message || "Proxy removal failed")
+      rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError | RouteFailed
+        raise RemoveFailed.new(ex.message || "Caddy removal failed")
+      end
+
+      private def activate_route(
+        host : String,
+        name : String,
+        content : String,
+        expected_target : String? = nil,
+        removed_target : String? = nil,
+      ) : Nil
+        active = route_path(name)
+        pending = "#{active}.pending"
+        backup = "#{active}.backup"
+        upload_ssh(host, pending, content)
+
+        command = "set -eu; exec 9>#{Process.quote_posix(RELOAD_LOCK)}; flock 9; " \
+                  "if test -f #{Process.quote_posix(active)}; then cp #{Process.quote_posix(active)} #{Process.quote_posix(backup)}; else rm -f #{Process.quote_posix(backup)}; fi; " \
+                  "mv #{Process.quote_posix(pending)} #{Process.quote_posix(active)}; " \
+                  "if podman exec #{PROXY_NAME} caddy reload --config /config/Caddyfile --adapter caddyfile --address unix//config/admin.sock; then " \
+                  "rm -f #{Process.quote_posix(backup)}; else " \
+                  "if test -f #{Process.quote_posix(backup)}; then mv #{Process.quote_posix(backup)} #{Process.quote_posix(active)}; else rm -f #{Process.quote_posix(active)}; fi; exit 1; fi"
+
+        result = run_ssh(host, ["sh", "-lc", command])
+        return if result.exit_code.zero?
+
+        raise RouteFailed.new(SSH::Executor.command_failure_message(host, "reload Caddy route #{name}", result))
+      rescue ex : SSH::ConnectionError
+        upstreams = query_upstreams(host)
+        if upstreams
+          return if expected_target && upstreams.includes?(expected_target)
+          raise RouteFailed.new("Caddy route #{name} was not committed on #{host}") if expected_target
+          return if removed_target && !upstreams.includes?(removed_target)
+        end
+
+        raise SwitchUncertain.new(
+          "SSH disconnected while reloading Caddy route #{name} on #{host}; both releases were left running. " \
+          "Inspect `curl --unix-socket ~/#{ADMIN_SOCKET} http://localhost/reverse_proxy/upstreams` and rerun the deploy after confirming the active target."
+        )
+      end
+
+      private def upstream_drained?(host : String, target : String) : Bool
+        result = run_ssh(host, admin_curl_command("/reverse_proxy/upstreams"))
+        return false unless result.exit_code.zero?
+
+        upstreams = JSON.parse(result.stdout).as_a
+        upstream = upstreams.find { |entry| entry["address"].as_s == target }
+        return true unless upstream
+
+        upstream["num_requests"].as_i64.zero?
+      rescue JSON::ParseException | TypeCastError | KeyError | SSH::ConnectionError
+        false
+      end
+
+      private def query_upstreams(host : String) : Array(String)?
+        result = run_ssh(host, admin_curl_command("/reverse_proxy/upstreams"))
+        return unless result.exit_code.zero?
+
+        JSON.parse(result.stdout).as_a.map { |entry| entry["address"].as_s }
+      rescue JSON::ParseException | TypeCastError | KeyError | SSH::ConnectionError
+        nil
+      end
+
+      private def remove_current_service_routes(host : String) : Nil
+        names = [@config.service]
+        names << "#{@config.service}-assets" if @config.assets
+        active_paths = names.map { |name| route_path(name) }
+        backups = active_paths.map { |path| "#{path}.removed" }
+        save = active_paths.zip(backups).map do |active, backup|
+          "rm -f #{Process.quote_posix(backup)}; if test -f #{Process.quote_posix(active)}; then cp #{Process.quote_posix(active)} #{Process.quote_posix(backup)}; fi"
+        end.join("; ")
+        remove = active_paths.map { |path| "rm -f #{Process.quote_posix(path)}" }.join("; ")
+        restore = active_paths.zip(backups).map do |active, backup|
+          "if test -f #{Process.quote_posix(backup)}; then mv #{Process.quote_posix(backup)} #{Process.quote_posix(active)}; fi"
+        end.join("; ")
+        cleanup = backups.map { |path| "rm -f #{Process.quote_posix(path)}" }.join("; ")
+        command = "set -eu; exec 9>#{Process.quote_posix(RELOAD_LOCK)}; flock 9; #{save}; #{remove}; " \
+                  "if podman exec #{PROXY_NAME} caddy reload --config /config/Caddyfile --adapter caddyfile --address unix//config/admin.sock; then #{cleanup}; else #{restore}; exit 1; fi"
+        result = run_ssh(host, ["sh", "-lc", command])
+        return if result.exit_code.zero?
+
+        raise RouteFailed.new(SSH::Executor.command_failure_message(host, "remove Caddy routes", result))
+      end
+
+      private def reject_legacy_proxy!(host : String) : Nil
+        legacy_quadlet = File.join(Quadlet::DIRECTORY, "kamal-proxy.container")
+        command = "if test -e #{Process.quote_posix(legacy_quadlet)} || " \
+                  "systemctl --user cat kamal-proxy.service >/dev/null 2>&1 || " \
+                  "podman container exists kamal-proxy; then exit 1; fi"
+        result = run_ssh(host, ["sh", "-lc", command])
+        return if result.exit_code.zero?
+
+        raise SetupFailed.new(
+          "Legacy kamal-proxy resources exist on #{host}. Stop and remove kamal-proxy during a maintenance window before running `meridian setup`; Meridian will not remove it automatically."
+        )
+      end
+
+      private def verify_caddy!(host : String) : Nil
+        run_ssh!(host, ["sh", "-lc", VERSION_CHECK])
+        run_ssh!(host, admin_curl_command("/config/"))
+      end
+
+      private def ensure_initial_route(host : String, proxy : Config::ServerProxyConfig) : Nil
+        active = route_path(@config.service)
+        pending = "#{active}.pending"
+        upload_ssh(host, pending, @quadlet_generator.proxy_maintenance_route(proxy))
+        command = "set -eu; exec 9>#{Process.quote_posix(RELOAD_LOCK)}; flock 9; " \
+                  "if test -f #{Process.quote_posix(active)}; then rm -f #{Process.quote_posix(pending)}; else mv #{Process.quote_posix(pending)} #{Process.quote_posix(active)}; fi"
+        run_ssh!(host, ["sh", "-lc", command])
+      end
+
+      private def admin_curl_command(path : String) : Array(String)
+        ["curl", "--silent", "--show-error", "--fail", "--unix-socket", ADMIN_SOCKET, "http://localhost#{path}"]
+      end
+
+      private def route_path(name : String) : String
+        File.join(ROUTES_DIR, "#{name}.caddy")
       end
 
       private def quadlet_path : String
@@ -119,16 +260,9 @@ module Meridian
       end
 
       private def setup_service_network(host : String, network_quadlet : String) : Nil
-        log(host, "Ensuring Quadlet directory exists")
         run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
-
-        log(host, "Uploading service network Quadlet")
         upload_ssh(host, network_path, network_quadlet)
-
-        log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-
-        log(host, "Starting #{Runtime::ServiceNetwork.unit(@config.service)}")
         run_ssh!(host, Runtime::ServiceNetwork.start_command(@config.service))
       end
 
@@ -140,24 +274,26 @@ module Meridian
         run_ssh!(host, ["sh", "-lc", command])
       end
 
-      private def connect_running_proxy_to_shared_network(host : String) : Nil
-        network = Runtime::Paths::SHARED_PROXY_NETWORK
-        container = "kamal-proxy"
-        command = "if podman container exists #{Process.quote_posix(container)}; then " \
-                  "podman network connect #{Process.quote_posix(network)} #{Process.quote_posix(container)} >/dev/null 2>&1 || true; " \
-                  "fi"
-        run_ssh!(host, ["sh", "-lc", command])
+      private def remove_current_manifest(host : String) : Nil
+        run_ssh!(host, ["rm", "-f", Runtime::Paths.manifest_file(@config.service)])
       end
 
-      private def manifest_file : String
-        Runtime::Paths.manifest_file(@config.service)
+      private def other_service_manifests(host : String) : Array(Runtime::ServiceManifest)
+        command = Runtime::ServiceManifest.list_command
+        result = run_ssh(host, command)
+        unless result.exit_code.zero?
+          raise RemoveFailed.new(SSH::Executor.command_failure_message(host, command.join(" "), result))
+        end
+
+        Runtime::ServiceManifest.parse_all(result.stdout).reject { |manifest| manifest.service == @config.service }
+      rescue ex : JSON::ParseException
+        raise RemoveFailed.new("Invalid Meridian service manifest on #{host}: #{ex.message}")
       end
 
       private def web_hosts(error_klass : T.class) : Array(String) forall T
         web_server = @config.servers["web"]? || raise Config::UnknownRole.new("Unknown role: web")
         hosts = web_server.hosts
         raise error_klass.new("No hosts configured for role: web") if hosts.empty?
-
         hosts
       end
 
@@ -166,70 +302,21 @@ module Meridian
       end
 
       private def run_ssh(host : String, command : Array(String)) : SSH::Result
-        @ssh_executor.run(
-          host,
-          command,
-          user: ssh_user,
-          port: ssh_port,
-          identity_file: ssh_identity_file,
-          proxy_jump: ssh_proxy_jump,
-          connect_timeout: ssh_connect_timeout,
-          keepalive: ssh_keepalive,
-          keepalive_interval: ssh_keepalive_interval
-        )
+        @ssh_executor.run(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump, connect_timeout: ssh_connect_timeout, keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval)
       end
 
       private def run_ssh!(host : String, command : Array(String)) : SSH::Result
-        @ssh_executor.run!(
-          host,
-          command,
-          user: ssh_user,
-          port: ssh_port,
-          identity_file: ssh_identity_file,
-          proxy_jump: ssh_proxy_jump,
-          connect_timeout: ssh_connect_timeout,
-          keepalive: ssh_keepalive,
-          keepalive_interval: ssh_keepalive_interval
-        )
-      end
-
-      private def remove_current_service_routes(host : String) : Nil
-        route_names = [@config.service]
-        route_names << "#{@config.service}-assets" if @config.assets
-
-        route_names.each do |route_name|
-          quoted_route = Process.quote_posix(route_name)
-          log(host, "Removing proxy route #{route_name}")
-          run_ssh(host, ["sh", "-lc", "podman exec kamal-proxy kamal-proxy remove #{quoted_route} >/dev/null 2>&1 || true"])
-        end
-      end
-
-      private def remove_current_manifest(host : String) : Nil
-        run_ssh!(host, ["rm", "-f", manifest_file])
-      end
-
-      private def other_service_manifests(host : String) : Array(Runtime::ServiceManifest)
-        result = run_ssh(host, Runtime::ServiceManifest.list_command)
-        return [] of Runtime::ServiceManifest unless result.exit_code.zero?
-
-        Runtime::ServiceManifest.parse_all(result.stdout).reject { |manifest| manifest.service == @config.service }
-      rescue ex : JSON::ParseException
-        raise RemoveFailed.new("Invalid Meridian service manifest on #{host}: #{ex.message}")
+        @ssh_executor.run!(host, command, user: ssh_user, port: ssh_port, identity_file: ssh_identity_file,
+          proxy_jump: ssh_proxy_jump, connect_timeout: ssh_connect_timeout, keepalive: ssh_keepalive,
+          keepalive_interval: ssh_keepalive_interval)
       end
 
       private def upload_ssh(host : String, remote_path : String, content : String) : Nil
-        @ssh_executor.upload(
-          host,
-          remote_path,
-          content,
-          user: ssh_user,
-          port: ssh_port,
-          identity_file: ssh_identity_file,
-          proxy_jump: ssh_proxy_jump,
-          connect_timeout: ssh_connect_timeout,
-          keepalive: ssh_keepalive,
-          keepalive_interval: ssh_keepalive_interval
-        )
+        @ssh_executor.upload(host, remote_path, content, user: ssh_user, port: ssh_port,
+          identity_file: ssh_identity_file, proxy_jump: ssh_proxy_jump, connect_timeout: ssh_connect_timeout,
+          keepalive: ssh_keepalive, keepalive_interval: ssh_keepalive_interval)
       end
 
       private def ssh_user : String

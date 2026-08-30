@@ -1,7 +1,7 @@
 # Hosting Multiple Apps On One Server
 
 This tutorial adds a second Meridian app to a server that already runs one app.
-The goal is one small VPS, one shared kamal-proxy, and separate state for each
+The goal is one small VPS, one shared Caddy, and separate state for each
 service.
 
 Start state:
@@ -9,7 +9,7 @@ Start state:
 - `my-app` already serves `https://app.example.com` on `prod-01.example.com`.
 - `meridian setup`, `meridian check`, and `meridian deploy` have already
   completed for `my-app`.
-- The server has one shared `kamal-proxy.container` and `meridian-proxy.network`.
+- The server has one shared `meridian-caddy.container` and `meridian-proxy.network`.
 
 End state:
 
@@ -27,7 +27,7 @@ network and runtime state.
                            public HTTP(S)
                                 |
                                 v
-                         kamal-proxy.container
+                         meridian-caddy.container
                                 |
                          meridian-proxy.network
                          /                    \
@@ -207,7 +207,7 @@ role, pass `--role ROLE`.
 
 This does not create a second proxy. It uploads or refreshes the shared
 `meridian-proxy.network`, the service's private `my-blog.network`, and
-`kamal-proxy.container`, starts the service network, ensures the proxy is
+`meridian-caddy.container` plus its root Caddyfile, starts the service network, ensures the proxy is
 running, and lets this service register routes during deploy.
 
 ## Start Accessories
@@ -310,7 +310,7 @@ meridian proxy remove
 
 For `my-blog`, this removes only `my-blog` routes and its manifest. If
 `my-app` is still registered on the host, Meridian leaves the shared
-kamal-proxy running.
+Caddy running.
 
 Use `--force` only when you intentionally want to remove the shared proxy even
 though other service manifests still exist:

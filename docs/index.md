@@ -1,7 +1,7 @@
 ---
 layout: false
 title: Meridian - Deploy containers anywhere
-description: A native CLI that ships your containers to any Linux box - Podman Quadlets for supervision, kamal-proxy for zero-downtime cutovers, and no registry required.
+description: A native CLI that ships your containers to any Linux box - Podman Quadlets for supervision, Caddy for zero-downtime cutovers, and no registry required.
 ---
 
 <script setup>
@@ -51,7 +51,7 @@ function copyInstall() {
       </h1>
       <p class="lede fade-in">
         A native CLI that ships your containers to any Linux box -
-        <strong>Podman Quadlets</strong> for supervision, <strong>kamal-proxy</strong>
+        <strong>Podman Quadlets</strong> for supervision, <strong>Caddy</strong>
         for zero-downtime cutovers, and no registry required.
       </p>
       <div class="install fade-in">
@@ -132,7 +132,7 @@ function copyInstall() {
       </p>
       <ul class="config-callouts">
         <li><strong>service · image</strong> — names every unit, container, network, and proxy route.</li>
-        <li><strong>servers.web + proxy</strong> — the role that gets blue/green via kamal-proxy and gates secondary roles.</li>
+        <li><strong>servers.web + proxy</strong> — the role that gets blue/green via Caddy and gates secondary roles.</li>
         <li><strong>servers.workers</strong> — secondary role, no proxy, starts after the web barrier passes.</li>
         <li><strong>transfer.mode</strong> — <code class="inline-code">stream</code>, <code class="inline-code">incremental</code>, or omit to pull from a registry.</li>
         <li><strong>env.clear · env.secret</strong> — plaintext into the Quadlet; secrets resolve to Podman <code class="inline-code">Secret=</code> directives.</li>
@@ -164,7 +164,7 @@ function copyInstall() {
         <span class="step-num">II · Prepare the host</span>
         <h3>Once per server</h3>
         <p>
-          Bootstrap provisions a fresh Debian or Ubuntu box - deploy user, Podman, rootless directories, hardened SSH. Setup adds the service and proxy networks and starts <code class="inline-code">kamal-proxy</code>.
+          Bootstrap provisions a fresh Debian or Ubuntu box - deploy user, Podman, rootless directories, hardened SSH. Setup adds the service and proxy networks and starts <code class="inline-code">meridian-caddy</code>.
         </p>
         <span class="step-cmd">$ meridian server bootstrap --host 1.2.3.4<br>$ meridian setup</span>
       </div>
@@ -172,7 +172,7 @@ function copyInstall() {
         <span class="step-num">III · Ship</span>
         <h3>Zero-downtime release</h3>
         <p>
-          Send the image you've already built to each host - registry pull, SSH stream, or rsync'd OCI layout. systemd takes over through a Quadlet unit, and <code class="inline-code">kamal-proxy</code> switches traffic only after health checks pass.
+          Send the image you've already built to each host - registry pull, SSH stream, or rsync'd OCI layout. systemd takes over through a Quadlet unit, and <code class="inline-code">Caddy</code> switches traffic only after health checks pass.
         </p>
         <span class="step-cmd">$ meridian deploy</span>
       </div>
@@ -236,7 +236,7 @@ function copyInstall() {
         <div class="feature-icon">
           <svg class="lucide lucide-expand" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 15 6 6" /><path d="m15 9 6-6" /><path d="M21 16v5h-5" /><path d="M21 8V3h-5" /><path d="M3 16v5h5" /><path d="m3 21 6-6" /><path d="M3 8V3h5" /><path d="M9 9 3 3" /></svg>
         </div>
-        <h3>Blue / Green via kamal-proxy</h3>
+        <h3>Blue / Green via Caddy</h3>
         <p>Zero-downtime cutovers with health checks. If the new container fails, traffic stays on the old one. No drama.</p>
       </div>
       <div class="feature">
@@ -312,7 +312,7 @@ function copyInstall() {
           <tr>
             <th scope="row">Zero-downtime</th>
             <td class="own">kamal-proxy</td>
-            <td>kamal-proxy</td>
+            <td>Caddy</td>
             <td>nginx / Traefik</td>
           </tr>
           <tr>
@@ -410,7 +410,7 @@ function copyInstall() {
     <details class="faq-item">
       <summary>Can I bring my own proxy?</summary>
       <div class="answer">
-        kamal-proxy is the default because blue/green is the whole point. But Meridian writes standard Quadlet units, so if you want Caddy or Traefik in front of them, nothing is stopping you.
+        Caddy is the built-in proxy because its zero-downtime reload and upstream request counters complete Meridian's blue/green lifecycle. Meridian still writes standard Quadlet units for the application containers.
       </div>
     </details>
     <details class="faq-item">

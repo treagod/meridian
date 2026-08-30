@@ -18,7 +18,7 @@ def check_config : String
         cmd: bin/sidekiq
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
 
     transfer:
       mode: stream
@@ -146,7 +146,8 @@ describe "Meridian::Commands::Check" do
       remote_commands.should contain("sh -lc 'test -d ~/.config/containers/systemd && test -w ~/.config/containers/systemd'")
       remote_commands.should contain("sh -lc 'command -v zstd >/dev/null'")
       remote_commands.should contain("podman secret inspect DATABASE_URL")
-      remote_commands.should contain(%(podman inspect --format '{{.State.Running}}' kamal-proxy))
+      remote_commands.should contain(%(podman inspect --format '{{.State.Running}}' meridian-caddy))
+      remote_commands.should contain("podman exec meridian-caddy caddy validate --config /config/Caddyfile --adapter caddyfile")
       runner.invocations.all?(&.args.includes?("BatchMode=yes")).should be_true
     end
 
@@ -167,7 +168,7 @@ describe "Meridian::Commands::Check" do
                 ssl: true
 
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
 
           transfer:
             mode: stream
@@ -197,7 +198,7 @@ describe "Meridian::Commands::Check" do
       text.should contain("4.3.0 < 4.4")
       text.should contain("tool:zstd")
       text.should contain("secret:DATABASE_URL")
-      text.should contain("kamal-proxy")
+      text.should contain("caddy")
       text.should contain("not running")
       text.should contain("Check failed")
     end
@@ -285,7 +286,7 @@ describe "Meridian::Commands::Check" do
       hosts.should eq(["192.168.1.11"])
     end
 
-    it "checks kamal-proxy when the web role has proxy configuration" do
+    it "checks Caddy when the web role has proxy configuration" do
       runner = FakeSSHRunner.new
       command = build_check_command(
         content: <<-YAML,
@@ -313,8 +314,13 @@ describe "Meridian::Commands::Check" do
 
       command.run.should be_true
 
-      remote_commands_for(runner).should contain(%(podman inspect --format '{{.State.Running}}' kamal-proxy))
-      remote_commands_for(runner).should contain("podman image exists docker.io/library/alpine:3.21")
+      commands = remote_commands_for(runner)
+      commands.should contain(%(podman inspect --format '{{.State.Running}}' meridian-caddy))
+      commands.any? { |remote| remote.includes?("podman exec meridian-caddy caddy version") && remote.includes?("$3 >= 2") }.should be_true
+      commands.should contain("curl --silent --show-error --fail --unix-socket .config/containers/meridian-caddy/admin.sock http://localhost/config/")
+      commands.should contain("podman exec meridian-caddy caddy validate --config /config/Caddyfile --adapter caddyfile")
+      commands.should contain("podman network exists meridian-proxy")
+      commands.should contain("podman image exists docker.io/library/alpine:3.21")
     end
 
     it "probes co-located accessory readiness" do
@@ -479,7 +485,10 @@ describe "Meridian::Commands::Check" do
         ssh_ok("podman version 4.4.0\n"), # podman version
         ssh_ok,                           # lingering
         ssh_ok,                           # quadlet-dir
-        ssh_ok("true\n"),                 # kamal-proxy running
+        ssh_ok("true\n"),                 # Caddy running
+        ssh_ok,                           # Caddy version
+        ssh_ok,                           # Caddy admin API
+        ssh_ok,                           # Caddy config
         ssh_ok,                           # proxy-network exists
         check_ssh_fail                    # probe-image missing
       )
@@ -526,6 +535,9 @@ describe "Meridian::Commands::Check" do
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
         ssh_ok,
         ssh_ok,
         ssh_ok("#{other_manifest.to_json}\n")
@@ -575,6 +587,9 @@ describe "Meridian::Commands::Check" do
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
         ssh_ok,
         ssh_ok,
         ssh_ok("#{other_manifest.to_json}\n")

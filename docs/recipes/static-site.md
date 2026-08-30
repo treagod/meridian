@@ -1,6 +1,6 @@
-# Static Site Behind kamal-proxy
+# Static Site Behind Caddy
 
-Static HTML served by [Caddy](https://caddyserver.com/) behind kamal-proxy.
+Static HTML served by an app-local [Caddy](https://caddyserver.com/) container behind Meridian's shared Caddy proxy.
 There is no framework, database, or accessory service.
 
 ## `.meridian/deploy.yml`

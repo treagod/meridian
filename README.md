@@ -2,7 +2,7 @@
 
 Deploy containers to Linux servers over SSH. No Docker, no Kubernetes, no registry required.
 
-Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they end up as ordinary systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Traffic switches through [kamal-proxy](https://github.com/basecamp/kamal-proxy) with no dropped requests. Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH.
+Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they end up as ordinary systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Traffic switches through [Caddy](https://caddyserver.com/) with no dropped requests. Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH.
 
 ## Why this exists
 
@@ -41,7 +41,7 @@ meridian init                              # generates .meridian/deploy.yml from
 # edit .meridian/deploy.yml: set hosts, ssh.keys, image, and transfer mode
 meridian server bootstrap --host 1.2.3.4   # provisions a fresh Debian/Ubuntu box
 meridian secret gen SECRET_KEY_BASE        # every name under env.secret, per role
-meridian setup                             # installs the service network, shared proxy network, and kamal-proxy
+meridian setup                             # installs the service network, shared proxy network, and Caddy
 meridian accessory start postgres          # accessories are started explicitly, once each
 meridian check                             # preflight: SSH, Podman, secrets, proxy
 meridian deploy
@@ -49,13 +49,15 @@ meridian deploy
 
 `init` sniffs out Marten, Rails, Elixir, Go, and Node projects and seeds sensible defaults. Whatever it can't guess, it asks.
 
+Upgrading a host that still runs kamal-proxy requires an explicit maintenance cutover: remove the old proxy image from `deploy.yml`, stop and remove `kamal-proxy.container`, run `meridian setup`, then redeploy every Meridian service registered on that host. Setup gives a service without an existing route a persistent HTTP 503 maintenance route until its first deploy. Meridian refuses to mix both proxies and leaves the old kamal-proxy data directory untouched for manual cleanup.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | [`init`](https://meridian-deploy.dev/reference/cli#init) | Generate the `.meridian/` project layout |
 | [`server bootstrap`](https://meridian-deploy.dev/reference/cli#server-bootstrap) | Provision a fresh box: packages, deploy user, lingering, SSH keys |
-| [`setup`](https://meridian-deploy.dev/reference/cli#setup) | Install the service network and kamal-proxy on web hosts |
+| [`setup`](https://meridian-deploy.dev/reference/cli#setup) | Install the service network and Caddy on web hosts |
 | [`check`](https://meridian-deploy.dev/reference/cli#check) | Read-only preflight against every configured host |
 | [`plan`](https://meridian-deploy.dev/reference/cli#plan) | Print what Meridian resolved from `deploy.yml`, touching no server |
 | [`deploy`](https://meridian-deploy.dev/reference/cli#deploy) | Deploy all roles with the resolved service strategy |
@@ -73,9 +75,9 @@ meridian deploy
 
 ### deploy
 
-With no explicit `strategy`, proxied web apps keep Meridian's blue/green default: web hosts roll in `boot.limit` batches, and secondary roles start releasing as soon as the first web host finishes. Apps without a web proxy keep the existing stop/start path.
+With no explicit `strategy`, proxied web apps keep Meridian's blue/green default: web hosts roll in `boot.limit` batches, and secondary roles start releasing as soon as the first web host finishes. Caddy reloads the route atomically, then Meridian observes the removed upstream's in-flight request count before stopping it. `proxy.drain_timeout` defaults to 300 seconds; expiry warns and stops the old release anyway. Apps without a web proxy keep the existing stop/start path.
 
-`strategy: recreate` is the deliberate-downtime option for stateful, single-instance services. Meridian prepares every role first, puts the route into maintenance, stops secondary roles and then the old web colour, starts and health-checks the new web colour, starts secondary roles, switches the route, and resumes traffic only after the whole transaction succeeds. This first version requires one shared host, managed roles, and a web proxy; accessories stay running, and `assets:` is rejected. A post-maintenance failure intentionally leaves the route blocked for operator recovery instead of attempting an unsafe fallback.
+`strategy: recreate` is the deliberate-downtime option for stateful, single-instance services. Meridian prepares every role first, atomically replaces the Caddy route with a persisted 503 response, drains and stops secondary roles and then the old web colour, starts and health-checks the new web colour, starts secondary roles, and replaces maintenance with the new route only after the whole transaction succeeds. This first version requires one shared host, managed roles, and a web proxy; accessories stay running, and `assets:` is rejected. A post-maintenance failure intentionally leaves the route blocked for operator recovery instead of attempting an unsafe fallback.
 
 After local validation and `pre_deploy`, `deploy` takes a remote deploy lock — an atomic `mkdir` on the first web host — and releases it at the end. A second deploy started while the first is running exits non-zero and prints who's holding it.
 
@@ -93,7 +95,7 @@ Read-only preflight, and the thing to put in CI ahead of `deploy`. Any failure e
 
 - SSH reachability, Podman version, lingering, and a writable Quadlet directory
 - Transfer tooling and Podman secrets on every host
-- kamal-proxy and the shared `meridian-proxy` network on web hosts
+- Caddy 2.11.2+, its private admin API, active configuration, and the shared `meridian-proxy` network on web hosts
 - Route and ownership collisions against other Meridian services on the same host
 - Local `files:` sources are readable, and for `stream` and `incremental` transfers, that the images exist in *local* Podman storage
 
@@ -193,7 +195,7 @@ The [`deploy.yml` reference](https://meridian-deploy.dev/reference/deploy-yml) h
 | Image transfer | Registry (always)         | Registry, stream, or rsync     |
 | Logs           | `docker logs`             | `journalctl`                   |
 | Language       | Ruby                      | Crystal                        |
-| Proxy          | kamal-proxy               | kamal-proxy                    |
+| Proxy          | kamal-proxy               | Caddy 2.11.4                   |
 
 If you're already happy on Kamal, stay on Kamal. The reason to look at Meridian is if Docker or the registry requirement is actively in your way.
 

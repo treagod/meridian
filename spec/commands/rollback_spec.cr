@@ -21,7 +21,7 @@ def rollback_config : String
             retries: 10
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
     YAML
 end
 
@@ -45,7 +45,7 @@ def single_host_rollback_config : String
             retries: 10
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
     YAML
 end
 
@@ -70,7 +70,7 @@ def fast_health_rollback_config : String
             required_successes: 1
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
     YAML
 end
 
@@ -94,6 +94,7 @@ def build_rollback_command(
   runner : FakeSSHRunner = FakeSSHRunner.new,
   output : IO = IO::Memory.new,
   audit_logger : Meridian::Audit::Logger? = nil,
+  proxy_manager : Meridian::Proxy::Manager? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(
@@ -107,7 +108,17 @@ def build_rollback_command(
     error: output,
     audit_logger: audit_logger || FakeAuditLogger.new(config),
     quadlet_generator: Meridian::Quadlet::Generator.new(config),
-    health_sleeper: ->(_duration : Time::Span) { nil }
+    health_sleeper: ->(_duration : Time::Span) { nil },
+    proxy_manager: proxy_manager
+  )
+end
+
+def enqueue_release_rollback_success(runner : FakeSSHRunner) : Nil
+  runner.enqueue_results(
+    ssh_ok(rollback_release_state.to_json),
+    ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+    ssh_ok("ok"), ssh_ok("ok"), ssh_ok("ok"),
+    ssh_ok, ssh_ok, ssh_ok("[]"), ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
   )
 end
 
@@ -139,8 +150,8 @@ describe "Meridian::Commands::Rollback" do
     it "reads the active colour from the service-scoped state path on each host when no release state is present" do
       runner = FakeSSHRunner.new
       command = build_rollback_command(runner: runner)
-      runner.enqueue_results_for_host("192.168.1.10", ssh_fail(1, "", "No such file\n"), ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
-      runner.enqueue_results_for_host("192.168.1.11", ssh_fail(1, "", "No such file\n"), ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok)
+      runner.enqueue_results_for_host("192.168.1.10", ssh_fail(1, "", "No such file\n"), ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok("[]"))
+      runner.enqueue_results_for_host("192.168.1.11", ssh_fail(1, "", "No such file\n"), ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok("[]"))
 
       command.run
 
@@ -148,29 +159,22 @@ describe "Meridian::Commands::Rollback" do
       reads.map(&.host).should eq(["192.168.1.10", "192.168.1.11"])
     end
 
-    it "switches kamal-proxy back to the inactive colour using the legacy fallback" do
+    it "switches Caddy back to the inactive colour using the legacy fallback" do
       runner = FakeSSHRunner.new
-      command = build_rollback_command(content: single_host_rollback_config, runner: runner)
+      config = load_config(single_host_rollback_config)
+      manager = FakeProxyManager.new(config)
+      command = build_rollback_command(content: single_host_rollback_config, runner: runner, proxy_manager: manager)
       runner.enqueue_results(
         ssh_fail(1, "", "No such file\n"),
         ssh_ok("blue\n"),
         ssh_ok,
         ssh_ok("true\n"),
-        ssh_ok,
       )
 
       command.run
 
-      deploy_invocation = runner.invocations.find do |invocation|
-        invocation.remote_command.try(&.includes?("kamal-proxy deploy myapp"))
-      end
-      deploy_invocation.should_not be_nil
-      deploy_invocation = value!(deploy_invocation)
-      remote_command = value!(deploy_invocation.remote_command)
-      remote_command.should contain("--target myapp-green:3000")
-      remote_command.should contain("--health-check-host myapp.example.com")
-      remote_command.should contain("--host myapp.example.com")
-      remote_command.should contain("--tls")
+      manager.switch_calls.should eq([{host: "192.168.1.10", target: "myapp-green:3000"}])
+      manager.drain_calls.should eq([{host: "192.168.1.10", target: "myapp-blue:3000"}])
 
       upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/.meridian-color"))
       upload.should_not be_nil
@@ -187,6 +191,8 @@ describe "Meridian::Commands::Rollback" do
         ssh_ok("false\n"),
         ssh_ok("myapp-green\n"),
         ssh_ok,
+        ssh_ok,
+        ssh_ok("[]"),
       )
 
       command.run
@@ -213,23 +219,7 @@ describe "Meridian::Commands::Rollback" do
       audit = FakeAuditLogger.new(load_config(single_host_rollback_config))
       command = build_rollback_command(content: single_host_rollback_config, runner: runner, audit_logger: audit)
 
-      runner.enqueue_results(
-        ssh_ok(rollback_release_state.to_json),
-        ssh_ok,       # podman image exists
-        ssh_ok,       # upload reconstructed quadlet
-        ssh_ok,       # daemon-reload
-        ssh_ok,       # systemctl start
-        ssh_ok("ok"), # health probe 1/3
-        ssh_ok("ok"), # health probe 2/3
-        ssh_ok("ok"), # health probe 3/3
-        ssh_ok,       # kamal-proxy deploy
-        ssh_ok,       # stop old unit
-        ssh_ok,       # rm old quadlet
-        ssh_ok,       # daemon-reload
-        ssh_ok,       # write active-color
-        ssh_ok,       # write legacy active-color
-        ssh_ok,       # write release-state.json
-      )
+      enqueue_release_rollback_success(runner)
 
       command.run
 
@@ -245,26 +235,21 @@ describe "Meridian::Commands::Rollback" do
       quadlet_content.should contain("Image=registry.example.com/myorg/myapp:release-a")
       quadlet_content.should contain("ContainerName=myapp-green")
 
-      deploy = runner.invocations.find { |i| i.remote_command.try(&.includes?("kamal-proxy deploy myapp")) }
-      value!(value!(deploy).remote_command).should contain("--target myapp-green:3000")
+      deploy = runner.invocations.find(&.remote_command.==("cat > .config/containers/meridian-caddy/routes/myapp.caddy.pending"))
+      value!(value!(deploy).input).should contain("reverse_proxy myapp-green:3000")
     end
 
     it "switches the proxy only after the reconstructed release passes its health check, then retires the old release" do
       runner = FakeSSHRunner.new
       command = build_rollback_command(content: single_host_rollback_config, runner: runner)
 
-      runner.enqueue_results(
-        ssh_ok(rollback_release_state.to_json),
-        ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-        ssh_ok("ok"), ssh_ok("ok"), ssh_ok("ok"),
-        ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-      )
+      enqueue_release_rollback_success(runner)
 
       command.run
 
       commands = remote_commands_for(runner, "192.168.1.10")
       last_health = value!(commands.rindex(&.includes?("wget -q -O-")))
-      proxy_switch = value!(commands.index(&.includes?("kamal-proxy deploy myapp")))
+      proxy_switch = value!(commands.index(&.includes?("caddy reload")))
       stop_old = value!(commands.index("systemctl --user stop myapp-blue.service"))
 
       last_health.should be < proxy_switch
@@ -277,12 +262,7 @@ describe "Meridian::Commands::Rollback" do
       audit = FakeAuditLogger.new(load_config(single_host_rollback_config))
       command = build_rollback_command(content: single_host_rollback_config, runner: runner, audit_logger: audit)
 
-      runner.enqueue_results(
-        ssh_ok(rollback_release_state.to_json),
-        ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-        ssh_ok("ok"), ssh_ok("ok"), ssh_ok("ok"),
-        ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-      )
+      enqueue_release_rollback_success(runner)
 
       command.run
 
@@ -323,7 +303,7 @@ describe "Meridian::Commands::Rollback" do
       commands.should contain("systemctl --user stop myapp-green.service")
       commands.should contain("rm -f .config/containers/systemd/myapp-green.container")
       commands.should_not contain("systemctl --user stop myapp-blue.service")
-      commands.none?(&.includes?("kamal-proxy deploy")).should be_true
+      commands.none?(&.includes?("caddy reload")).should be_true
 
       runner.invocations.find(&.remote_command.==("cat > .local/state/meridian/services/myapp/release-state.json")).should be_nil
       runner.invocations.find(&.remote_command.==("cat > .local/state/meridian/services/myapp/active-color")).should be_nil
@@ -340,7 +320,8 @@ describe "Meridian::Commands::Rollback" do
         ssh_ok,                       # daemon-reload
         ssh_ok,                       # systemctl start
         ssh_ok("ok"),                 # health probe passes
-        ssh_fail(1, "", "no route\n") # kamal-proxy deploy fails
+        ssh_ok,                       # upload pending Caddy route
+        ssh_fail(1, "", "no route\n") # Caddy reload fails
       )
 
       expect_raises(Meridian::Deploy::RollbackFailed) do
@@ -352,6 +333,60 @@ describe "Meridian::Commands::Rollback" do
       commands.should contain("rm -f .config/containers/systemd/myapp-green.container")
       commands.should_not contain("systemctl --user stop myapp-blue.service")
       runner.invocations.find(&.remote_command.==("cat > .local/state/meridian/services/myapp/release-state.json")).should be_nil
+    end
+
+    it "keeps both releases and state unchanged when a reconstructed switch is uncertain" do
+      runner = FakeSSHRunner.new
+      config = load_config(single_host_rollback_config)
+      manager = FakeProxyManager.new(
+        config,
+        switch_error: Meridian::Proxy::SwitchUncertain.new("inspect Caddy upstreams")
+      )
+      command = build_rollback_command(
+        content: single_host_rollback_config,
+        runner: runner,
+        proxy_manager: manager
+      )
+      runner.enqueue_results(
+        ssh_ok(rollback_release_state.to_json),
+        ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+        ssh_ok("ok"), ssh_ok("ok"), ssh_ok("ok"),
+      )
+
+      expect_raises(Meridian::Deploy::RollbackFailed, /inspect Caddy upstreams/) { command.run }
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+      commands.should_not contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/active-color")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/release-state.json")
+    end
+
+    it "normalizes an uncertain legacy switch without stopping either colour" do
+      runner = FakeSSHRunner.new
+      config = load_config(single_host_rollback_config)
+      manager = FakeProxyManager.new(
+        config,
+        switch_error: Meridian::Proxy::SwitchUncertain.new("inspect Caddy upstreams")
+      )
+      command = build_rollback_command(
+        content: single_host_rollback_config,
+        runner: runner,
+        proxy_manager: manager
+      )
+      runner.enqueue_results(
+        ssh_fail(1, "", "No such file\n"),
+        ssh_ok("blue\n"),
+        ssh_ok,
+        ssh_ok("true\n"),
+      )
+
+      expect_raises(Meridian::Deploy::RollbackFailed, /inspect Caddy upstreams/) { command.run }
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("podman stop myapp-blue")
+      commands.should_not contain("podman stop myapp-green")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/active-color")
     end
 
     it "raises RollbackFailed before reconstructing when the previous image is gone from the host" do

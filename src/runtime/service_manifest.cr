@@ -206,7 +206,6 @@ module Meridian
 
         proxy_routes.each do |route|
           other.proxy_routes.each do |other_route|
-            next unless route.host && other_route.host
             next unless route.host == other_route.host
             next unless ServiceManifest.path_prefixes_overlap?(route.path, other_route.path)
 

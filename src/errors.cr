@@ -42,6 +42,12 @@ module Meridian
 
     class RemoveFailed < Exception
     end
+
+    class RouteFailed < Exception
+    end
+
+    class SwitchUncertain < RouteFailed
+    end
   end
 
   module Lock

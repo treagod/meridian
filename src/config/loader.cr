@@ -158,6 +158,16 @@ module Meridian
       end
 
       private def validate_server_config!(role : String, server : ServerConfig) : Nil
+        if proxy = server.proxy
+          if proxy.ssl? && proxy.host.to_s.strip.empty?
+            raise ValidationError.new("servers.#{role}.proxy.ssl requires host")
+          end
+
+          if proxy.app_port < 1
+            raise ValidationError.new("servers.#{role}.proxy.app_port must be positive")
+          end
+        end
+
         if server.managed?
           unless server.units.empty?
             raise ValidationError.new("servers.#{role}.units requires managed: false")
@@ -223,14 +233,25 @@ module Meridian
       getter image : String?
       getter http_port : Int32 = 80
       getter https_port : Int32 = 443
-      getter data_dir : String = "%h/.local/share/kamal-proxy"
+      getter data_dir : String = "%h/.local/share/meridian-caddy"
+      getter drain_timeout : Int32 = 300
 
       def initialize(
         @image : String? = nil,
         @http_port : Int32 = 80,
         @https_port : Int32 = 443,
-        @data_dir : String = "%h/.local/share/kamal-proxy",
+        @data_dir : String = "%h/.local/share/meridian-caddy",
+        @drain_timeout : Int32 = 300,
       )
+        raise ValidationError.new("proxy.http_port must be positive") if @http_port < 1
+        raise ValidationError.new("proxy.https_port must be positive") if @https_port < 1
+        raise ValidationError.new("proxy.drain_timeout must be positive") if @drain_timeout < 1
+      end
+
+      protected def after_initialize
+        raise ValidationError.new("proxy.http_port must be positive") if http_port < 1
+        raise ValidationError.new("proxy.https_port must be positive") if https_port < 1
+        raise ValidationError.new("proxy.drain_timeout must be positive") if drain_timeout < 1
       end
     end
 
@@ -545,7 +566,7 @@ module Meridian
       SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units"}
       SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path"}
       HEALTHCHECK_KEYS    = {"path", "interval", "timeout", "retries", "probe_image", "required_successes"}
-      PROXY_KEYS          = {"image", "http_port", "https_port", "data_dir"}
+      PROXY_KEYS          = {"image", "http_port", "https_port", "data_dir", "drain_timeout"}
       REGISTRY_KEYS       = {"server", "username", "password"}
       ENV_KEYS            = {"clear", "secret"}
       SSH_KEYS            = {"user", "port", "keys", "proxy_jump", "connect_timeout", "keepalive", "keepalive_interval"}

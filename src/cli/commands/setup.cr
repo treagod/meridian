@@ -9,7 +9,7 @@ module Meridian
         end
 
         def summary : String
-          "Install and start kamal-proxy on web hosts"
+          "Install and start Caddy on web hosts"
         end
 
         def usage : String
@@ -17,7 +17,7 @@ module Meridian
         end
 
         def description : String
-          "Install and start kamal-proxy on web hosts."
+          "Install and start Caddy on web hosts."
         end
 
         def configure(parser : OptionParser) : Nil

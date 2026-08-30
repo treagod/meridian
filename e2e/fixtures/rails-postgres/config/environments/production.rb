@@ -6,7 +6,7 @@ Rails.application.configure do
   # The recipe serves precompiled assets from the app container itself.
   config.public_file_server.enabled = true
 
-  # TLS terminates at kamal-proxy; the app listens on plain HTTP.
+  # TLS terminates at Caddy; the app listens on plain HTTP.
   config.assume_ssl = false
   config.force_ssl = false
 

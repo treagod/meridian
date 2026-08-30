@@ -20,7 +20,7 @@ the resolved deploy intent without SSH or registry access.
 | `image` | `String` | Required | `ghcr.io/acme/my-app:latest` | Used by every role unless `servers.<role>.image` overrides it. |
 | `build` | `BuildConfig` | Optional, but unsupported | See [build](#build) | Any present `build:` block fails with `Config key build is not yet supported`. |
 | `servers` | map of role name to `ServerConfig` | Required, non-empty | `web: { hosts: [...] }` | Must define a `web` role; other role names are user-defined. `assets:` requires `servers.web.proxy`. |
-| `proxy` | `ProxyConfig` | Optional | `image: docker.io/basecamp/kamal-proxy:v0.9.2` | Configures the shared host-level kamal-proxy service used by proxied roles. |
+| `proxy` | `ProxyConfig` | Optional | `image: docker.io/library/caddy:2.11.4-alpine` | Configures the shared host-level Caddy service used by proxied roles. |
 | `registry` | `RegistryConfig` | Optional | `server: ghcr.io` | Used before registry pulls when credentials are configured. |
 | `env` | `EnvConfig` | Optional | `clear: { MARTEN_ENV: production }` | Applied to app containers and one-off run containers. |
 | `ssh` | `SSHConfig` | Optional, default object | `user: deploy` | Controls SSH arguments for remote commands and transfers. |
@@ -160,7 +160,7 @@ Managed roles use one of two unit models:
 
 ## `servers.<role>.proxy`
 
-Role-local proxy configuration enables blue/green cutover through kamal-proxy.
+Role-local proxy configuration enables blue/green cutover through Caddy.
 Only `servers.web` may declare it — see [`servers.<role>`](#servers-role).
 
 ```yaml
@@ -178,11 +178,11 @@ servers:
 
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
-| `host` | `String` | Optional | `my-app.example.com` | Public hostname registered in kamal-proxy. |
-| `ssl` | `Bool` | Optional, default `false` | `true` | Use only after DNS points at the host. |
-| `app_port` | `Int32` | Optional, default `3000` | `8000` | Must match the port the app listens on inside the container. |
+| `host` | `String` | Optional | `my-app.example.com` | Public hostname registered in Caddy. Omit for an HTTP catch-all route. |
+| `ssl` | `Bool` | Optional, default `false` | `true` | Requires `host`; use only after DNS points at the host. |
+| `app_port` | `Int32` | Optional, default `3000` | `8000` | Positive port matching the app listener inside the container. |
 | `healthcheck` | `HealthcheckConfig` | Optional, default object | See below | Controls readiness before proxy switch. |
-| `path` | `String` | Optional | `/admin` | Route path registered in kamal-proxy. |
+| `path` | `String` | Optional | `/admin` | Exact path and subtree registered in Caddy; the prefix is stripped before proxying. |
 
 ### `servers.<role>.proxy.healthcheck` {#healthcheck}
 
@@ -203,38 +203,35 @@ For failures, see [Healthcheck timeout](/guide/troubleshooting#healthcheck-timeo
 
 ## `proxy`
 
-Top-level proxy settings configure the shared kamal-proxy Quadlet installed by
+Top-level proxy settings configure the shared Caddy Quadlet installed by
 `meridian setup`. This block is optional; omit it to use Meridian's built-in
-kamal-proxy defaults. Role-level `servers.web.proxy` is what enables proxied
+Caddy defaults. Role-level `servers.web.proxy` is what enables proxied
 deploys and route registration.
 
 ```yaml
 proxy:
-  image: docker.io/basecamp/kamal-proxy:v0.9.2
+  image: docker.io/library/caddy:2.11.4-alpine
   http_port: 80
   https_port: 443
-  data_dir: "%h/.local/share/kamal-proxy"
+  data_dir: "%h/.local/share/meridian-caddy"
+  drain_timeout: 300
 ```
 
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
-| `image` | `String` | Optional, runtime default `docker.io/basecamp/kamal-proxy:v0.9.2` | `docker.io/basecamp/kamal-proxy:v0.9.2` | Leave unset to use Meridian's pinned default. |
-| `http_port` | `Int32` | Optional, default `80` | `80` | Rootless low-port binding must be enabled on the host. |
-| `https_port` | `Int32` | Optional, default `443` | `443` | Same low-port requirement as `http_port`. |
-| `data_dir` | `String` | Optional, default `%h/.local/share/kamal-proxy` | `"%h/.local/share/kamal-proxy"` | Mounted into the proxy container for certificate/state data. `%h` is systemd's specifier for the deploy user's home. |
+| `image` | `String` | Optional, runtime default `docker.io/library/caddy:2.11.4-alpine` | `docker.io/library/caddy:2.11.4-alpine` | Must contain Caddy 2.11.2 or newer. |
+| `http_port` | `Int32` | Optional, default `80` | `80` | Positive host port; rootless low-port binding must be enabled. |
+| `https_port` | `Int32` | Optional, default `443` | `443` | Positive host port with the same low-port requirement. |
+| `data_dir` | `String` | Optional, default `%h/.local/share/meridian-caddy` | `"%h/.local/share/meridian-caddy"` | Mounted at `/data` for certificates and Caddy state. `%h` is systemd's deploy-user home specifier. |
+| `drain_timeout` | `Int32` | Optional, default `300` | `300` | Positive seconds to wait for in-flight requests on the removed upstream; timeout warns and force-stops it. |
 
-The `data_dir` default lives under the deploy user's home so that nothing in Meridian
-needs root on the host. Servers bootstrapped before this change used
-`/var/lib/kamal-proxy`; to keep that path, set it explicitly:
+The `data_dir` default lives under the deploy user's home so that nothing in Meridian needs root on the host. Meridian also stores the root Caddyfile, per-service route fragments, Unix admin socket, and reload lock under `~/.config/containers/meridian-caddy/`.
 
-```yaml
-proxy:
-  data_dir: /var/lib/kamal-proxy
-```
+Caddy obtains and renews certificates automatically when `servers.web.proxy.ssl: true`; `ssl: false` emits an explicit HTTP site address. For a service without an existing fragment, `meridian setup` installs a persistent 503 maintenance route until the first successful deploy; existing routes are preserved. Setup refuses to continue while a legacy `kamal-proxy.container`, unit, or container exists. Stop and remove it during a maintenance window, run setup once, then redeploy every service on the host. No legacy routes or certificate state are imported automatically, and the old data directory is not deleted.
 
 A root-owned path requires you to create it yourself — Meridian will not use `sudo`.
 
-If port binding fails, see [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80).
+If port binding fails, see [Caddy bind permission denied](/guide/troubleshooting#caddy-bind-permission-denied-on-port-80).
 
 ## `registry`
 
@@ -589,8 +586,8 @@ Remote phases under `hooks.remote`:
 | `after_upload` | `Array(RemoteHookConfig)` | `[]` | After Quadlets/files/assets upload. |
 | `before_start` | `Array(RemoteHookConfig)` | `[]` | After co-network accessories are ready and before asset build/app start. |
 | `after_start` | `Array(RemoteHookConfig)` | `[]` | After starting the new unit. |
-| `before_switch` | `Array(RemoteHookConfig)` | `[]` | Before kamal-proxy switches traffic. |
-| `after_switch` | `Array(RemoteHookConfig)` | `[]` | After kamal-proxy switches traffic. |
+| `before_switch` | `Array(RemoteHookConfig)` | `[]` | Before Caddy atomically switches traffic. |
+| `after_switch` | `Array(RemoteHookConfig)` | `[]` | After the successful Caddy reload (the commit point). |
 | `after_deploy` | `Array(RemoteHookConfig)` | `[]` | After deploy state is recorded. |
 
 Under `strategy: recreate`, `before_transfer` and `after_transfer` retain their
@@ -633,7 +630,7 @@ Meridian's built-in path for publishing fingerprinted static assets as part of t
 deploy - distinct from your app's dynamic responses and from user media uploads.
 The `command` builds the front-end bundle inside the app image, its `output_dir`
 output is copied into a deploy-managed volume, and a generated Caddy server
-publishes the result on a separate `host` that kamal-proxy routes to.
+publishes the result on a separate `host` that Caddy routes to.
 
 ```yaml
 assets:

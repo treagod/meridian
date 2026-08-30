@@ -13,6 +13,7 @@ def build_orchestrator(
   lock_manager : Meridian::Lock::Manager? = nil,
   audit_logger : Meridian::Audit::Logger? = nil,
   local_image_probe : Meridian::Deploy::Orchestrator::LocalImageProbe = ->(_image : String) { true },
+  proxy_manager : Meridian::Proxy::Manager? = nil,
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(runner: runner)
@@ -29,7 +30,8 @@ def build_orchestrator(
     file_reader: file_reader,
     lock_manager: lock_manager || FakeLockManager.new(config),
     audit_logger: audit_logger || FakeAuditLogger.new(config),
-    local_image_probe: local_image_probe
+    local_image_probe: local_image_probe,
+    proxy_manager: proxy_manager
   )
 end
 
@@ -84,6 +86,7 @@ def enqueue_zero_downtime_success(
   accessory_probe_result : Meridian::SSH::Result = ssh_ok,
   before_start_hooks : Int32 = 0,
   prune_result : Meridian::SSH::Result = ssh_ok,
+  real_proxy : Bool = true,
 )
   results = [] of Meridian::SSH::Result
   results << ssh_ok # service network precheck
@@ -136,9 +139,15 @@ def enqueue_zero_downtime_success(
   else
     health_successes.times { results << ssh_ok(health_status) }
   end
-  results << ssh_ok
+  if real_proxy
+    results << ssh_ok # upload pending Caddy route
+    results << ssh_ok # atomically reload Caddy
+  end
 
-  results << ssh_ok if resolved_old_active
+  if resolved_old_active
+    results << ssh_ok(%([])) if real_proxy # removed upstream is drained
+    results << ssh_ok                      # stop old unit
+  end
 
   results.concat([
     ssh_ok,                            # rm old container quadlet
@@ -224,9 +233,13 @@ def enqueue_zero_downtime_success_for_host(
   else
     health_successes.times { results << ssh_ok(health_status) }
   end
-  results << ssh_ok
+  results << ssh_ok # upload pending Caddy route
+  results << ssh_ok # atomically reload Caddy
 
-  results << ssh_ok if resolved_old_active
+  if resolved_old_active
+    results << ssh_ok(%([])) # removed upstream is drained
+    results << ssh_ok        # stop old unit
+  end
 
   results.concat([
     ssh_ok,                            # rm old container quadlet
@@ -430,7 +443,7 @@ def accessory_gate_config : String
             required_successes: 1
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
 
     accessories:
       cache:
@@ -460,7 +473,12 @@ def file_sync_config(source : String, roles : String? = nil) : String
     YAML
 end
 
-def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probes : Int32 = 0, accessory_preflight : Int32 = 0)
+def enqueue_zero_downtime_assets_success(
+  runner : FakeSSHRunner,
+  accessory_probes : Int32 = 0,
+  accessory_preflight : Int32 = 0,
+  real_proxy : Bool = true,
+)
   results = [
     ssh_ok,                            # service network precheck
     ssh_fail(1, "", "No such file\n"), # cat service active-color
@@ -484,16 +502,24 @@ def enqueue_zero_downtime_assets_success(runner : FakeSSHRunner, accessory_probe
   # network the app joins. It runs right after the service network precheck.
   results.insert(1, ssh_ok) if accessory_preflight > 0
   accessory_probes.times { results << ssh_ok }
+  results << ssh_ok # restart assets-builder.service
+  results << ssh_ok # start assets-server.service
+  if real_proxy
+    results << ssh_ok # upload pending Caddy asset route
+    results << ssh_ok # atomically reload Caddy asset route
+  end
   results.concat([
-    ssh_ok,                            # restart assets-builder.service
-    ssh_ok,                            # start assets-server.service
-    ssh_ok,                            # kamal-proxy deploy for assets
-    ssh_ok,                            # prune old asset releases
-    ssh_ok,                            # start new service
-    ssh_ok("200"),                     # health check (consecutive success 1/3)
-    ssh_ok("200"),                     # health check (consecutive success 2/3)
-    ssh_ok("200"),                     # health check (consecutive success 3/3)
-    ssh_ok,                            # kamal-proxy deploy for app
+    ssh_ok,        # prune old asset releases
+    ssh_ok,        # start new service
+    ssh_ok("200"), # health check (consecutive success 1/3)
+    ssh_ok("200"), # health check (consecutive success 2/3)
+    ssh_ok("200"), # health check (consecutive success 3/3)
+  ])
+  if real_proxy
+    results << ssh_ok # upload pending Caddy app route
+    results << ssh_ok # atomically reload Caddy app route
+  end
+  results.concat([
     ssh_ok,                            # rm old container
     ssh_ok,                            # daemon-reload
     ssh_ok("green\n"),                 # upload service active-color
@@ -560,7 +586,12 @@ class RecreateSSHRunner < FakeSSHRunner
 
   def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
     invocation = FakeSSHInvocation.new(command: command, args: args, input: input)
-    self.next_result = result_for(invocation.remote_command.to_s)
+    remote = invocation.remote_command.to_s
+    if remote.includes?("/reverse_proxy/upstreams")
+      enqueue_results(ssh_ok("[]"))
+    else
+      self.next_result = result_for(remote)
+    end
     super
   end
 
@@ -591,6 +622,14 @@ class RecreateSSHRunner < FakeSSHRunner
         ssh_ok
       end
     end
+  end
+end
+
+class AfterSwitchFailingSSHRunner < FakeSSHRunner
+  def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
+    result = super
+    remote = invocations.last.remote_command.to_s
+    remote.includes?("after-switch-fails") ? ssh_fail(1, stderr: "hook failed\n") : result
   end
 end
 
@@ -1347,7 +1386,7 @@ describe "Meridian::Deploy::Orchestrator" do
       start_index.should be < stop_index
     end
 
-    it "invokes kamal-proxy deploy before stopping the old container" do
+    it "reloads Caddy and drains before stopping the old container" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, green_active: true)
       orchestrator = build_orchestrator(runner: runner)
@@ -1355,25 +1394,26 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls") || raise "Expected proxy deploy command"
+      deploy_index = commands.index { |command| command.includes?("caddy reload") } || raise "Expected Caddy reload"
+      drain_index = commands.index { |command| command.includes?("/reverse_proxy/upstreams") } || raise "Expected drain query"
       stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old service stop"
 
       deploy_index.should be < stop_index
+      deploy_index.should be < drain_index
+      drain_index.should be < stop_index
     end
 
-    it "passes the correct target and proxy flags to kamal-proxy deploy" do
+    it "switches and drains the expected Caddy targets" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_success(runner, green_active: true)
-      orchestrator = build_orchestrator(runner: runner)
+      enqueue_zero_downtime_success(runner, green_active: true, real_proxy: false)
+      config = load_config(FULL_CONFIG)
+      manager = FakeProxyManager.new(config)
+      orchestrator = build_orchestrator(runner: runner, proxy_manager: manager)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      invocation = runner.invocations.find do |candidate|
-        candidate.remote_command.try(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy"))
-      end || raise "Expected proxy deploy invocation"
-
-      invocation.host.should eq("192.168.1.10")
-      invocation.remote_command.should eq("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
+      manager.switch_calls.should eq([{host: "192.168.1.10", target: "myapp-blue:3000"}])
+      manager.drain_calls.should eq([{host: "192.168.1.10", target: "myapp-green:3000"}])
     end
 
     it "probes the new container from a sidecar on the shared proxy network" do
@@ -1439,7 +1479,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       health_index = commands.index { |command| health_command?(command) } || raise "Expected health check invocation"
-      deploy_index = commands.index("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls") || raise "Expected proxy deploy invocation"
+      deploy_index = commands.index { |command| command.includes?("caddy reload") } || raise "Expected Caddy reload"
 
       health_index.should be < deploy_index
     end
@@ -1457,6 +1497,59 @@ describe "Meridian::Deploy::Orchestrator" do
       commands.should_not contain("systemctl --user stop myapp-green.service")
       commands.should contain("systemctl --user stop myapp-blue.service")
       commands.should contain("rm -f .config/containers/systemd/myapp-blue.container")
+    end
+
+    it "cleans the candidate when Caddy definitively rejects the switch" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      config = load_config(FULL_CONFIG)
+      manager = FakeProxyManager.new(config, switch_error: Meridian::Proxy::RouteFailed.new("bad route"))
+      orchestrator = build_orchestrator(runner: runner, proxy_manager: manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /bad route/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner)
+      commands.should contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+    end
+
+    it "keeps both releases when the Caddy commit state is uncertain" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      config = load_config(FULL_CONFIG)
+      manager = FakeProxyManager.new(config, switch_error: Meridian::Proxy::SwitchUncertain.new("inspect upstreams"))
+      orchestrator = build_orchestrator(runner: runner, proxy_manager: manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /inspect upstreams/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+    end
+
+    it "does not clean the active candidate when an after_switch hook fails" do
+      config_text = FULL_CONFIG.sub(
+        "  boot:",
+        "  hooks:\n    remote:\n      after_switch:\n        - command: after-switch-fails\n\n  boot:"
+      )
+      runner = AfterSwitchFailingSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      config = load_config(config_text)
+      manager = FakeProxyManager.new(config)
+      orchestrator = build_orchestrator(content: config_text, runner: runner, proxy_manager: manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /hook failed/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner)
+      manager.switch_calls.size.should eq(1)
+      commands.should_not contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("systemctl --user stop myapp-green.service")
     end
 
     it "writes the active colour to .meridian-color after a successful deploy" do
@@ -1773,13 +1866,12 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-green.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy stop myapp")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
-      commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000")).should be_true
+      runner.invocations.none? { |invocation| invocation.input.try(&.includes?("respond 503")) || false }.should be_true
+      commands.any?(&.includes?("caddy reload")).should be_true
       audit.recorded.none?(&.action.==("maintenance")).should be_true
     end
 
-    it "prepares a web recreate before stopping the proxy and never overlaps colours" do
+    it "prepares a web recreate before activating maintenance and never overlaps colours" do
       runner = RecreateSSHRunner.new(old_color: "green")
       audit = FakeAuditLogger.new(load_config(RECREATE_WEB_CONFIG))
       orchestrator = build_orchestrator(
@@ -1793,10 +1885,11 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       pull_index = commands.index("podman pull registry.example.com/myorg/myapp:2") || raise "Expected image pull"
       quadlet_index = commands.index("cat > .config/containers/systemd/myapp-blue.container") || raise "Expected candidate Quadlet"
-      maintenance_index = commands.index("podman exec kamal-proxy kamal-proxy stop myapp") || raise "Expected maintenance"
+      reload_indices = commands.each_index.select { |index| commands[index].includes?("caddy reload") }.to_a
+      maintenance_index = reload_indices.first? || raise "Expected maintenance reload"
       old_stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old stop"
       new_start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected candidate start"
-      resume_index = commands.index("podman exec kamal-proxy kamal-proxy resume myapp") || raise "Expected resume"
+      resume_index = reload_indices.last? || raise "Expected final route reload"
 
       pull_index.should be < maintenance_index
       quadlet_index.should be < maintenance_index
@@ -1816,17 +1909,17 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.deploy
 
       commands = remote_commands_for(runner)
-      maintenance_index = commands.index("podman exec kamal-proxy kamal-proxy stop myapp") || raise "Expected maintenance"
+      reload_indices = commands.each_index.select { |index| commands[index].includes?("caddy reload") }.to_a
+      maintenance_index = reload_indices.first? || raise "Expected maintenance reload"
       cron_stop_index = commands.index("systemctl --user stop myapp-cron.service") || raise "Expected cron stop"
       web_stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected web stop"
       web_start_index = commands.index("systemctl --user start myapp-blue.service") || raise "Expected web start"
       health_index = commands.index { |command| health_command?(command, "myapp-blue") } || raise "Expected health check"
       cron_start_index = commands.index("systemctl --user start myapp-cron.service") || raise "Expected cron start"
       cron_active_index = commands.rindex("systemctl --user is-active myapp-cron.service") || raise "Expected cron active check"
-      switch_index = commands.index { |command| command.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-blue:3000") } || raise "Expected proxy switch"
+      switch_index = reload_indices.last? || raise "Expected proxy switch"
       manifest_index = commands.index("cat > .local/state/meridian/services/myapp/manifest.json") || raise "Expected manifest upload"
       cleanup_index = commands.index("rm -f .config/containers/systemd/myapp-green.container") || raise "Expected old Quadlet cleanup"
-      resume_index = commands.index("podman exec kamal-proxy kamal-proxy resume myapp") || raise "Expected resume"
 
       maintenance_index.should be < cron_stop_index
       cron_stop_index.should be < web_stop_index
@@ -1834,9 +1927,8 @@ describe "Meridian::Deploy::Orchestrator" do
       health_index.should be < cron_start_index
       cron_start_index.should be < cron_active_index
       cron_active_index.should be < switch_index
-      switch_index.should be < resume_index
-      manifest_index.should be < resume_index
-      cleanup_index.should be < resume_index
+      switch_index.should be < manifest_index
+      switch_index.should be < cleanup_index
       commands.count(&.==("podman pull registry.example.com/myorg/myapp:2")).should eq(2)
       value!(commands.index("cat > .config/containers/systemd/myapp-cron.container")).should be < maintenance_index
     end
@@ -1912,7 +2004,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       transfer_hook_index = value!(commands.index("sh -lc 'test -n \"$USER\"'"))
-      maintenance_index = value!(commands.index("podman exec kamal-proxy kamal-proxy stop myapp"))
+      maintenance_index = value!(commands.index { |command| command.includes?("caddy reload") })
       old_stop_index = value!(commands.index("systemctl --user stop myapp-green.service"))
       upload_index = value!(commands.index("cat > .config/myapp/runtime.conf"))
       upload_hook_index = value!(commands.index("sh -lc 'systemctl --user start --wait myapp-migrate.service'"))
@@ -1953,10 +2045,56 @@ describe "Meridian::Deploy::Orchestrator" do
       end
 
       commands = remote_commands_for(runner)
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy stop myapp")
+      commands.none?(&.includes?("caddy reload")).should be_true
       commands.should_not contain("systemctl --user stop myapp-green.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
       runner.active_units.should contain("myapp-green.service")
+    end
+
+    it "leaves the old release live when Caddy rejects maintenance" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      config = load_config(RECREATE_WEB_CONFIG)
+      audit = FakeAuditLogger.new(config)
+      manager = FakeProxyManager.new(
+        config,
+        maintenance_error: Meridian::Proxy::RouteFailed.new("maintenance rejected")
+      )
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        audit_logger: audit,
+        proxy_manager: manager
+      )
+
+      ex = expect_raises(Meridian::Deploy::DeployFailed, /maintenance rejected/) { orchestrator.deploy }
+
+      commands = remote_commands_for(runner)
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+      commands.should_not contain("systemctl --user start myapp-blue.service")
+      runner.active_units.should contain("myapp-green.service")
+      audit.recorded.none?(&.action.==("maintenance")).should be_true
+      ex.message.to_s.should_not contain("remains in maintenance")
+    end
+
+    it "keeps the healthy candidate when the final recreate switch is uncertain" do
+      runner = RecreateSSHRunner.new(old_color: "green")
+      config = load_config(RECREATE_WEB_CONFIG)
+      manager = FakeProxyManager.new(
+        config,
+        switch_error: Meridian::Proxy::SwitchUncertain.new("inspect Caddy upstreams")
+      )
+      orchestrator = build_orchestrator(
+        content: RECREATE_WEB_CONFIG,
+        runner: runner,
+        proxy_manager: manager
+      )
+
+      expect_raises(Meridian::Deploy::DeployFailed, /inspect Caddy upstreams/) { orchestrator.deploy }
+
+      commands = remote_commands_for(runner)
+      runner.active_units.should contain("myapp-blue.service")
+      runner.active_units.should_not contain("myapp-green.service")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/active-color")
+      commands.should_not contain("cat > .local/state/meridian/services/myapp/release-state.json")
     end
 
     it "does not restart the old release or resume after a recreate health failure" do
@@ -1976,9 +2114,9 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       commands.count(&.==("systemctl --user stop myapp-blue.service")).should eq(1)
       commands.should_not contain("systemctl --user start myapp-green.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.invocations.any? { |invocation| invocation.input.try(&.includes?("respond 503")) || false }.should be_true
       ex.message.to_s.should contain("persistent data may have been migrated")
-      ex.message.to_s.should contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      ex.message.to_s.should contain("persisted Caddy maintenance route")
       runner.active_units.should be_empty
     end
 
@@ -1994,7 +2132,7 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       commands.should contain("systemctl --user stop myapp-green.service")
       commands.should_not contain("systemctl --user start myapp-blue.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.invocations.any? { |invocation| invocation.input.try(&.includes?("respond 503")) || false }.should be_true
       runner.active_units.should contain("myapp-green.service")
     end
 
@@ -2015,7 +2153,7 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       commands.should_not contain("systemctl --user stop myapp-blue.service")
       commands.should_not contain("systemctl --user start myapp-green.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy resume myapp")
+      runner.invocations.any? { |invocation| invocation.input.try(&.includes?("respond 503")) || false }.should be_true
       runner.active_units.should contain("myapp-blue.service")
       audit.recorded.any? { |entry| entry.action == "maintenance" && entry.detail.starts_with?("failed:") }.should be_true
       ex.message.to_s.should contain("myapp-cron.service")
@@ -2030,7 +2168,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       orchestrator.deploy
 
-      remote_commands_for(runner, "192.168.1.10").should contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
+      remote_commands_for(runner, "192.168.1.10").any?(&.includes?("caddy reload")).should be_true
     end
 
     it "falls back to the downtime path when proxy config is absent" do
@@ -2052,7 +2190,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-web.service")
-      commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
+      commands.none?(&.includes?("caddy reload")).should be_true
     end
 
     it "deploys to all hosts in the web role" do
@@ -2067,8 +2205,8 @@ describe "Meridian::Deploy::Orchestrator" do
       web_1_commands = remote_commands_for(runner, "192.168.1.10")
       web_2_commands = remote_commands_for(runner, "192.168.1.11")
 
-      web_1_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
-      web_2_commands.any?(&.starts_with?("podman exec kamal-proxy kamal-proxy deploy myapp --target")).should be_true
+      web_1_commands.any?(&.includes?("caddy reload")).should be_true
+      web_2_commands.any?(&.includes?("caddy reload")).should be_true
     end
 
     it "deploys to all hosts in the workers role" do
@@ -2082,7 +2220,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       worker_commands = remote_commands_for(runner, "192.168.1.12")
       worker_commands.should contain("systemctl --user start myapp-workers.service")
-      worker_commands.should_not contain("podman exec kamal-proxy kamal-proxy deploy myapp --target myapp-green:3000 --health-check-path /health --health-check-interval 2s --health-check-timeout 5s --health-check-host myapp.example.com --host myapp.example.com --tls")
+      worker_commands.none?(&.includes?("caddy reload")).should be_true
     end
 
     it "keeps non-proxied workers out of blue/green runtime state" do
@@ -2642,15 +2780,33 @@ describe "Meridian::Deploy::Orchestrator" do
       builder_index.should be < server_index
     end
 
-    it "registers the asset server with kamal-proxy using the configured host" do
+    it "registers the asset server with Caddy using the configured host" do
       runner = FakeSSHRunner.new
-      enqueue_zero_downtime_assets_success(runner)
-      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+      enqueue_zero_downtime_assets_success(runner, real_proxy: false)
+      config = load_config(ASSETS_CONFIG)
+      manager = FakeProxyManager.new(config)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner, proxy_manager: manager)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = remote_commands_for(runner, "192.168.1.10")
-      commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com")
+      manager.register_assets_calls.should eq(["192.168.1.10"])
+    end
+
+    it "normalizes an asset route registration failure before starting the app" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner, real_proxy: false)
+      config = load_config(ASSETS_CONFIG)
+      manager = FakeProxyManager.new(
+        config,
+        register_assets_error: Meridian::Proxy::RouteFailed.new("asset route rejected")
+      )
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner, proxy_manager: manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /asset route rejected/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      remote_commands_for(runner).should_not contain("systemctl --user start myapp-green.service")
     end
 
     it "prunes releases from the physical Quadlet volume name" do
@@ -2663,18 +2819,6 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner, "192.168.1.10")
       prune_command = commands.find(&.includes?("podman volume inspect")) || raise "Expected asset prune command"
       prune_command.should contain("podman volume inspect systemd-myapp-assets")
-    end
-
-    it "registers the asset server with TLS when the web proxy uses SSL" do
-      runner = FakeSSHRunner.new
-      enqueue_zero_downtime_assets_success(runner)
-      config = ASSETS_CONFIG.sub("app_port: 3000", "app_port: 3000\n        ssl: true")
-      orchestrator = build_orchestrator(content: config, runner: runner)
-
-      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
-
-      commands = remote_commands_for(runner, "192.168.1.10")
-      commands.should contain("podman exec kamal-proxy kamal-proxy deploy myapp-assets --target myapp-assets-server:80 --host static.example.com --tls")
     end
 
     it "does not run asset steps when assets are not configured" do

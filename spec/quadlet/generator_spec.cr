@@ -466,68 +466,164 @@ describe "Meridian::Quadlet::Generator" do
   end
 
   describe "#proxy_container_file" do
-    it "uses the configured proxy image" do
-      output = build_quadlet_generator.proxy_container_file
-
-      output.should contain("Image=ghcr.io/basecamp/kamal-proxy:latest")
-    end
-
-    it "falls back to the pinned default proxy image when none is configured" do
+    it "renders every configured Caddy container setting" do
       config = load_config(<<-YAML)
-          service: myapp
-          image: registry.example.com/myorg/myapp
-
-          servers:
-            web:
-              hosts:
-                - 192.168.1.10
-
-          proxy:
-            http_port: 80
-            https_port: 443
+        service: myapp
+        image: registry.example.com/myorg/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: app.example.com
+        proxy:
+          image: example.com/custom-caddy:2.11.4
+          http_port: 8080
+          https_port: 8443
+          data_dir: /srv/meridian-caddy
         YAML
       output = Meridian::Quadlet::Generator.new(config).proxy_container_file
 
-      output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
+      output.should eq(<<-QUADLET)
+        [Container]
+        Image=example.com/custom-caddy:2.11.4
+        ContainerName=meridian-caddy
+        AddCapability=NET_BIND_SERVICE
+        Network=meridian-proxy.network
+        PublishPort=8080:80
+        PublishPort=8443:443
+        Volume=/srv/meridian-caddy:/data
+        Volume=%h/.config/containers/meridian-caddy:/config
+        Exec=caddy run --config /config/Caddyfile --adapter caddyfile
+
+        [Service]
+        Restart=always
+
+        [Install]
+        WantedBy=default.target
+
+        QUADLET
     end
 
-    it "falls back to a complete default proxy when the root proxy block is omitted" do
+    it "renders the complete pinned defaults when the root proxy block is omitted" do
       output = build_quadlet_generator(proxied_config_without_root_proxy).proxy_container_file
 
-      output.should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
-      output.should contain("PublishPort=80:80")
-      output.should contain("PublishPort=443:443")
-      output.should contain("Volume=%h/.local/share/kamal-proxy:%h/.local/share/kamal-proxy")
+      output.should eq(<<-QUADLET)
+        [Container]
+        Image=docker.io/library/caddy:2.11.4-alpine
+        ContainerName=meridian-caddy
+        AddCapability=NET_BIND_SERVICE
+        Network=meridian-proxy.network
+        PublishPort=80:80
+        PublishPort=443:443
+        Volume=%h/.local/share/meridian-caddy:/data
+        Volume=%h/.config/containers/meridian-caddy:/config
+        Exec=caddy run --config /config/Caddyfile --adapter caddyfile
+
+        [Service]
+        Restart=always
+
+        [Install]
+        WantedBy=default.target
+
+        QUADLET
+    end
+  end
+
+  describe "#proxy_caddyfile" do
+    it "imports only completed route fragments through the private admin socket" do
+      build_quadlet_generator.proxy_caddyfile.should eq(
+        "{\n\tadmin unix//config/admin.sock\n}\n\nimport /config/routes/*.caddy\n"
+      )
+    end
+  end
+
+  describe "#proxy_route" do
+    it "renders HTTPS, path stripping, the target, and the drain delay" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+              ssl: true
+              path: /blog/
+        proxy:
+          drain_timeout: 42
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+      route = Meridian::Quadlet::Generator.new(config).proxy_route(proxy, "myapp-blue:3000")
+
+      route.should eq(
+        "example.com/blog, example.com/blog/* {\n" \
+        "\turi strip_prefix /blog\n" \
+        "\treverse_proxy myapp-blue:3000 {\n" \
+        "\t\tstream_close_delay 42s\n" \
+        "\t}\n" \
+        "}\n"
+      )
     end
 
-    it "publishes port 80" do
-      output = build_quadlet_generator.proxy_container_file
+    it "renders hostless routes as HTTP catch-alls" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              path: /app
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+      route = Meridian::Quadlet::Generator.new(config).proxy_route(proxy, "myapp-green:3000")
 
-      output.should contain("PublishPort=80:80")
+      route.should eq(
+        ":80/app, :80/app/* {\n" \
+        "\turi strip_prefix /app\n" \
+        "\treverse_proxy myapp-green:3000 {\n" \
+        "\t\tstream_close_delay 300s\n" \
+        "\t}\n" \
+        "}\n"
+      )
     end
 
-    it "publishes port 443" do
-      output = build_quadlet_generator.proxy_container_file
+    it "renders maintenance as a 503 response" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
 
-      output.should contain("PublishPort=443:443")
+      Meridian::Quadlet::Generator.new(config).proxy_maintenance_route(proxy).should eq(
+        "http://example.com {\n\trespond 503\n}\n"
+      )
     end
 
-    it "names the container kamal-proxy" do
-      output = build_quadlet_generator.proxy_container_file
+    it "renders an asset route with the web route's TLS setting" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+              ssl: true
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+        YAML
 
-      output.should contain("ContainerName=kamal-proxy")
-    end
-
-    it "grants the proxy permission to bind low ports" do
-      output = build_quadlet_generator.proxy_container_file
-
-      output.should contain("AddCapability=NET_BIND_SERVICE")
-    end
-
-    it "attaches the proxy to the shared proxy network" do
-      output = build_quadlet_generator.proxy_container_file
-
-      output.should contain("Network=meridian-proxy.network")
+      Meridian::Quadlet::Generator.new(config)
+        .proxy_asset_route("static.example.com", "myapp-assets-server:80")
+        .should eq("static.example.com {\n\treverse_proxy myapp-assets-server:80\n}\n")
     end
   end
 
@@ -923,7 +1019,8 @@ describe "Meridian::Quadlet::Generator" do
       with_tempdir do |path|
         build_quadlet_generator.write_to_directory(path, Meridian::Quadlet::Color::Green)
 
-        File.exists?(File.join(path, "kamal-proxy.container")).should be_true
+        File.exists?(File.join(path, "meridian-caddy.container")).should be_true
+        File.exists?(File.join(path, "caddy", "Caddyfile")).should be_true
       end
     end
 
@@ -931,9 +1028,9 @@ describe "Meridian::Quadlet::Generator" do
       with_tempdir do |path|
         build_quadlet_generator(proxied_config_without_root_proxy).write_to_directory(path, Meridian::Quadlet::Color::Green)
 
-        proxy_path = File.join(path, "kamal-proxy.container")
+        proxy_path = File.join(path, "meridian-caddy.container")
         File.exists?(proxy_path).should be_true
-        File.read(proxy_path).should contain("Image=docker.io/basecamp/kamal-proxy:v0.9.2")
+        File.read(proxy_path).should contain("Image=docker.io/library/caddy:2.11.4-alpine")
       end
     end
 
