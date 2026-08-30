@@ -321,46 +321,6 @@ module Meridian
         Quadlet::Color.parse?(color_name) || raise ArgumentError.new("Invalid active color stored on #{host}: #{color_name}")
       end
 
-      protected def proxy_deploy_command(
-        proxy : Config::ServerProxyConfig,
-        color : Quadlet::Color,
-      ) : Array(String)
-        command = [
-          "podman",
-          "exec",
-          "kamal-proxy",
-          "kamal-proxy",
-          "deploy",
-          @config.service,
-          "--target",
-          "#{service_name(color)}:#{proxy.app_port}",
-          "--health-check-path",
-          proxy.healthcheck.path,
-          "--health-check-interval",
-          "#{proxy.healthcheck.interval}s",
-          "--health-check-timeout",
-          "#{proxy.healthcheck.timeout}s",
-        ]
-
-        if host = proxy.host
-          command << "--health-check-host"
-          command << host
-          command << "--host"
-          command << host
-        end
-
-        if proxy.ssl?
-          command << "--tls"
-        end
-
-        if path = proxy.path
-          command << "--path-prefix"
-          command << path
-        end
-
-        command
-      end
-
       protected def ssh_command_failed(host : String, command : Array(String), result : SSH::Result) : SSH::CommandFailed
         SSH::CommandFailed.new(
           SSH::Executor.command_failure_message(target_host(host), command.join(" "), result)

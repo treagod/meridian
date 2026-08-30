@@ -1,7 +1,7 @@
 # Guide
 
 Meridian deploys containers to Linux servers you already have: SSH in, write Podman
-Quadlets, let systemd supervise them, and switch traffic with kamal-proxy. This guide
+Quadlets, let systemd supervise them, and switch traffic with Caddy. This guide
 takes you from install to a running production deployment.
 
 `meridian init` reads your project and writes a config that fits it — Marten, Rails,

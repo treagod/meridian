@@ -88,7 +88,7 @@ SSH; note that any accessory publishing a host port needs its own rule too. Root
 and password authentication stay exactly as you left them.
 
 See [`ssh`](/reference/deploy-yml#ssh), [`transfer`](/reference/deploy-yml#transfer),
-and [kamal-proxy bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)
+and [Caddy bind permission denied](/guide/troubleshooting#caddy-bind-permission-denied-on-port-80)
 if low ports stay blocked afterwards.
 
 ## `setup` {#setup}
@@ -103,18 +103,18 @@ meridian setup --config config/production.yml
 
 Uploads and starts `<service>.network` on configured service hosts and on
 service-networked accessory hosts, uploads `meridian-proxy.network` and
-`kamal-proxy.container` to web hosts, creates `proxy.data_dir`, runs
-`systemctl --user daemon-reload`, and starts kamal-proxy. An already-running legacy
-proxy is connected to the shared network. No per-service release state is written.
+`meridian-caddy.container`, the root Caddyfile, and `meridian-proxy.network` to web hosts; creates `proxy.data_dir`; gives a service without an existing route an initial persistent HTTP 503 route; reloads user systemd; and restarts Caddy. Setup requires `flock`, verifies Caddy 2.11.2 or newer, its private Unix admin API, and HTTP reachability, and refuses to proceed while any legacy kamal-proxy Quadlet, unit, or container exists. Existing service routes are preserved and no per-service release state is written.
+
+For an existing host, schedule a maintenance window, remove the old proxy image override from every `deploy.yml`, stop and remove kamal-proxy yourself, run setup once, and redeploy every registered Meridian service. Meridian does not import old routes or delete the old certificate/data directory.
 
 See [`proxy`](/reference/deploy-yml#proxy) and
 [`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy). Failures usually land
-in [bind permission denied](/guide/troubleshooting#kamal-proxy-bind-permission-denied-on-port-80)
+in [bind permission denied](/guide/troubleshooting#caddy-bind-permission-denied-on-port-80)
 or [Lets Encrypt issuance hangs](/guide/troubleshooting#lets-encrypt-issuance-hangs).
 
 ## `proxy remove` {#proxy-remove}
 
-Removes this service's kamal-proxy routes and its manifest, then removes the shared
+Removes this service's Caddy route fragments, atomically reloads Caddy, and removes its manifest, then removes the shared
 proxy if no other Meridian service is registered on the host.
 
 ```bash
@@ -146,7 +146,7 @@ Accepts the [target selectors](#target-selectors).
 
 Probes SSH, Podman, lingering, Quadlet directories, transfer tools, Podman secrets,
 local image availability for registry-free transfer, readability of every local
-`files:` source, kamal-proxy, the shared proxy network, accessory readiness, and
+`files:` source, Caddy container/version/admin API/configuration, the shared proxy network, accessory readiness, and
 same-host manifest collisions.
 
 Two probes have detail worth knowing. A local `files:` source must be a readable
@@ -181,21 +181,19 @@ except under `strategy: recreate`, where any subset is rejected before SSH.
 Runs local validation and `pre_deploy`, then acquires the remote deploy lock,
 verifies the service network, runs remote hooks, transfers images, uploads app
 Quadlets/files/asset units, and starts new units. Proxied managed
-roles then switch kamal-proxy and write `active-color` plus `release-state.json`;
+roles then atomically reload their Caddy route, wait for the removed upstream to drain, and write `active-color` plus `release-state.json`;
 other managed roles restart their stable `<service>-<role>` unit without proxy state.
 Finally writes `manifest.json`, appends audit entries, and releases the lock in an
 `ensure` block.
 
 With `strategy: recreate`, Meridian first transfers every role image and uploads
-all new Quadlets on the service's single host. On a redeploy it then runs
-`kamal-proxy stop`, stops active secondary roles, and stops the old web colour
+all new Quadlets on the service's single host. On a redeploy it atomically installs a persistent Caddy 503 route, drains the old upstream, stops active secondary roles, and stops the old web colour
 before starting anything new. The new web colour must pass its direct container
 healthcheck before secondary roles start. Traffic resumes only after every role,
 the proxy target, and runtime state are ready. Accessories remain running.
 
 If Recreate fails after maintenance begins, Meridian deliberately leaves the route
-stopped and never restarts the old image. The error names the units and logs to
-inspect and prints the manual `kamal-proxy resume` command.
+blocked by the persisted 503 route and never restarts the old image. The error names the units and logs to inspect; repair the service and rerun `meridian deploy` to replace maintenance.
 
 Lock contention is reported as a normal failed deploy, not a separate numeric code.
 
@@ -220,7 +218,7 @@ meridian rollback --config config/production.yml
 The old container does not survive a successful deploy, so rollback reconstructs it:
 it reads `release-state.json`, regenerates the Quadlet for the recorded image and
 color, uploads it, reloads the user systemd daemon, and starts the unit fresh.
-kamal-proxy switches back only after the reconstructed release passes the regular
+Caddy switches back only after the reconstructed release passes the regular
 container health check. Then the rolled-back-from release is stopped and its Quadlet
 removed, `active-color` and `release-state.json` are rewritten (current and previous
 swap), and an audit entry is appended.

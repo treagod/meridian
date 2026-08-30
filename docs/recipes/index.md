@@ -17,7 +17,7 @@ Complete starter configs, but nobody has run them through a real deploy yet. Use
 verification step.
 
 - [Kemal](https://kemalcr.com/) - [simple app recipe](/recipes/kemal-simple)
-- [Static Site Behind kamal-proxy](/recipes/static-site) with [Caddy](https://caddyserver.com/)
+- [Static Site Behind Caddy](/recipes/static-site) with an app-local [Caddy](https://caddyserver.com/)
 - [Multi-App On One Host](/recipes/multi-app-one-host)
 - [Third-Party Distroless Image](/recipes/vikunja-distroless) with [Vikunja](https://vikunja.io/)
 

@@ -191,27 +191,6 @@ assert_release_marker() {
   fi
 }
 
-# The same rootless network re-sync stall can hit kamal-proxy's own 30s deploy
-# health window: the freshly started candidate is verifiably healthy (Meridian's
-# sidecar probes pass) but requests from the long-running proxy container never
-# reach it until the stall clears. A failed candidate is fully cleaned up, so
-# re-running the switch is idempotent; retry once when the log shows exactly
-# that kamal-proxy timeout.
-run_switch_with_retry() {
-  local name="$1"
-  shift
-  if run_logged "$name" "$@"; then
-    return 0
-  fi
-  if grep -q "target failed to become healthy within configured timeout" "$LOG_DIR/$name.log"; then
-    echo "kamal-proxy switch hit the rootless network re-sync stall; retrying once" >&2
-    sleep 20
-    run_logged "${name}-retry" "$@"
-    return $?
-  fi
-  return 1
-}
-
 # Removing the old colour's container right after the proxy switch can stall
 # the rootless Podman network for a few seconds (aardvark-dns re-syncs), so the
 # first request after a redeploy gets a bounded retry window before the strict
@@ -235,7 +214,7 @@ collect_diagnostics() {
 
   {
     echo "== systemd units =="
-    ssh_deploy "systemctl --user --no-pager --full status 'meridian-e2e-*' kamal-proxy.service" || true
+    ssh_deploy "systemctl --user --no-pager --full status 'meridian-e2e-*' meridian-caddy.service" || true
     echo
     echo "== containers =="
     ssh_deploy "podman ps -a" || true
@@ -331,7 +310,6 @@ spawn "$MERIDIAN_BIN" server bootstrap \
   --host "$VM_IP" \
   --root-user root \
   --deploy-user deploy \
-  --enable-auto-updates no \
   --config "$APP_DIR/.meridian/deploy.yml"
 expect {
   -re "(?i)password:" {
@@ -364,6 +342,16 @@ run_logged setup \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" setup --config "$APP_DIR/.meridian/deploy.yml"
 
+INITIAL_STATUS="$(
+  curl --silent --output /dev/null --write-out '%{http_code}' \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/"
+)"
+if [[ "$INITIAL_STATUS" != "503" ]]; then
+  echo "Expected setup to seed a 503 route, got HTTP $INITIAL_STATUS" >&2
+  exit 75
+fi
+
 log_step "Pre-pulling the pinned health probe image"
 run_logged probe-image \
   ssh_deploy "podman pull docker.io/library/alpine:3.21"
@@ -388,7 +376,7 @@ run_logged check \
   "$MERIDIAN_BIN" check --config "$APP_DIR/.meridian/deploy.yml"
 
 log_step "Running first deploy"
-run_switch_with_retry deploy-first \
+run_logged deploy-first \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
 
@@ -401,6 +389,14 @@ HOME_HTML="$(
     "http://$APP_HOST/"
 )"
 grep -q "Meridian recipe E2E" <<<"$HOME_HTML"
+
+log_step "Verifying setup preserves the active route"
+run_logged setup-repeat \
+  env PATH="$WRAPPER_DIR:$PATH" \
+  "$MERIDIAN_BIN" setup --config "$APP_DIR/.meridian/deploy.yml"
+curl --fail --silent --show-error \
+  --resolve "$APP_HOST:80:$VM_IP" \
+  "http://$APP_HOST/" | grep -q "Meridian recipe E2E"
 
 if [[ -n "$ASSET_HREF_PATTERN" ]]; then
   ASSET_URL="$(
@@ -450,9 +446,55 @@ fi
 sleep 2
 
 log_step "Running second deploy"
-run_switch_with_retry deploy-second \
-  env PATH="$WRAPPER_DIR:$PATH" \
-  "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
+if [[ "$RECIPE" == "go-static-binary" ]]; then
+  FIRST_INSTANCE="$(curl --fail --silent --resolve "$APP_HOST:80:$VM_IP" "http://$APP_HOST/instance")"
+  if [[ "$FIRST_COLOR" == "blue" ]]; then
+    NEXT_COLOR="green"
+  else
+    NEXT_COLOR="blue"
+  fi
+  SLOW_OUTPUT="$WORK_DIR/slow-request.log"
+  curl --no-buffer --fail --silent --show-error \
+    --resolve "$APP_HOST:80:$VM_IP" \
+    "http://$APP_HOST/slow?seconds=30" >"$SLOW_OUTPUT" &
+  SLOW_PID=$!
+
+  for _ in $(seq 1 30); do
+    grep -q "started:$FIRST_INSTANCE" "$SLOW_OUTPUT" && break
+    sleep 1
+  done
+  grep -q "started:$FIRST_INSTANCE" "$SLOW_OUTPUT"
+
+  run_logged deploy-second \
+    env PATH="$WRAPPER_DIR:$PATH" \
+    "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml" &
+  SECOND_DEPLOY_PID=$!
+
+  CADDY_UPSTREAMS=""
+  for _ in $(seq 1 60); do
+    CADDY_UPSTREAMS="$(ssh_deploy "curl --silent --show-error --fail --unix-socket .config/containers/meridian-caddy/admin.sock http://localhost/reverse_proxy/upstreams" || true)"
+    [[ "$CADDY_UPSTREAMS" == *"\"address\":\"$SERVICE-$NEXT_COLOR:"* ]] && break
+    sleep 1
+  done
+  [[ "$CADDY_UPSTREAMS" == *"\"address\":\"$SERVICE-$NEXT_COLOR:"* ]]
+  kill -0 "$SLOW_PID"
+  kill -0 "$SECOND_DEPLOY_PID"
+  wait "$SLOW_PID"
+  grep -q "finished:$FIRST_INSTANCE" "$SLOW_OUTPUT"
+  wait "$SECOND_DEPLOY_PID"
+
+  SECOND_INSTANCE=""
+  for _ in $(seq 1 60); do
+    SECOND_INSTANCE="$(curl --fail --silent --resolve "$APP_HOST:80:$VM_IP" "http://$APP_HOST/instance" || true)"
+    [[ -n "$SECOND_INSTANCE" && "$SECOND_INSTANCE" != "$FIRST_INSTANCE" ]] && break
+    sleep 1
+  done
+  [[ -n "$SECOND_INSTANCE" && "$SECOND_INSTANCE" != "$FIRST_INSTANCE" ]]
+else
+  run_logged deploy-second \
+    env PATH="$WRAPPER_DIR:$PATH" \
+    "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"
+fi
 
 SECOND_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/$SERVICE/active-color")"
 if [[ "$FIRST_COLOR" == "$SECOND_COLOR" ]]; then
@@ -486,7 +528,7 @@ if [[ "$ROLLBACK_LEG" == "1" ]]; then
   assert_release_marker "release-b"
 
   log_step "Rolling back to the first release"
-  run_switch_with_retry rollback \
+  run_logged rollback \
     env PATH="$WRAPPER_DIR:$PATH" \
     "$MERIDIAN_BIN" rollback --config "$APP_DIR/.meridian/deploy.yml"
 

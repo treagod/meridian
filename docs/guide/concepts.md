@@ -1,7 +1,7 @@
 # Concepts
 
 Meridian is an imperative deploy tool: one CLI process connects over SSH,
-writes Podman Quadlets, asks user systemd to reload, and uses kamal-proxy for
+writes Podman Quadlets, asks user systemd to reload, and uses Caddy for
 proxied traffic. Blue/Green remains the default; `strategy: recreate` adds a
 deliberate-downtime path for stateful single-instance services. This page is the mental model for reading deploy
 logs, debugging failures, and running multiple apps on one host.
@@ -23,8 +23,8 @@ sequence on each selected host:
 8. Run remote `before_start` hooks.
 9. Run the asset builder when `assets:` is configured.
 10. Start and directly healthcheck the inactive color.
-11. Run `kamal-proxy deploy` to atomically switch traffic.
-12. Stop the old color and remove its inactive Quadlet file.
+11. Atomically reload the service's Caddy fragment.
+12. Wait for the removed upstream's requests to drain, then stop the old color and remove its Quadlet.
 13. Record `active-color`, `release-state.json`, and `manifest.json`.
 14. Run final hooks and release the deploy lock.
 
@@ -35,13 +35,12 @@ host. Images, networks, candidate Quadlets, systemd reload, and accessory
 readiness are prepared while the old release still runs. A first deploy has no
 existing route, so it skips maintenance.
 
-On a redeploy Meridian runs `kamal-proxy stop <service>`, stops all active
+On a redeploy Meridian installs a persisted Caddy 503 route, drains the old upstream, stops all active
 secondary roles, and then stops the old web color. Only after those stops
 complete does it upload `files:`, run `after_upload`/`before_start`, and start
 the candidate web color. The web healthcheck must pass before cron, worker, or
 other secondary roles start. Meridian then updates the proxy target and runtime
-state while the route remains in maintenance, removes the old Quadlet, and
-finally runs `kamal-proxy resume <service>`.
+state by atomically replacing maintenance with the candidate route, then removes the old Quadlet.
 
 Old and new web colors are never active together. Accessories are not app roles:
 they remain running throughout the transaction and only participate through
@@ -52,7 +51,7 @@ release, roll back an image, or resume traffic. Persistent data may already have
 been migrated. An unhealthy candidate is stopped; a healthy candidate is kept
 for diagnosis and repair. The route remains intentionally blocked until the
 operator repairs the service or restores image, database, and volumes from a
-matching backup, then resumes it manually.
+matching backup, then reruns `meridian deploy` to replace the maintenance route.
 
 For field-level details, see [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness),
@@ -75,7 +74,7 @@ through systemd.
   my-app-assets.volume
   my-app-assets-builder.container
   my-app-assets-server.container
-  kamal-proxy.container
+  meridian-caddy.container
   meridian-proxy.network
 ```
 
@@ -86,8 +85,8 @@ through systemd.
 | `<service>-<role>.container` | Stable restart-in-place container for a non-proxied managed role. |
 | `<accessory>.container` | Standalone accessory service such as Postgres or Redis. |
 | `<service>-assets-*` | Asset volume, builder, and static-server units when `assets:` is configured. |
-| `kamal-proxy.container` | Shared host-level proxy container. |
-| `meridian-proxy.network` | Shared network kamal-proxy and proxied app containers join. |
+| `meridian-caddy.container` | Shared host-level Caddy container. |
+| `meridian-proxy.network` | Shared network Caddy and proxied app containers join. |
 
 Use `meridian quadlet` to preview generated files locally.
 `meridian setup` owns uploading and starting `<service>.network` on every host
@@ -109,8 +108,8 @@ front-end bundle as part of the deploy:
 2. Its `assets.output_dir` output is copied into a timestamped release directory
    on the `<service>-assets` volume.
 3. A `current` symlink is repointed to the new release.
-4. A generated Caddy static server serves `current` and is registered with
-   kamal-proxy under the `<service>-assets` route on `assets.host`.
+4. A generated Caddy static server serves `current` through an independent
+   `<service>-assets.caddy` route on `assets.host`.
 
 Old releases are retained (`assets.retain_releases`) so fingerprinted URLs from
 the previous version keep resolving during the rollout window. The framework's
@@ -148,13 +147,13 @@ Non-proxied managed roles still contribute their role-named Quadlet to
 ## Same-Host Multi-App Topology
 
 Each app owns its private service network. Proxied app containers also join the
-shared `meridian-proxy` network, where one kamal-proxy can reach all apps.
+shared `meridian-proxy` network, where one Caddy can reach all apps.
 
 ```text
                            public HTTP(S)
                                 |
                                 v
-                         kamal-proxy.container
+                         meridian-caddy.container
                                 |
                          meridian-proxy.network
                          /                    \
@@ -196,8 +195,7 @@ cleanup:        old blue unit is stopped and its Quadlet is removed
 
 The inactive Quadlet is removed after a successful switch, but release metadata
 keeps the previous rollback-safe release. `meridian rollback` reads
-`release-state.json`, starts the previous color if needed, runs kamal-proxy in
-reverse, rewrites `active-color`, swaps current/previous release metadata, and
+`release-state.json`, starts the previous color if needed, reloads Caddy, drains the replaced upstream, rewrites `active-color`, swaps current/previous release metadata, and
 records an audit entry.
 
 ## Recreate

@@ -69,6 +69,7 @@ module Meridian
         lock_manager : Lock::Manager? = nil,
         audit_logger : Audit::Logger? = nil,
         local_image_probe : LocalImageProbe? = nil,
+        proxy_manager : Proxy::Manager? = nil,
       )
         @local_image_probe = local_image_probe || DEFAULT_LOCAL_IMAGE_PROBE
         @audit_logger = audit_logger || Audit::Logger.new(@config, @ssh_executor)
@@ -79,6 +80,14 @@ module Meridian
           audit_logger: @audit_logger
         )
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(@config)
+        @proxy_manager = proxy_manager || Proxy::Manager.new(
+          @config,
+          ssh_executor: @ssh_executor,
+          quadlet_generator: @quadlet_generator,
+          output: @output,
+          audit_logger: @audit_logger,
+          drain_sleeper: @health_sleeper
+        )
         @stream_transfer = stream_transfer || Transfer::Stream.new(
           @ssh_executor,
           output: @output,
@@ -209,6 +218,7 @@ module Meridian
         run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
         run_remote_hooks(host, role, "after_start")
 
+        proxy_committed = false
         begin
           log(host, "Checking health for #{new_service}")
           poll_container_health(host, proxy, new_service)
@@ -216,14 +226,19 @@ module Meridian
           run_remote_hooks(host, role, "before_switch")
 
           log(host, "Switching proxy traffic to #{new_service}")
-          run_ssh!(host, proxy_deploy_command(proxy, new_color))
+          @proxy_manager.switch(host, proxy, "#{new_service}:#{proxy.app_port}")
+          proxy_committed = true
           run_remote_hooks(host, role, "after_switch")
-        rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError
-          cleanup_failed_candidate(host, new_color)
+        rescue ex : Proxy::SwitchUncertain
+          raise DeployFailed.new(ex.message || "Caddy switch state is uncertain")
+        rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed
+          cleanup_failed_candidate(host, new_color) unless proxy_committed
           raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
         end
 
         if old_active
+          log(host, "Draining #{service_name(old_color)}")
+          @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}")
           log(host, "Stopping service #{service_unit(old_color)}")
           run_ssh!(host, ["systemctl", "--user", "stop", service_unit(old_color)])
         end
@@ -241,7 +256,7 @@ module Meridian
 
         prune_images(host)
         run_remote_hooks(host, role, "after_deploy")
-      rescue ex : SSH::CommandFailed | SSH::ConnectionError
+      rescue ex : SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed
         raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
       end
 
@@ -452,10 +467,11 @@ module Meridian
           end
 
           if old_active || active_secondary_roles.present?
+            log(host, "Putting #{@config.service} into maintenance")
+            @proxy_manager.maintenance(host, proxy, "#{service_name(old_color)}:#{proxy.app_port}")
             maintenance_started = true
             @audit_logger.record(host, "maintenance", "begin old=#{old_color.slug} new=#{new_color.slug}")
-            log(host, "Putting #{@config.service} into maintenance")
-            run_ssh!(host, proxy_stop_command)
+            @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}") if old_active
 
             active_secondary_roles.each do |role|
               stop_unit!(host, role_service_unit(role))
@@ -488,8 +504,9 @@ module Meridian
           end
 
           run_remote_hooks(host, "web", "before_switch")
-          log(host, "Switching proxy target to #{service_name(new_color)} while maintenance remains active")
-          run_ssh!(host, proxy_deploy_command(proxy, new_color))
+          log(host, "Switching proxy target to #{service_name(new_color)}")
+          @proxy_manager.switch(host, proxy, "#{service_name(new_color)}:#{proxy.app_port}")
+          resumed = true
           run_remote_hooks(host, "web", "after_switch")
 
           log(host, "Recording active color #{new_color.slug}")
@@ -503,9 +520,6 @@ module Meridian
           prune_images(host)
 
           if maintenance_started
-            log(host, "Resuming #{@config.service}")
-            run_ssh!(host, proxy_resume_command)
-            resumed = true
             @audit_logger.record(host, "maintenance", "end active=#{new_color.slug}")
           end
 
@@ -698,54 +712,6 @@ module Meridian
         end
       end
 
-      private def proxy_deploy_command(
-        proxy : Config::ServerProxyConfig,
-        color : Quadlet::Color,
-      ) : Array(String)
-        command = [
-          "podman",
-          "exec",
-          "kamal-proxy",
-          "kamal-proxy",
-          "deploy",
-          @config.service,
-          "--target",
-          "#{service_name(color)}:#{proxy.app_port}",
-          "--health-check-path",
-          proxy.healthcheck.path,
-          "--health-check-interval",
-          "#{proxy.healthcheck.interval}s",
-          "--health-check-timeout",
-          "#{proxy.healthcheck.timeout}s",
-        ]
-
-        if host = proxy.host
-          command << "--health-check-host"
-          command << host
-          command << "--host"
-          command << host
-        end
-
-        if proxy.ssl?
-          command << "--tls"
-        end
-
-        if path = proxy.path
-          command << "--path-prefix"
-          command << path
-        end
-
-        command
-      end
-
-      private def proxy_stop_command : Array(String)
-        ["podman", "exec", "kamal-proxy", "kamal-proxy", "stop", @config.service]
-      end
-
-      private def proxy_resume_command : Array(String)
-        ["podman", "exec", "kamal-proxy", "kamal-proxy", "resume", @config.service]
-      end
-
       private def stop_unit!(host : String, unit : String) : Nil
         log(host, "Stopping service #{unit}")
         run_ssh!(host, ["systemctl", "--user", "stop", unit])
@@ -784,7 +750,7 @@ module Meridian
         "Recreate deploy failed after maintenance began: #{failure.message}. " \
         "#{@config.service} remains in maintenance and Meridian did not restart the old release, resume the proxy, or roll back images because persistent data may have been migrated. " \
         "Inspect `systemctl --user status #{unit_args}` and `journalctl --user #{units.map { |unit| "-u #{unit}" }.join(" ")} -n 100 --no-pager` on #{host}. " \
-        "After repairing and verifying the service, resume traffic manually with `#{proxy_resume_command.join(" ")}`."
+        "After repairing and verifying the service, rerun `meridian deploy` to replace the persisted Caddy maintenance route."
       end
 
       private def cleanup_failed_candidate(host : String, color : Quadlet::Color) : Nil
@@ -1325,15 +1291,8 @@ module Meridian
         log(host, "Starting asset server")
         run_ssh!(host, ["systemctl", "--user", "start", "#{@config.service}-assets-server.service"])
 
-        log(host, "Registering asset server with proxy")
-        register_cmd = [
-          "podman", "exec", "kamal-proxy", "kamal-proxy", "deploy",
-          "#{@config.service}-assets",
-          "--target", "#{@config.service}-assets-server:80",
-          "--host", assets.host,
-        ]
-        register_cmd << "--tls" if @config.servers["web"]?.try(&.proxy).try(&.ssl?)
-        run_ssh!(host, register_cmd)
+        log(host, "Registering asset server with Caddy")
+        @proxy_manager.register_assets(host)
 
         log(host, "Pruning old asset releases (keeping #{assets.retain_releases})")
         prune_cmd = "v=$(podman volume inspect systemd-#{@config.service}-assets --format '{{.Mountpoint}}') && " \

@@ -24,7 +24,7 @@ private SELECTOR_CONFIG = <<-YAML
         cmd: bin/sidekiq
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
   YAML
 
 private SHARED_HOST_CONFIG = <<-YAML
@@ -49,7 +49,7 @@ private SHARED_HOST_CONFIG = <<-YAML
           - 192.168.1.20
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
   YAML
 
 describe Meridian::CLI::TargetSelector do

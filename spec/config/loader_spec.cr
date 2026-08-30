@@ -425,7 +425,68 @@ describe "Meridian::Config::Loader" do
     it "parses the proxy image" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
       proxy = config.proxy || raise "Expected proxy config"
-      proxy.image.should eq("ghcr.io/basecamp/kamal-proxy:latest")
+      proxy.image.should eq("docker.io/library/caddy:2.11.4-alpine")
+    end
+
+    it "uses Caddy proxy defaults" do
+      config = Meridian::Config::Loader.load(write_config(<<-YAML))
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+        YAML
+
+      proxy = config.resolved_proxy
+      proxy.data_dir.should eq("%h/.local/share/meridian-caddy")
+      proxy.drain_timeout.should eq(300)
+    end
+
+    it "rejects non-positive proxy ports and drain timeouts" do
+      {"http_port" => 0, "https_port" => -1, "drain_timeout" => 0}.each do |key, value|
+        expect_raises(Meridian::Config::ValidationError, /#{key} must be positive/) do
+          Meridian::Config::Loader.load(write_config(<<-YAML))
+            service: myapp
+            image: example.com/myapp
+            servers:
+              web:
+                hosts: [192.168.1.10]
+            proxy:
+              #{key}: #{value}
+            YAML
+        end
+      end
+    end
+
+    it "rejects a non-positive application proxy port" do
+      expect_raises(Meridian::Config::ValidationError, /app_port must be positive/) do
+        Meridian::Config::Loader.load(write_config(<<-YAML))
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                host: example.com
+                app_port: 0
+          YAML
+      end
+    end
+
+    it "rejects TLS without a host" do
+      expect_raises(Meridian::Config::ValidationError, /ssl requires host/) do
+        Meridian::Config::Loader.load(write_config(<<-YAML))
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                ssl: true
+          YAML
+      end
     end
 
     it "parses the proxy host" do
@@ -575,7 +636,7 @@ describe "Meridian::Config::Loader" do
               - 192.168.1.10
 
         proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
+          image: docker.io/library/caddy:2.11.4-alpine
         YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
@@ -595,7 +656,7 @@ describe "Meridian::Config::Loader" do
               - 192.168.1.10
 
         proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
+          image: docker.io/library/caddy:2.11.4-alpine
         YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do
@@ -611,7 +672,7 @@ describe "Meridian::Config::Loader" do
         image: registry.example.com/myorg/myapp
 
         proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
+          image: docker.io/library/caddy:2.11.4-alpine
         YAML
 
       ex = expect_raises(Meridian::Config::ValidationError) do

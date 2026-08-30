@@ -199,6 +199,26 @@ describe Meridian::Runtime::ServiceManifest do
       left.collisions_with(right).any?(&.includes?("proxy route")).should be_true
     end
 
+    it "reports overlapping hostless routes but permits distinct prefixes" do
+      config = ->(service : String, path : String) do
+        load_config(<<-YAML)
+          service: #{service}
+          image: example.com/#{service}
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                path: #{path}
+          YAML
+      end
+      root = Meridian::Runtime::ServiceManifest.from_config(config.call("one", "/"))
+      blog = Meridian::Runtime::ServiceManifest.from_config(config.call("two", "/blog"))
+      shop = Meridian::Runtime::ServiceManifest.from_config(config.call("three", "/shop"))
+
+      root.collisions_with(blog).any?(&.includes?("proxy route")).should be_true
+      blog.collisions_with(shop).any?(&.includes?("proxy route")).should be_false
+    end
+
     it "still reports published host port overlap" do
       left = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
           service: one

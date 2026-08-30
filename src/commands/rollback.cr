@@ -11,9 +11,18 @@ module Meridian
         audit_logger : ::Meridian::Audit::Logger? = nil,
         quadlet_generator : Quadlet::Generator? = nil,
         @health_sleeper : Proc(Time::Span, Nil) = ->(duration : Time::Span) { sleep duration },
+        proxy_manager : Proxy::Manager? = nil,
       )
         super(config, ssh_executor, output, error, audit_logger)
         @quadlet_generator = quadlet_generator || Quadlet::Generator.new(config)
+        @proxy_manager = proxy_manager || Proxy::Manager.new(
+          config,
+          ssh_executor: ssh_executor,
+          quadlet_generator: @quadlet_generator,
+          output: output,
+          audit_logger: audit_logger,
+          drain_sleeper: @health_sleeper
+        )
       end
 
       def run : Nil
@@ -34,7 +43,7 @@ module Meridian
             rollback_with_legacy_color(host, proxy)
           end
         end
-      rescue ex : Config::UnknownRole | ArgumentError | SSH::CommandFailed | SSH::ConnectionError
+      rescue ex : Config::UnknownRole | ArgumentError | SSH::CommandFailed | SSH::ConnectionError | Proxy::SwitchUncertain
         raise Deploy::RollbackFailed.new(ex.message || "Rollback failed")
       end
 
@@ -60,6 +69,8 @@ module Meridian
         end
 
         activate_reconstructed_release(host, proxy, previous, rollback_color)
+
+        @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}")
 
         log(host, "Retiring #{service_name(old_color)}")
         run_ssh!(host, ["systemctl", "--user", "stop", service_unit(old_color)])
@@ -96,6 +107,8 @@ module Meridian
         run_ssh!(host, ["systemctl", "--user", "start", service_unit(rollback_color)])
         poll_container_health(host, proxy, service_name(rollback_color))
         switch_proxy(host, proxy, rollback_color)
+      rescue ex : Proxy::SwitchUncertain
+        raise Deploy::RollbackFailed.new(ex.message || "Caddy switch state is uncertain")
       rescue ex : Health::CheckFailed | Deploy::RollbackFailed | SSH::CommandFailed | SSH::ConnectionError
         cleanup_failed_candidate(host, rollback_color)
         raise ex if ex.is_a?(Deploy::RollbackFailed)
@@ -125,6 +138,8 @@ module Meridian
 
         ensure_container_running(host, rollback_target)
         switch_proxy(host, proxy, rollback_color)
+        @proxy_manager.drain(host, "#{service_name(current_color)}:#{proxy.app_port}")
+        run_ssh!(host, ["podman", "stop", service_name(current_color)])
 
         log(host, "Recording active color #{rollback_color.slug}")
         record_active_color(host, rollback_color)
@@ -151,13 +166,11 @@ module Meridian
         color : Quadlet::Color,
       ) : Nil
         log(host, "Switching proxy traffic to #{service_name(color)}")
-        command = proxy_deploy_command(proxy, color)
-        deploy_result = run_ssh(host, command)
-        return if deploy_result.exit_code.zero?
-
-        raise Deploy::RollbackFailed.new(
-          ssh_command_failed(host, command, deploy_result).message || "Rollback failed"
-        )
+        @proxy_manager.switch(host, proxy, "#{service_name(color)}:#{proxy.app_port}")
+      rescue ex : Proxy::SwitchUncertain
+        raise ex
+      rescue ex : Proxy::RouteFailed
+        raise Deploy::RollbackFailed.new(ex.message || "Rollback failed")
       end
 
       private def web_proxy : Config::ServerProxyConfig

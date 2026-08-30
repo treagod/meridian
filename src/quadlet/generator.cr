@@ -72,6 +72,40 @@ module Meridian
         ).to_s
       end
 
+      def proxy_caddyfile : String
+        "{\n\tadmin unix//config/admin.sock\n}\n\nimport /config/routes/*.caddy\n"
+      end
+
+      def proxy_route(proxy : Config::ServerProxyConfig, target : String) : String
+        route(proxy.host, proxy.path, proxy.ssl?, "reverse_proxy #{target} {\n\tstream_close_delay #{@config.resolved_proxy.drain_timeout}s\n}")
+      end
+
+      def proxy_maintenance_route(proxy : Config::ServerProxyConfig) : String
+        route(proxy.host, proxy.path, proxy.ssl?, "respond 503")
+      end
+
+      def proxy_asset_route(host : String, target : String) : String
+        ssl = @config.servers["web"]?.try(&.proxy).try(&.ssl?) || false
+        route(host, nil, ssl, "reverse_proxy #{target}")
+      end
+
+      private def route(host : String?, path : String?, ssl : Bool, handler : String) : String
+        normalized_path = Runtime::ServiceManifest.normalize_path(path)
+        address = if host
+                    ssl ? host : "http://#{host}"
+                  else
+                    ":80"
+                  end
+        addresses = normalized_path == "/" ? address : "#{address}#{normalized_path}, #{address}#{normalized_path}/*"
+
+        String.build do |io|
+          io << addresses << " {\n"
+          io << "\turi strip_prefix " << normalized_path << "\n" unless normalized_path == "/"
+          handler.each_line { |line| io << '\t' << line << '\n' }
+          io << "}\n"
+        end
+      end
+
       def accessory_container_file(name : String, accessory : Config::AccessoryConfig) : String
         image = accessory.image || raise ArgumentError.new("Accessory #{name} is missing required image")
         environment = accessory.env.try(&.clear) || EMPTY_ENV
@@ -165,7 +199,10 @@ module Meridian
         end
 
         if proxied_service?
-          File.write(File.join(output_dir, "kamal-proxy.container"), proxy_container_file)
+          File.write(File.join(output_dir, "meridian-caddy.container"), proxy_container_file)
+          caddy_dir = File.join(output_dir, "caddy")
+          Dir.mkdir_p(File.join(caddy_dir, "routes"))
+          File.write(File.join(caddy_dir, "Caddyfile"), proxy_caddyfile)
         end
 
         (@config.accessories || EMPTY_ACCESSORIES).each do |name, accessory|

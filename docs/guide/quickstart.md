@@ -170,7 +170,7 @@ meridian setup
 
 This creates the `my-app` service network on every role host — and on any accessory
 host that shares it — creates the shared `meridian-proxy` network, and installs and
-starts kamal-proxy on your web hosts. Run it once per service; it takes no `--role` or
+starts or refreshes Caddy on your web hosts. Run it once per service; it takes no `--role` or
 `--host`, and it is safe to re-run.
 
 ### Start Accessories
@@ -218,7 +218,7 @@ ssh deploy@prod-01.example.com 'podman pull docker.io/library/alpine:3.21'
 ```
 
 A deploy takes 10–20 seconds for a small app. It transfers the image, writes Quadlet
-units under `~/.config/containers/systemd/`, starts the new color, and lets kamal-proxy
+units under `~/.config/containers/systemd/`, starts the new color, and atomically reloads Caddy
 switch traffic once the health check passes — the full sequence, phase by phase, is in
 [Deploy Flow](/guide/concepts#deploy-flow).
 
@@ -234,7 +234,7 @@ first-deploy failures.
 `assets:` is optional. When you declare it, `assets.command` runs in your app image
 during the deploy, and the files it writes to `assets.output_dir` are copied into a
 deploy-managed volume as a fingerprinted release. Requests to `assets.host` are routed
-by kamal-proxy to a generated Caddy asset server that serves the current release.
+by the shared Caddy proxy to a generated Caddy asset server that serves the current release.
 Typical small and medium Rails or Marten apps reach production this way without object
 storage or a CDN; see [`assets`](/reference/deploy-yml#assets).
 

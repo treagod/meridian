@@ -7,7 +7,7 @@ module Meridian
         end
 
         def summary : String
-          "Manage kamal-proxy"
+          "Manage Caddy"
         end
 
         def usage : String
@@ -16,7 +16,7 @@ module Meridian
 
         def subcommand_summaries : Array({String, String})
           [
-            {"remove", "Stop and remove kamal-proxy"},
+            {"remove", "Stop and remove Caddy"},
           ]
         end
 
@@ -34,7 +34,7 @@ module Meridian
         end
 
         def summary : String
-          "Stop and remove kamal-proxy"
+          "Stop and remove Caddy"
         end
 
         def usage : String
@@ -42,7 +42,7 @@ module Meridian
         end
 
         def description : String
-          "Stop and remove kamal-proxy from web hosts."
+          "Remove this service's routes and stop Caddy when it is no longer shared."
         end
 
         def configure(parser : OptionParser) : Nil

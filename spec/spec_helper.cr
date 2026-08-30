@@ -152,7 +152,15 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
       end
     end
 
-    @queued_results.shift? || @next_result
+    if result = @queued_results.shift?
+      return result
+    end
+
+    if invocation.remote_command.try(&.includes?("/reverse_proxy/upstreams"))
+      raise "Missing explicit fake result for Caddy upstream query"
+    end
+
+    @next_result
   end
 
   private def take_pause_request(invocation : FakeSSHInvocation) : PauseRequest?
@@ -279,11 +287,21 @@ class FakeProxyManager < Meridian::Proxy::Manager
   getter remove_force : Bool?
   property setup_error : Meridian::Proxy::SetupFailed?
   property remove_error : Meridian::Proxy::RemoveFailed?
+  property switch_error : Meridian::Proxy::RouteFailed?
+  property maintenance_error : Meridian::Proxy::RouteFailed?
+  property register_assets_error : Meridian::Proxy::RouteFailed?
+  getter switch_calls = [] of NamedTuple(host: String, target: String)
+  getter drain_calls = [] of NamedTuple(host: String, target: String)
+  getter maintenance_calls = [] of NamedTuple(host: String, target: String)
+  getter register_assets_calls = [] of String
 
   def initialize(
     config : Meridian::Config::DeployConfig,
     @setup_error : Meridian::Proxy::SetupFailed? = nil,
     @remove_error : Meridian::Proxy::RemoveFailed? = nil,
+    @switch_error : Meridian::Proxy::RouteFailed? = nil,
+    @maintenance_error : Meridian::Proxy::RouteFailed? = nil,
+    @register_assets_error : Meridian::Proxy::RouteFailed? = nil,
     output : IO = IO::Memory.new,
   )
     super(
@@ -305,6 +323,31 @@ class FakeProxyManager < Meridian::Proxy::Manager
     @remove_calls += 1
     @remove_force = force
     if error = @remove_error
+      raise error
+    end
+  end
+
+  def switch(host : String, proxy : Meridian::Config::ServerProxyConfig, target : String) : Nil
+    @switch_calls << {host: host, target: target}
+    if error = @switch_error
+      raise error
+    end
+  end
+
+  def drain(host : String, target : String) : Nil
+    @drain_calls << {host: host, target: target}
+  end
+
+  def maintenance(host : String, proxy : Meridian::Config::ServerProxyConfig, old_target : String) : Nil
+    @maintenance_calls << {host: host, target: old_target}
+    if error = @maintenance_error
+      raise error
+    end
+  end
+
+  def register_assets(host : String) : Nil
+    @register_assets_calls << host
+    if error = @register_assets_error
       raise error
     end
   end
@@ -471,7 +514,7 @@ MINIMAL_CONFIG = <<-YAML
           - 192.168.1.10
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
 
     registry:
       server: registry.example.com
@@ -507,7 +550,7 @@ FULL_CONFIG = <<-YAML
         cmd: bin/sidekiq
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
 
     env:
       clear:
@@ -564,7 +607,7 @@ FULL_CONFIG_WITH_KEYS = <<-YAML
           - 192.168.1.10
 
     proxy:
-      image: ghcr.io/basecamp/kamal-proxy:latest
+      image: docker.io/library/caddy:2.11.4-alpine
 
     registry:
       server: registry.example.com

@@ -70,7 +70,7 @@ describe Meridian::Commands::Server do
               hosts:
                 - 1.2.3.4
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy
@@ -107,7 +107,7 @@ describe Meridian::Commands::Server do
               hosts:
                 - 1.2.3.4
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy
@@ -144,7 +144,7 @@ describe Meridian::Commands::Server do
               hosts:
                 - 1.2.3.4
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy
@@ -185,7 +185,7 @@ describe Meridian::Commands::Server do
                 hosts:
                   - 1.2.3.4
             proxy:
-              image: ghcr.io/basecamp/kamal-proxy:latest
+              image: docker.io/library/caddy:2.11.4-alpine
             registry:
               server: registry.example.com
               username: deploy
@@ -223,7 +223,7 @@ describe Meridian::Commands::Server do
             hosts:
               - 1.2.3.4
         proxy:
-          image: ghcr.io/basecamp/kamal-proxy:latest
+          image: docker.io/library/caddy:2.11.4-alpine
         registry:
           server: registry.example.com
           username: deploy
@@ -252,7 +252,7 @@ describe Meridian::Commands::Server do
               hosts:
                 - 5.6.7.8
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy
@@ -289,7 +289,7 @@ describe Meridian::Commands::Server do
                 - 1.1.1.1
                 - 2.2.2.2
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy
@@ -323,7 +323,7 @@ describe Meridian::Commands::Server do
               hosts:
                 - 1.2.3.4
           proxy:
-            image: ghcr.io/basecamp/kamal-proxy:latest
+            image: docker.io/library/caddy:2.11.4-alpine
           registry:
             server: registry.example.com
             username: deploy

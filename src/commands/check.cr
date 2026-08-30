@@ -202,13 +202,34 @@ rescue
         end
 
         if check_proxy?(host_context)
-          results << check_kamal_proxy(host_context.host, 30)
-          results << check_proxy_network(host_context.host, 31)
+          results << check_caddy(host_context.host, 30)
+          results << command_probe(
+            host_context.host,
+            "caddy-version",
+            31,
+            ["sh", "-lc", caddy_version_check],
+            ">= 2.11.2"
+          )
+          results << command_probe(
+            host_context.host,
+            "caddy-admin",
+            32,
+            ["curl", "--silent", "--show-error", "--fail", "--unix-socket", Proxy::Manager::ADMIN_SOCKET, "http://localhost/config/"],
+            "reachable"
+          )
+          results << command_probe(
+            host_context.host,
+            "caddy-config",
+            33,
+            ["podman", "exec", Proxy::Manager::PROXY_NAME, "caddy", "validate", "--config", "/config/Caddyfile", "--adapter", "caddyfile"],
+            "valid"
+          )
+          results << check_proxy_network(host_context.host, 34)
           if proxy = @config.servers["web"]?.try(&.proxy)
             results << command_probe(
               host_context.host,
               "probe-image",
-              32,
+              35,
               ["podman", "image", "exists", proxy.healthcheck.probe_image],
               proxy.healthcheck.probe_image
             )
@@ -382,17 +403,21 @@ rescue
         fail(host, "podman", position, ex.message || "podman version check failed")
       end
 
-      private def check_kamal_proxy(host : String, position : Int32) : ProbeResult
+      private def check_caddy(host : String, position : Int32) : ProbeResult
         result = run_ssh(
           host,
-          ["podman", "inspect", "--format", "{{.State.Running}}", "kamal-proxy"],
+          ["podman", "inspect", "--format", "{{.State.Running}}", Proxy::Manager::PROXY_NAME],
           batch_mode: true
         )
-        return fail(host, "kamal-proxy", position, failure_detail(result)) unless result.exit_code.zero?
+        return fail(host, "caddy", position, failure_detail(result)) unless result.exit_code.zero?
 
-        result.stdout.strip == "true" ? pass(host, "kamal-proxy", position, "running") : fail(host, "kamal-proxy", position, "not running")
+        result.stdout.strip == "true" ? pass(host, "caddy", position, "running") : fail(host, "caddy", position, "not running")
       rescue ex : SSH::ConnectionError
-        fail(host, "kamal-proxy", position, ex.message || "kamal-proxy check failed")
+        fail(host, "caddy", position, ex.message || "Caddy check failed")
+      end
+
+      private def caddy_version_check : String
+        Proxy::Manager::VERSION_CHECK
       end
 
       private def check_proxy_network(host : String, position : Int32) : ProbeResult
