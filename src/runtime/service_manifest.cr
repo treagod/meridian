@@ -197,9 +197,10 @@ module Meridian
 
       def collisions_with(other : ServiceManifest) : Array(String)
         if other.service == service
-          return [] of String if same_owner?(other)
+          differing = ownership_differences(other)
+          return [] of String if differing.empty?
 
-          return ["service name #{service} is already registered with different ownership data"]
+          return ["service name #{service} is already registered with different ownership data (#{differing.join(", ")})"]
         end
 
         collisions = [] of String
@@ -287,16 +288,18 @@ module Meridian
         {shared.uniq!.sort!, conflicting.uniq!.sort!}
       end
 
-      private def same_owner?(other : ServiceManifest) : Bool
-        proxy_routes.map(&.display).sort! == other.proxy_routes.map(&.display).sort! &&
-          asset_host == other.asset_host &&
-          ports == other.ports &&
-          accessories == other.accessories &&
-          networks == other.networks &&
-          generated_files == other.generated_files &&
-          active_color_path == other.active_color_path &&
-          release_state_path == other.release_state_path &&
-          lock_path == other.lock_path
+      # Identity only. State paths, generated_files and accessory refs drift
+      # between meridian versions, so comparing them reports drift as a conflict.
+      private def ownership_differences(other : ServiceManifest) : Array(String)
+        differing = [] of String
+
+        differing << "proxy_routes" unless proxy_routes.map(&.display).sort! == other.proxy_routes.map(&.display).sort!
+        differing << "asset_host" unless asset_host == other.asset_host
+        differing << "ports" unless ports == other.ports
+        differing << "accessories" unless accessories.keys.sort == other.accessories.keys.sort
+        differing << "networks" unless networks.sort == other.networks.sort
+
+        differing
       end
 
       private def self.generated_files_for(config : Config::DeployConfig) : Array(String)

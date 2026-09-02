@@ -173,6 +173,43 @@ describe Meridian::Runtime::ServiceManifest do
     end
   end
 
+  describe "same-service ownership" do
+    it "does not collide with its own manifest written by an older schema" do
+      current = manifest_for(service: "freshrss")
+      legacy = Meridian::Runtime::ServiceManifest.from_json(<<-JSON)
+          {
+            "schema_version": 1,
+            "service": "freshrss",
+            "proxy_routes": [],
+            "asset_host": null,
+            "ports": [],
+            "accessories": ["postgres"],
+            "networks": ["freshrss"],
+            "generated_files": [".config/containers/systemd/freshrss-old.container"],
+            "active_color_path": ".local/state/meridian/services/freshrss/active-color",
+            "release_state_path": ".local/state/meridian/services/freshrss/release-state.json",
+            "lock_path": ".local/state/meridian/services/freshrss/lock",
+            "audit_path": ".local/state/meridian/services/freshrss/audit.log",
+            "incremental_cache_path": "/tmp/meridian-oci/freshrss"
+          }
+        JSON
+
+      current.collisions_with(legacy).should be_empty
+    end
+
+    it "collides when the same name describes a different deployment" do
+      current = manifest_for(service: "freshrss")
+      other = Meridian::Runtime::ServiceManifest.from_json(
+        current.to_json.sub(%("accessories":{"postgres"), %("accessories":{"mysql"))
+      )
+
+      collisions = current.collisions_with(other)
+
+      collisions.size.should eq(1)
+      collisions.first.should contain("accessories")
+    end
+  end
+
   describe "existing collision rules" do
     it "still reports overlapping proxy routes" do
       left = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
