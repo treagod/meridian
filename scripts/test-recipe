@@ -3,6 +3,10 @@ set -euo pipefail
 
 RECIPE="${1:-}"
 
+# Recipe defaults; the arms below override what they need.
+TRANSFER_MODE="stream"
+INCREMENTAL_CHECK=0
+
 case "$RECIPE" in
   marten-sqlite-assets)
     SERVICE="meridian-e2e"
@@ -61,6 +65,29 @@ case "$RECIPE" in
     )
     ROLLBACK_LEG=0
     ;;
+  marten-sqlite-incremental)
+    # Same fixture and service as marten-sqlite-assets, on its own throwaway VM,
+    # but transferred with `mode: incremental` so the two deploys can be compared
+    # byte-for-byte. The rollback leg's two tagged images are what make that
+    # comparison meaningful: release-b only invalidates the Containerfile's
+    # trailing RELEASE_MARKER layer, so everything heavier must be reused.
+    SERVICE="meridian-e2e"
+    FIXTURE_NAME="marten-sqlite-assets"
+    VM_SUFFIX="incremental"
+    IMAGE="localhost/meridian-e2e-incremental:latest"
+    APP_HOST="e2e-app.test"
+    ASSET_HOST="e2e-assets.test"
+    ASSET_HREF_PATTERN="css\\/app"
+    HEALTH_PATH="/health"
+    HEALTH_BODY_PATTERN="^ok$"
+    DATA_STORE_LABEL="SQLite"
+    SUCCESS_LABEL="Incremental transfer E2E"
+    ACCESSORIES=()
+    SECRETS=("MARTEN_SECRET_KEY=e2e-secret-key-that-is-long-enough-for-marten")
+    TRANSFER_MODE="incremental"
+    INCREMENTAL_CHECK=1
+    ROLLBACK_LEG=1
+    ;;
   go-static-binary)
     SERVICE="meridian-e2e-go"
     FIXTURE_NAME="go-static-binary"
@@ -80,7 +107,7 @@ case "$RECIPE" in
     ROLLBACK_LEG=0
     ;;
   *)
-    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-postgres-dragonfly-assets|rails-postgres|go-static-binary" >&2
+    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-sqlite-incremental|marten-postgres-dragonfly-assets|rails-postgres|go-static-binary" >&2
   exit 64
     ;;
 esac
@@ -118,7 +145,17 @@ require_command() {
   fi
 }
 
-for command in crystal curl expect limactl nc podman ssh-keygen; do
+REQUIRED_COMMANDS=(crystal curl expect limactl nc podman ssh-keygen)
+
+# Transfer::Incremental shells out to rsync on the *local* side as well, and only
+# discovers it is missing at the first deploy -- ten minutes of VM boot, image
+# build, and bootstrap into a run. Fail up front instead. (skopeo is needed only
+# on the host, where `server bootstrap` installs it.)
+if [[ "$TRANSFER_MODE" == "incremental" ]]; then
+  REQUIRED_COMMANDS+=(rsync)
+fi
+
+for command in "${REQUIRED_COMMANDS[@]}"; do
   require_command "$command"
 done
 
@@ -174,6 +211,7 @@ render_deploy_config() {
     -e "s|__HOST__|$VM_IP|g" \
     -e "s|__SSH_KEY__|$KEY_FILE|g" \
     -e "s|__IMAGE__|$1|g" \
+    -e "s|__TRANSFER_MODE__|$TRANSFER_MODE|g" \
     "$APP_DIR/.meridian/deploy.yml.template" >"$APP_DIR/.meridian/deploy.yml"
 }
 
@@ -189,6 +227,21 @@ assert_release_marker() {
     echo "Expected release marker '$expected' but got '$body'" >&2
     return 1
   fi
+}
+
+# Reads the byte count out of Transfer::Incremental's "[host] Transferred 31.4 MB
+# in 22.10s" line. Units come from `format_bytes` in src/transfer/helpers.cr.
+transferred_bytes() {
+  awk '/\] Transferred /{
+    for (i = 1; i <= NF; i++) if ($i == "Transferred") { value = $(i + 1); unit = $(i + 2); break }
+    if (unit == "B") multiplier = 1
+    else if (unit == "KB") multiplier = 1024
+    else if (unit == "MB") multiplier = 1024 * 1024
+    else if (unit == "GB") multiplier = 1024 * 1024 * 1024
+    else next
+    printf "%d\n", value * multiplier
+    exit
+  }' "$1"
 }
 
 # Removing the old colour's container right after the proxy switch can stall
@@ -417,6 +470,54 @@ if [[ -n "$ASSET_HREF_PATTERN" ]]; then
   grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
 fi
 
+# Meridian-managed assets are served by the shared Caddy off its own read-only
+# mount. There is no per-service asset sidecar any more, so prove both that the
+# container is absent and that the bytes still arrive with the CDN headers.
+if [[ -n "$ASSET_HOST" ]]; then
+  log_step "Verifying the shared proxy serves assets without a sidecar"
+
+  if ssh_deploy "podman container exists $SERVICE-assets-server"; then
+    echo "Found a $SERVICE-assets-server container; the asset sidecar should be gone" >&2
+    exit 74
+  fi
+
+  if ! ssh_deploy "test -d ~/.local/state/meridian/assets/$SERVICE/current"; then
+    echo "No asset release directory on the host. Contents:" >&2
+    ssh_deploy "ls -la ~/.local/state/meridian/assets/ ~/.local/state/meridian/assets/$SERVICE/ 2>&1" >&2 || true
+    exit 74
+  fi
+
+  if ! ssh_deploy "podman exec meridian-caddy test -d /srv/assets/$SERVICE/current"; then
+    echo "meridian-caddy cannot see the asset release. Mount contents:" >&2
+    ssh_deploy "podman exec meridian-caddy ls -la /srv/assets /srv/assets/$SERVICE 2>&1" >&2 || true
+    exit 74
+  fi
+
+  # `Vary: Accept-Encoding`, not `Content-Encoding: gzip`: Caddy's `encode` skips
+  # bodies under its 512-byte minimum, and the fixture's CSS is well under that.
+  # Vary is emitted whenever the directive is installed, at any size, so it is the
+  # assertion that actually tracks `assets.compression`.
+  ASSET_HEADERS="$(
+    curl --fail --silent --show-error --dump-header - --output /dev/null \
+      --header "Accept-Encoding: gzip" \
+      --resolve "$ASSET_HOST:80:$VM_IP" \
+      "http://$ASSET_HOST$ASSET_PATH"
+  )"
+  for expected in \
+    "cache-control: public, max-age=31536000, immutable" \
+    "vary: accept-encoding" \
+    "access-control-allow-origin: \*"
+  do
+    if ! grep -qi "$expected" <<<"$ASSET_HEADERS"; then
+      echo "Asset response is missing '$expected'. Headers were:" >&2
+      echo "$ASSET_HEADERS" >&2
+      exit 74
+    fi
+  done
+
+  FIRST_ASSET_RELEASE="$(ssh_deploy "readlink ~/.local/state/meridian/assets/$SERVICE/current")"
+fi
+
 if [[ -n "$DATA_STORE_LABEL" ]]; then
   log_step "Writing persistent $DATA_STORE_LABEL data"
   RECORD_BODY="$(
@@ -444,6 +545,14 @@ if [[ "$ROLLBACK_LEG" == "1" ]]; then
 fi
 
 sleep 2
+
+# With retain_releases=2 two deploys alone leave exactly two directories, so the
+# count check below would pass even if pruning never ran. Seed a lexically
+# smallest stale release so the prune has something it must actually delete.
+if [[ -n "$ASSET_HOST" ]]; then
+  STALE_ASSET_RELEASE="00000000000000"
+  ssh_deploy "mkdir -p ~/.local/state/meridian/assets/$SERVICE/$STALE_ASSET_RELEASE"
+fi
 
 log_step "Running second deploy"
 if [[ "$RECIPE" == "go-static-binary" ]]; then
@@ -505,6 +614,36 @@ fi
 log_step "Verifying health, persistence, and assets after redeploy"
 run_logged health-after-redeploy wait_for_app_health
 
+# The whole point of `transfer.mode: incremental`: the second deploy rsyncs an OCI
+# layout whose heavy blobs are already on the host, so only the changed top layer
+# crosses the wire. Blob filenames are content digests, so this only holds if
+# skopeo re-exports unchanged layers byte-for-byte -- which nothing but a real
+# transfer can prove.
+if [[ "$INCREMENTAL_CHECK" == "1" ]]; then
+  log_step "Verifying the second transfer reused the unchanged layers"
+
+  if ! ssh_deploy "test -d /tmp/meridian-oci/$SERVICE"; then
+    echo "No remote OCI layout at /tmp/meridian-oci/$SERVICE; incremental transfer never ran" >&2
+    exit 78
+  fi
+
+  FIRST_BYTES="$(transferred_bytes "$LOG_DIR/deploy-first.log")"
+  SECOND_BYTES="$(transferred_bytes "$LOG_DIR/deploy-second.log")"
+
+  if [[ -z "$FIRST_BYTES" || -z "$SECOND_BYTES" ]]; then
+    echo "Could not read a 'Transferred ... in ...' line from both deploy logs (first='$FIRST_BYTES' second='$SECOND_BYTES')" >&2
+    exit 78
+  fi
+
+  if (( SECOND_BYTES * 10 >= FIRST_BYTES )); then
+    echo "Second deploy sent $SECOND_BYTES bytes against $FIRST_BYTES on the first; unchanged layers were re-sent" >&2
+    exit 78
+  fi
+
+  echo "Incremental transfer sent $SECOND_BYTES bytes on the redeploy, down from $FIRST_BYTES"
+fi
+
+
 if [[ -n "$DATA_STORE_LABEL" ]]; then
   curl --fail --silent --show-error \
     --resolve "$APP_HOST:80:$VM_IP" \
@@ -521,6 +660,37 @@ if [[ -n "$ASSET_HREF_PATTERN" ]]; then
   curl --fail --silent --show-error \
     --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
     "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+fi
+
+# The `:U` builder mount leaves release directories owned by a mapped subuid, so
+# pruning only works from inside the user namespace. Nothing but a real deploy
+# exercises that, which is why this lives here and not in a spec.
+if [[ -n "$ASSET_HOST" ]]; then
+  log_step "Verifying asset release rotation and pruning"
+
+  SECOND_ASSET_RELEASE="$(ssh_deploy "readlink ~/.local/state/meridian/assets/$SERVICE/current")"
+  if [[ "$FIRST_ASSET_RELEASE" == "$SECOND_ASSET_RELEASE" ]]; then
+    echo "Expected the second deploy to publish a new asset release, but current still points at $FIRST_ASSET_RELEASE" >&2
+    exit 75
+  fi
+
+  RETAIN_RELEASES="$(
+    sed -n 's/^  retain_releases: \([0-9][0-9]*\).*/\1/p' "$APP_DIR/.meridian/deploy.yml" | head -n 1
+  )"
+  RETAIN_RELEASES="${RETAIN_RELEASES:-2}"
+
+  if ssh_deploy "test -d ~/.local/state/meridian/assets/$SERVICE/$STALE_ASSET_RELEASE"; then
+    echo "Stale asset release $STALE_ASSET_RELEASE survived the deploy; pruning did not run" >&2
+    exit 76
+  fi
+
+  ASSET_RELEASE_COUNT="$(
+    ssh_deploy "find ~/.local/state/meridian/assets/$SERVICE -maxdepth 1 -mindepth 1 -type d | wc -l" | tr -d '[:space:]'
+  )"
+  if (( ASSET_RELEASE_COUNT > RETAIN_RELEASES )); then
+    echo "Expected at most $RETAIN_RELEASES asset releases after pruning, found $ASSET_RELEASE_COUNT" >&2
+    exit 77
+  fi
 fi
 
 if [[ "$ROLLBACK_LEG" == "1" ]]; then

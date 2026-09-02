@@ -144,10 +144,17 @@ meridian check --role web --host prod-01.example.com
 
 Accepts the [target selectors](#target-selectors).
 
-Probes SSH, Podman, lingering, Quadlet directories, transfer tools, Podman secrets,
+Probes SSH, Podman, lingering, Quadlet directories, transfer tools on the host *and*
+on the machine you deploy from, Podman secrets,
 local image availability for registry-free transfer, readability of every local
 `files:` source, Caddy container/version/admin API/configuration, the shared proxy network, accessory readiness, and
 same-host manifest collisions.
+
+Transfer tooling is probed on both ends because both ends run it: `stream` pipes
+through a local `zstd`, and `incremental` shells out to a local `rsync`
+before anything is sent (its export uses `podman save`, and its `skopeo` import runs on the host). A `tool:` row on a host address is the remote side; one on
+`local` is your own machine. (`zstd` appears only on the host rows for `incremental` —
+`server bootstrap` installs it there, but the local incremental path never runs it.)
 
 Two probes have detail worth knowing. A local `files:` source must be a readable
 regular file — the same thing the deploy reads — so a directory is reported as a

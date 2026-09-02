@@ -58,10 +58,8 @@ describe "documentation recipes" do
           end
         end
         if config.assets
-          generator.assets_volume_file.should_not be_empty
           generator.assets_builder_file("test-release").should_not be_empty
-          generator.assets_server_file.should_not be_empty
-          generator.assets_caddy_config.should_not be_empty
+          generator.proxy_asset_route.should_not be_empty
         end
       end
     end

@@ -104,7 +104,7 @@ for field details. The image build and generated manifest follow Marten's
 guidance; Postgres consumes the password through the official image's
 [`POSTGRES_PASSWORD_FILE`](https://hub.docker.com/_/postgres) convention. Marten's
 `config.assets.url` (in the production settings below) must point at the same host
-as `assets.host` so fingerprinted URLs resolve to the generated asset server; see
+as `assets.host` so fingerprinted URLs resolve through the shared Caddy proxy; see
 [CSS `url()` 404s](/guide/troubleshooting#css-url-assets-404-against-the-asset-cdn)
 if CSS-referenced files 404.
 

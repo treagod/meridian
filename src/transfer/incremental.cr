@@ -42,7 +42,6 @@ module Meridian
       end
 
       def transfer(host : String, image : String) : Nil
-        ensure_local_dependency!("skopeo")
         ensure_local_dependency!("rsync")
         ensure_remote_dependency!(host, "skopeo")
         ensure_remote_dependency!(host, "rsync")
@@ -51,9 +50,15 @@ module Meridian
 
         print_line(host, "Syncing image #{image} incrementally")
         started_at = @monotonic_clock.call
+        # `podman save`, not `skopeo copy containers-storage:`: on macOS podman talks
+        # to a VM, so the image lives in the machine's storage while a host-native
+        # skopeo reads an empty ~/.local/share/containers/storage and can never find
+        # it. podman writes the same OCI layout through the machine, so this is the
+        # only export that works on every platform Meridian is driven from. The
+        # remote import stays on skopeo -- there podman storage is local.
         run_local!(
-          "skopeo copy",
-          ["skopeo", "copy", "containers-storage:#{image}", "oci:#{oci_layout_path}"]
+          "podman save",
+          ["podman", "save", "--format", "oci-dir", "--output", oci_layout_path, image]
         )
         run_remote!(
           host,
@@ -74,10 +79,16 @@ module Meridian
           ],
           env: {"LC_ALL" => "C"}
         )
+        # Wrapped in `podman unshare` because Ubuntu 24.04 ships
+        # kernel.apparmor_restrict_unprivileged_userns=1, which denies unshare(2) to
+        # binaries without an AppArmor profile. Podman has one and skopeo does not,
+        # so a bare `skopeo copy` into rootless containers-storage dies with
+        # "Error during unshare(...): Operation not permitted". Running it inside
+        # podman's user namespace is the same trick the asset prune already uses.
         run_remote!(
           host,
           "skopeo copy",
-          ["skopeo", "copy", "oci:#{oci_layout_path}", "containers-storage:#{image}"]
+          ["podman", "unshare", "skopeo", "copy", "oci:#{oci_layout_path}", "containers-storage:#{image}"]
         )
 
         elapsed = @monotonic_clock.call - started_at
@@ -179,13 +190,17 @@ module Meridian
         TransferFailed.new("#{label} failed with exit code #{exit_code}: #{details}")
       end
 
+      # Bytes actually put on the wire, which is the only number that says anything
+      # about reuse. GNU rsync labels it "Total bytes sent:", macOS's openrsync
+      # "Total sent:". Deliberately no fall back to "Total transferred file size:":
+      # that counts whole files considered for transfer, so a redeploy that sent
+      # 746 bytes of deltas over a 30 MB layout reports 30 MB -- worse than
+      # reporting nothing. Unrecognised output prints "unknown bytes".
       private def parse_rsync_bytes(output : String) : Int64?
-        if match = /Total bytes sent:\s+([0-9,]+)/.match(output)
-          return match[1].delete(',').to_i64?
-        end
-
-        if match = /Total transferred file size:\s+([0-9,]+)/.match(output)
-          return match[1].delete(',').to_i64?
+        {/Total bytes sent:\s+([0-9,]+)/, /Total sent:\s+([0-9,]+)/}.each do |pattern|
+          if match = pattern.match(output)
+            return match[1].delete(',').to_i64?
+          end
         end
 
         nil

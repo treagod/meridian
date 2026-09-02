@@ -81,6 +81,7 @@ def build_check_command(
   output : IO = IO::Memory.new,
   local_image_probe : Meridian::Commands::Check::LocalImageProbe = ->(_image : String) { true },
   local_file_probe : Meridian::Commands::Check::LocalFileProbe = Meridian::Commands::Check::DEFAULT_LOCAL_FILE_PROBE,
+  local_command_probe : Meridian::Commands::Check::LocalCommandProbe = ->(_command : String) { true },
 )
   config = load_config(content)
   executor = Meridian::SSH::Executor.new(
@@ -93,7 +94,8 @@ def build_check_command(
     output: output,
     error: output,
     local_image_probe: local_image_probe,
-    local_file_probe: local_file_probe
+    local_file_probe: local_file_probe,
+    local_command_probe: local_command_probe
   )
 end
 
@@ -498,6 +500,75 @@ describe "Meridian::Commands::Check" do
       output.to_s.should contain("probe-image")
     end
 
+    it "fails when the proxy is missing the shared asset mount" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+
+          assets:
+            host: static.example.com
+            command: bin/build-assets
+            output_dir: /app/public/assets
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(
+        ssh_ok,                           # connectivity
+        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok,                           # lingering
+        ssh_ok,                           # quadlet-dir
+        ssh_ok("true\n"),                 # Caddy running
+        ssh_ok,                           # Caddy version
+        ssh_ok,                           # Caddy admin API
+        ssh_ok,                           # Caddy config
+        ssh_ok,                           # proxy-network exists
+        ssh_ok,                           # probe-image present
+        check_ssh_fail                    # /srv/assets not mounted
+      )
+
+      command.run.should be_false
+
+      output.to_s.should contain("caddy-assets")
+    end
+
+    it "skips the asset mount probe when assets are not configured" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: myapp.example.com
+          YAML
+        runner: runner,
+        output: output
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+      command.run
+
+      remote_commands_for(runner).any?(&.includes?("test -d /srv/assets")).should be_false
+      output.to_s.should_not contain("caddy-assets")
+    end
+
     it "fails when a remote service manifest owns an overlapping proxy route" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new
@@ -673,6 +744,137 @@ describe "Meridian::Commands::Check" do
 
       text = output.to_s
       text.should contain("image:registry.example.com/myorg/myapp")
+      text.should contain("not found locally")
+      text.should contain("Check failed")
+    end
+
+    it "probes the local tools an incremental transfer shells out to" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: incremental
+          YAML
+        runner: runner,
+        output: output,
+        local_command_probe: ->(command : String) { probed << command; true }
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_true
+
+      # zstd and skopeo are remote-only requirements for incremental: the local
+      # export goes through `podman save` and the import runs skopeo on the host.
+      probed.should eq(["rsync"])
+      output.to_s.should contain("local")
+    end
+
+    it "probes zstd locally for a stream transfer" do
+      runner = FakeSSHRunner.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: stream
+          YAML
+        runner: runner,
+        local_command_probe: ->(command : String) { probed << command; true }
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
+
+      command.run.should be_true
+      probed.should eq(["zstd"])
+    end
+
+    it "probes no local transfer tools for a registry transfer" do
+      runner = FakeSSHRunner.new
+      probed = [] of String
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: registry
+          YAML
+        runner: runner,
+        local_command_probe: ->(command : String) { probed << command; true }
+      )
+
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
+
+      command.run.should be_true
+      probed.should be_empty
+    end
+
+    it "fails when a local transfer tool is missing even though the host has it" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+
+          transfer:
+            mode: incremental
+          YAML
+        runner: runner,
+        output: output,
+        local_command_probe: ->(command : String) { command != "rsync" }
+      )
+
+      runner.enqueue_results(
+        ssh_ok,
+        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok,
+        ssh_ok
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("tool:rsync")
       text.should contain("not found locally")
       text.should contain("Check failed")
     end

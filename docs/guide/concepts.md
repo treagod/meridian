@@ -71,9 +71,7 @@ through systemd.
   my-app-green.container
   my-app-workers.container
   my-app-postgres.container
-  my-app-assets.volume
   my-app-assets-builder.container
-  my-app-assets-server.container
   meridian-caddy.container
   meridian-proxy.network
 ```
@@ -84,7 +82,7 @@ through systemd.
 | `<service>-<color>.container` | Blue or green app container for a proxied managed role. |
 | `<service>-<role>.container` | Stable restart-in-place container for a non-proxied managed role. |
 | `<accessory>.container` | Standalone accessory service such as Postgres or Redis. |
-| `<service>-assets-*` | Asset volume, builder, and static-server units when `assets:` is configured. |
+| `<service>-assets-builder.container` | One-shot asset build unit when `assets:` is configured. |
 | `meridian-caddy.container` | Shared host-level Caddy container. |
 | `meridian-proxy.network` | Shared network Caddy and proxied app containers join. |
 
@@ -106,10 +104,16 @@ front-end bundle as part of the deploy:
 
 1. A one-shot builder container runs `assets.command` in the app image.
 2. Its `assets.output_dir` output is copied into a timestamped release directory
-   on the `<service>-assets` volume.
+   under `~/.local/state/meridian/assets/<service>/`.
 3. A `current` symlink is repointed to the new release.
-4. A generated Caddy static server serves `current` through an independent
+4. The shared Caddy proxy serves `current` directly, through an independent
    `<service>-assets.caddy` route on `assets.host`.
+
+There is no separate asset server: `meridian-caddy` bind-mounts
+`~/.local/state/meridian/assets` read-only at `/srv/assets`, so one mount covers
+every service on the host. Because the cache, CORS, and compression directives
+live in the route fragment, changing them takes effect on the next deploy's
+config reload rather than needing a container restart.
 
 Old releases are retained (`assets.retain_releases`) so fingerprinted URLs from
 the previous version keep resolving during the rollout window. The framework's

@@ -491,11 +491,8 @@ def enqueue_zero_downtime_assets_success(
     ssh_ok,                            # mkdir -p service state dir
     ssh_ok,                            # upload shared proxy network Quadlet
     ssh_ok,                            # upload container Quadlet
-    ssh_ok,                            # mkdir -p assets caddy dir
-    ssh_ok,                            # upload Caddyfile
-    ssh_ok,                            # upload assets.volume Quadlet
+    ssh_ok,                            # mkdir -p assets release dir
     ssh_ok,                            # upload assets-builder.container Quadlet
-    ssh_ok,                            # upload assets-server.container Quadlet
     ssh_ok,                            # daemon-reload
   ]
   # One manifest listing per host, when the service declares an accessory whose
@@ -503,7 +500,6 @@ def enqueue_zero_downtime_assets_success(
   results.insert(1, ssh_ok) if accessory_preflight > 0
   accessory_probes.times { results << ssh_ok }
   results << ssh_ok # restart assets-builder.service
-  results << ssh_ok # start assets-server.service
   if real_proxy
     results << ssh_ok # upload pending Caddy asset route
     results << ssh_ok # atomically reload Caddy asset route
@@ -2708,7 +2704,7 @@ describe "Meridian::Deploy::Orchestrator" do
   end
 
   describe "static assets" do
-    it "uploads asset Quadlets and Caddyfile before daemon-reload" do
+    it "uploads only the builder Quadlet, after creating the release directory and before daemon-reload" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_assets_success(runner)
       orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
@@ -2717,13 +2713,15 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner, "192.168.1.10")
       daemon_reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon-reload"
-      caddy_mkdir_index = commands.index("mkdir -p .config/containers/myapp-assets-caddy") || raise "Expected assets caddy mkdir"
+      mkdir_index = commands.index("mkdir -p .local/state/meridian/assets/myapp") || raise "Expected assets release mkdir"
 
-      caddy_mkdir_index.should be < daemon_reload_index
-      commands.should contain("cat > .config/containers/systemd/myapp-assets.volume")
+      mkdir_index.should be < daemon_reload_index
       commands.should contain("cat > .config/containers/systemd/myapp-assets-builder.container")
-      commands.should contain("cat > .config/containers/systemd/myapp-assets-server.container")
-      commands.should contain("cat > .config/containers/myapp-assets-caddy/Caddyfile")
+
+      # The sidecar and everything that fed it are gone.
+      commands.should_not contain("cat > .config/containers/systemd/myapp-assets.volume")
+      commands.should_not contain("cat > .config/containers/systemd/myapp-assets-server.container")
+      commands.should_not contain("cat > .config/containers/myapp-assets-caddy/Caddyfile")
     end
 
     it "runs the asset builder after daemon-reload and before starting the new service" do
@@ -2766,18 +2764,15 @@ describe "Meridian::Deploy::Orchestrator" do
       probe_index.should be < builder_index
     end
 
-    it "starts the asset server after the builder" do
+    it "starts no asset sidecar" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_assets_success(runner)
       orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
 
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
-      commands = remote_commands_for(runner, "192.168.1.10")
-      builder_index = commands.index("systemctl --user restart myapp-assets-builder.service") || raise "Expected builder restart"
-      server_index = commands.index("systemctl --user start myapp-assets-server.service") || raise "Expected server start"
-
-      builder_index.should be < server_index
+      remote_commands_for(runner, "192.168.1.10")
+        .should_not contain("systemctl --user start myapp-assets-server.service")
     end
 
     it "registers the asset server with Caddy using the configured host" do
@@ -2809,7 +2804,7 @@ describe "Meridian::Deploy::Orchestrator" do
       remote_commands_for(runner).should_not contain("systemctl --user start myapp-green.service")
     end
 
-    it "prunes releases from the physical Quadlet volume name" do
+    it "prunes old releases inside the user namespace, where the :U mount leaves them owned" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_assets_success(runner)
       orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
@@ -2817,8 +2812,9 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner, "192.168.1.10")
-      prune_command = commands.find(&.includes?("podman volume inspect")) || raise "Expected asset prune command"
-      prune_command.should contain("podman volume inspect systemd-myapp-assets")
+      prune_command = commands.find(&.includes?("podman unshare")) || raise "Expected asset prune command"
+      prune_command.should contain("find .local/state/meridian/assets/myapp")
+      prune_command.should contain("head -n -2")
     end
 
     it "does not run asset steps when assets are not configured" do

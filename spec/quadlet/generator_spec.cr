@@ -493,6 +493,7 @@ describe "Meridian::Quadlet::Generator" do
         PublishPort=8443:443
         Volume=/srv/meridian-caddy:/data
         Volume=%h/.config/containers/meridian-caddy:/config
+        Volume=%h/.local/state/meridian/assets:/srv/assets:ro
         Exec=caddy run --config /config/Caddyfile --adapter caddyfile
 
         [Service]
@@ -517,6 +518,7 @@ describe "Meridian::Quadlet::Generator" do
         PublishPort=443:443
         Volume=%h/.local/share/meridian-caddy:/data
         Volume=%h/.config/containers/meridian-caddy:/config
+        Volume=%h/.local/state/meridian/assets:/srv/assets:ro
         Exec=caddy run --config /config/Caddyfile --adapter caddyfile
 
         [Service]
@@ -605,7 +607,7 @@ describe "Meridian::Quadlet::Generator" do
       )
     end
 
-    it "renders an asset route with the web route's TLS setting" do
+    it "serves assets from the shared proxy's own mount, with the web route's TLS setting" do
       config = load_config(<<-YAML)
         service: myapp
         image: example.com/myapp
@@ -621,9 +623,37 @@ describe "Meridian::Quadlet::Generator" do
           output_dir: /app/public/assets
         YAML
 
-      Meridian::Quadlet::Generator.new(config)
-        .proxy_asset_route("static.example.com", "myapp-assets-server:80")
-        .should eq("static.example.com {\n\treverse_proxy myapp-assets-server:80\n}\n")
+      Meridian::Quadlet::Generator.new(config).proxy_asset_route.should eq(
+        "static.example.com {\n" \
+        "\troot * /srv/assets/myapp/current\n" \
+        "\theader Access-Control-Allow-Origin \"*\"\n" \
+        "\theader Cache-Control \"public, max-age=31536000, immutable\"\n" \
+        "\tencode zstd gzip\n" \
+        "\tfile_server\n" \
+        "}\n"
+      )
+    end
+
+    it "drops compression from the asset route when disabled" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+          compression: false
+        YAML
+
+      output = Meridian::Quadlet::Generator.new(config).proxy_asset_route
+      output.should start_with("http://static.example.com {\n")
+      output.should_not contain("encode")
+      output.should contain("file_server")
     end
   end
 
@@ -800,14 +830,6 @@ describe "Meridian::Quadlet::Generator" do
     end
   end
 
-  describe "#assets_volume_file" do
-    it "includes the [Volume] section header" do
-      output = build_quadlet_generator(assets_config).assets_volume_file
-
-      output.should contain("[Volume]")
-    end
-  end
-
   describe "#assets_builder_file" do
     it "sets the image to the global app image" do
       output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
@@ -821,10 +843,10 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("ContainerName=myapp-assets-builder")
     end
 
-    it "mounts the assets volume at /mnt/assets" do
+    it "mounts the service asset directory at /mnt/assets, chowned to the builder's UID" do
       output = build_quadlet_generator(assets_config).assets_builder_file("20240420120000")
 
-      output.should contain("Volume=myapp-assets.volume:/mnt/assets")
+      output.should contain("Volume=%h/.local/state/meridian/assets/myapp:/mnt/assets:U")
     end
 
     it "embeds the command, release_id, and current symlink in the Exec line" do
@@ -858,93 +880,6 @@ describe "Meridian::Quadlet::Generator" do
       expect_raises(ArgumentError, /Missing assets configuration/) do
         Meridian::Quadlet::Generator.new(config).assets_builder_file("20240420120000")
       end
-    end
-  end
-
-  describe "#assets_server_file" do
-    it "uses the caddy image" do
-      output = build_quadlet_generator(assets_config).assets_server_file
-
-      output.should contain("Image=docker.io/library/caddy:2-alpine")
-    end
-
-    it "names the server container after the service" do
-      output = build_quadlet_generator(assets_config).assets_server_file
-
-      output.should contain("ContainerName=myapp-assets-server")
-    end
-
-    it "mounts the assets volume read-only at /srv/assets" do
-      output = build_quadlet_generator(assets_config).assets_server_file
-
-      output.should contain("Volume=myapp-assets.volume:/srv/assets:ro")
-    end
-
-    it "mounts the Caddyfile from the home-relative config path" do
-      output = build_quadlet_generator(assets_config).assets_server_file
-
-      output.should contain("Volume=%h/.config/containers/myapp-assets-caddy/Caddyfile:/etc/caddy/Caddyfile:ro")
-    end
-
-    it "attaches to the shared proxy network" do
-      output = build_quadlet_generator(assets_config).assets_server_file
-
-      output.should contain("Network=meridian-proxy.network")
-    end
-
-    it "raises when assets configuration is absent" do
-      config = load_config(MINIMAL_CONFIG)
-
-      expect_raises(ArgumentError, /Missing assets configuration/) do
-        Meridian::Quadlet::Generator.new(config).assets_server_file
-      end
-    end
-  end
-
-  describe "#assets_caddy_config" do
-    it "disables auto_https" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.should contain("auto_https off")
-    end
-
-    it "serves the current asset release" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.lines.should contain("\troot * /srv/assets/current")
-      output.lines.should_not contain("\troot * /srv/assets")
-      output.should contain("file_server")
-    end
-
-    it "exposes an asset server health endpoint" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.should contain("respond /up 200")
-    end
-
-    it "sets a permissive Access-Control-Allow-Origin header for cross-origin asset loads" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.should contain(%(header Access-Control-Allow-Origin "*"))
-    end
-
-    it "compresses responses with zstd and gzip by default" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.should contain("encode zstd gzip")
-    end
-
-    it "ships a long-lived immutable Cache-Control header" do
-      output = build_quadlet_generator(assets_config).assets_caddy_config
-
-      output.should contain(%(header Cache-Control "public, max-age=31536000, immutable"))
-    end
-
-    it "omits the encode directive when compression is disabled but keeps Cache-Control" do
-      output = build_quadlet_generator(assets_config_without_compression).assets_caddy_config
-
-      output.should_not contain("encode zstd gzip")
-      output.should contain(%(header Cache-Control "public, max-age=31536000, immutable"))
     end
   end
 
@@ -1116,23 +1051,31 @@ describe "Meridian::Quadlet::Generator" do
       end
     end
 
-    it "creates an assets/ directory with volume, builder, and server files when assets are configured" do
+    it "creates an assets/ directory holding only the builder when assets are configured" do
       with_tempdir do |path|
         build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
 
-        File.exists?(File.join(path, "assets", "myapp-assets.volume")).should be_true
-        File.exists?(File.join(path, "assets", "myapp-assets-builder.container")).should be_true
-        File.exists?(File.join(path, "assets", "myapp-assets-server.container")).should be_true
+        Dir.children(File.join(path, "assets")).should eq(["myapp-assets-builder.container"])
       end
     end
 
-    it "creates the Caddyfile preview under assets/caddy/" do
+    it "previews the asset route alongside the shared proxy's other routes" do
       with_tempdir do |path|
         build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
 
-        caddyfile_path = File.join(path, "assets", "caddy", "Caddyfile")
-        File.exists?(caddyfile_path).should be_true
-        File.read(caddyfile_path).should contain("auto_https off")
+        route = File.read(File.join(path, "caddy", "routes", "myapp-assets.caddy"))
+        route.should contain("root * /srv/assets/myapp/current")
+        route.should contain("file_server")
+        route.should_not contain("reverse_proxy")
+      end
+    end
+
+    it "mounts the shared asset directory into the proxy preview" do
+      with_tempdir do |path|
+        build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
+
+        File.read(File.join(path, "meridian-caddy.container"))
+          .should contain("Volume=%h/.local/state/meridian/assets:/srv/assets:ro")
       end
     end
 

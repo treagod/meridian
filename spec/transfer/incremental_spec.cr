@@ -52,7 +52,7 @@ describe "Meridian::Transfer::Incremental" do
   end
 
   describe "#transfer" do
-    it "exports the image to an OCI layout directory using skopeo" do
+    it "exports the image to an OCI layout directory using podman save" do
       runner = FakeSSHRunner.new
       runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
       requests = [] of Meridian::Transfer::Incremental::LocalCommandRequest
@@ -67,10 +67,13 @@ describe "Meridian::Transfer::Incremental" do
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       requests.first.command.should eq([
-        "skopeo",
-        "copy",
-        "containers-storage:registry.example.com/myorg/myapp",
-        "oci:/tmp/meridian-oci/myapp",
+        "podman",
+        "save",
+        "--format",
+        "oci-dir",
+        "--output",
+        "/tmp/meridian-oci/myapp",
+        "registry.example.com/myorg/myapp",
       ])
     end
 
@@ -163,27 +166,25 @@ describe "Meridian::Transfer::Incremental" do
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       commands = remote_commands_for(runner, "192.168.1.10")
-      commands.should contain("skopeo copy oci:/tmp/meridian-oci/myapp containers-storage:registry.example.com/myorg/myapp")
+      commands.should contain("podman unshare skopeo copy oci:/tmp/meridian-oci/myapp containers-storage:registry.example.com/myorg/myapp")
     end
 
-    it "raises DependencyMissing when skopeo is not installed locally" do
+    it "does not require skopeo locally" do
       runner = FakeSSHRunner.new
-      local_commands = 0
+      runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
+      requests = [] of Meridian::Transfer::Incremental::LocalCommandRequest
       incremental = build_test_incremental(
         runner: runner,
         local_dependency_checker: ->(command : String) { command != "skopeo" },
-        local_command_runner: ->(_request : Meridian::Transfer::Incremental::LocalCommandRequest) do
-          local_commands += 1
+        local_command_runner: ->(request : Meridian::Transfer::Incremental::LocalCommandRequest) do
+          requests << request
           Meridian::Transfer::Incremental::LocalCommandResult.new(exit_code: 0, stdout: "", stderr: "")
         end
       )
 
-      expect_raises(Meridian::Transfer::DependencyMissing, /Missing local dependency: skopeo/) do
-        incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
-      end
+      incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
-      local_commands.should eq(0)
-      runner.invocations.should be_empty
+      requests.map(&.command.first).should eq(["podman", "rsync"])
     end
 
     it "raises DependencyMissing when rsync is not installed locally" do
@@ -245,7 +246,7 @@ describe "Meridian::Transfer::Incremental" do
         incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
       end
 
-      requests.map(&.command.first).should eq(["skopeo", "rsync"])
+      requests.map(&.command.first).should eq(["podman", "rsync"])
       remote_commands_for(runner, "192.168.1.10").should eq([
         "sh -lc 'command -v skopeo >/dev/null'",
         "sh -lc 'command -v rsync >/dev/null'",
@@ -253,7 +254,7 @@ describe "Meridian::Transfer::Incremental" do
       ])
     end
 
-    it "runs the skopeo export before the rsync" do
+    it "runs the podman export before the rsync" do
       runner = FakeSSHRunner.new
       runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
       requests = [] of Meridian::Transfer::Incremental::LocalCommandRequest
@@ -271,7 +272,7 @@ describe "Meridian::Transfer::Incremental" do
 
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
-      requests.map(&.command.first).should eq(["skopeo", "rsync"])
+      requests.map(&.command.first).should eq(["podman", "rsync"])
     end
 
     it "prints transferred size and elapsed time from rsync stats" do
@@ -305,7 +306,7 @@ describe "Meridian::Transfer::Incremental" do
       output.to_s.should contain("[192.168.1.10] Transferred 1.0 KB in 1.5s")
     end
 
-    it "falls back to total transferred file size when total bytes sent is unavailable" do
+    it "reads openrsync's Total sent label" do
       runner = FakeSSHRunner.new
       runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
       output = IO::Memory.new
@@ -313,7 +314,7 @@ describe "Meridian::Transfer::Incremental" do
         Meridian::Transfer::Incremental::LocalCommandResult.new(exit_code: 0, stdout: "", stderr: ""),
         Meridian::Transfer::Incremental::LocalCommandResult.new(
           exit_code: 0,
-          stdout: "Total transferred file size: 2048\n",
+          stdout: "Total sent: 2048 B\n",
           stderr: ""
         ),
       ]
@@ -328,6 +329,35 @@ describe "Meridian::Transfer::Incremental" do
       incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
 
       output.to_s.should contain("[192.168.1.10] Transferred 2.0 KB")
+    end
+
+    it "reports unknown rather than the misleading whole-file total" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results_for_host("192.168.1.10", incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok, incremental_ssh_ok)
+      output = IO::Memory.new
+      results = [
+        Meridian::Transfer::Incremental::LocalCommandResult.new(exit_code: 0, stdout: "", stderr: ""),
+        Meridian::Transfer::Incremental::LocalCommandResult.new(
+          exit_code: 0,
+          stdout: "Total transferred file size: 31457280 B\n",
+          stderr: ""
+        ),
+      ]
+      incremental = build_test_incremental(
+        runner: runner,
+        output: output,
+        local_command_runner: ->(_request : Meridian::Transfer::Incremental::LocalCommandRequest) do
+          results.shift? || raise "Unexpected local command"
+        end
+      )
+
+      incremental.transfer("192.168.1.10", "registry.example.com/myorg/myapp")
+
+      # That total counts every file considered for transfer, so a redeploy that
+      # delta-encoded 746 bytes over a 30 MB layout would report 30 MB. Reporting
+      # nothing is honest; reporting that number is not.
+      output.to_s.should contain("Transferred unknown bytes")
+      output.to_s.should_not contain("30.0 MB")
     end
 
     it "prints unknown bytes when rsync stats do not include a byte total" do

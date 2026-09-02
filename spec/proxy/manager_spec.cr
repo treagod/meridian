@@ -93,6 +93,7 @@ describe "Meridian::Proxy::Manager" do
       commands = remote_commands_for(runner, "192.168.1.10")
 
       commands.should contain("sh -lc 'command -v flock >/dev/null'")
+      commands.should contain("mkdir -p .config/containers/systemd .config/containers/meridian-caddy/routes .local/state/meridian/assets")
       commands.any? { |command| command.includes?("mkdir -p -- \"$path\"") && command.ends_with?("meridian %h/.local/share/meridian-caddy") }.should be_true
       commands.any? { |command| command.includes?("caddy version") && command.includes?("$3 >= 2") }.should be_true
       commands.should contain("curl --silent --show-error --fail --unix-socket .config/containers/meridian-caddy/admin.sock http://localhost/config/")
@@ -255,7 +256,12 @@ describe "Meridian::Proxy::Manager" do
 
       upload = runner.invocations.first
       upload.remote_command.should eq("cat > .config/containers/meridian-caddy/routes/myapp-assets.caddy.pending")
-      (upload.input || raise "Expected route").should contain("reverse_proxy myapp-assets-server:80")
+
+      # Served off the proxy's own read-only mount - no sidecar upstream.
+      route = upload.input || raise "Expected route"
+      route.should contain("root * /srv/assets/myapp/current")
+      route.should contain("file_server")
+      route.should_not contain("reverse_proxy")
     end
   end
 

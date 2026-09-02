@@ -3,6 +3,7 @@ module Meridian
     module Paths
       ROOT               = File.join(".local", "state", "meridian")
       SERVICES_DIRECTORY = File.join(ROOT, "services")
+      ASSETS_DIRECTORY   = File.join(ROOT, "assets")
 
       SHARED_PROXY_NETWORK      = "meridian-proxy"
       SHARED_PROXY_NETWORK_FILE = "#{SHARED_PROXY_NETWORK}.network"
@@ -11,6 +12,12 @@ module Meridian
 
       def self.service_directory(service : String) : String
         File.join(SERVICES_DIRECTORY, service)
+      end
+
+      # Built asset releases for one service. The shared proxy bind-mounts the
+      # parent read-only, so every service is reachable through one static mount.
+      def self.assets_directory(service : String) : String
+        File.join(ASSETS_DIRECTORY, service)
       end
 
       def self.active_color_file(service : String) : String

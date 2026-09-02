@@ -1266,20 +1266,11 @@ module Meridian
       end
 
       private def upload_assets_to_host(host : String, release_id : String) : Nil
-        log(host, "Ensuring assets Caddy config directory exists")
-        run_ssh!(host, ["mkdir", "-p", assets_caddy_dir])
-
-        log(host, "Uploading assets Caddy config")
-        upload_ssh(host, assets_caddy_config_path, @quadlet_generator.assets_caddy_config)
-
-        log(host, "Uploading assets volume Quadlet")
-        upload_ssh(host, assets_volume_quadlet_path, @quadlet_generator.assets_volume_file)
+        log(host, "Ensuring assets release directory exists")
+        run_ssh!(host, ["mkdir", "-p", assets_directory])
 
         log(host, "Uploading assets builder Quadlet")
         upload_ssh(host, assets_builder_quadlet_path, @quadlet_generator.assets_builder_file(release_id))
-
-        log(host, "Uploading assets server Quadlet")
-        upload_ssh(host, assets_server_quadlet_path, @quadlet_generator.assets_server_file)
       end
 
       private def run_asset_build_on_host(host : String) : Nil
@@ -1288,39 +1279,26 @@ module Meridian
         log(host, "Running asset builder")
         run_ssh!(host, ["systemctl", "--user", "restart", "#{@config.service}-assets-builder.service"])
 
-        log(host, "Starting asset server")
-        run_ssh!(host, ["systemctl", "--user", "start", "#{@config.service}-assets-server.service"])
-
-        log(host, "Registering asset server with Caddy")
+        log(host, "Publishing assets through Caddy")
         @proxy_manager.register_assets(host)
 
+        # The `:U` builder mount leaves release directories owned by a mapped
+        # subuid, so only the user namespace can remove them.
         log(host, "Pruning old asset releases (keeping #{assets.retain_releases})")
-        prune_cmd = "v=$(podman volume inspect systemd-#{@config.service}-assets --format '{{.Mountpoint}}') && " \
-                    "find \"$v\" -maxdepth 1 -mindepth 1 -type d | sort | head -n -#{assets.retain_releases} | xargs -r rm -rf"
-        prune_result = run_ssh(host, ["bash", "-c", prune_cmd])
+        find_cmd = "find #{Process.quote_posix(assets_directory)} -maxdepth 1 -mindepth 1 -type d | " \
+                   "sort | head -n -#{assets.retain_releases} | xargs -r rm -rf"
+        prune_result = run_ssh(host, ["bash", "-c", "podman unshare sh -c #{Process.quote_posix(find_cmd)}"])
         unless prune_result.exit_code.zero?
           log(host, "Asset release pruning failed with exit code #{prune_result.exit_code}")
         end
       end
 
-      private def assets_caddy_dir : String
-        File.join(".config", "containers", "#{@config.service}-assets-caddy")
-      end
-
-      private def assets_caddy_config_path : String
-        File.join(assets_caddy_dir, "Caddyfile")
-      end
-
-      private def assets_volume_quadlet_path : String
-        File.join(Quadlet::DIRECTORY, "#{@config.service}-assets.volume")
+      private def assets_directory : String
+        Runtime::Paths.assets_directory(@config.service)
       end
 
       private def assets_builder_quadlet_path : String
         File.join(Quadlet::DIRECTORY, "#{@config.service}-assets-builder.container")
-      end
-
-      private def assets_server_quadlet_path : String
-        File.join(Quadlet::DIRECTORY, "#{@config.service}-assets-server.container")
       end
 
       private def run_pre_deploy_hook : Nil

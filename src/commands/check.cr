@@ -23,6 +23,7 @@ module Meridian
 
       alias LocalImageProbe = Proc(String, Bool)
       alias LocalFileProbe = Proc(String, Bool)
+      alias LocalCommandProbe = Proc(String, Bool)
 
       DEFAULT_LOCAL_IMAGE_PROBE = ->(image : String) do
         Process.run("podman", ["image", "exists", image]).success?
@@ -34,8 +35,13 @@ rescue
       # a directory or a special file fails there even though it is "readable".
       DEFAULT_LOCAL_FILE_PROBE = ->(path : String) { File.file?(path) && File::Info.readable?(path) }
 
+      # Same primitive the transfer classes use, so the probe cannot disagree
+      # with the `ensure_local_dependency!` call it is predicting.
+      DEFAULT_LOCAL_COMMAND_PROBE = ->(command : String) { !Process.find_executable(command).nil? }
+
       @local_image_probe : LocalImageProbe
       @local_file_probe : LocalFileProbe
+      @local_command_probe : LocalCommandProbe
 
       def initialize(
         config : Config::DeployConfig,
@@ -45,10 +51,12 @@ rescue
         audit_logger : ::Meridian::Audit::Logger? = nil,
         local_image_probe : LocalImageProbe? = nil,
         local_file_probe : LocalFileProbe? = nil,
+        local_command_probe : LocalCommandProbe? = nil,
       )
         super(config, ssh_executor, output, error, audit_logger)
         @local_image_probe = local_image_probe || DEFAULT_LOCAL_IMAGE_PROBE
         @local_file_probe = local_file_probe || DEFAULT_LOCAL_FILE_PROBE
+        @local_command_probe = local_command_probe || DEFAULT_LOCAL_COMMAND_PROBE
       end
 
       def run(targets : Array(CLI::TargetSelector::Target)? = nil) : Bool
@@ -81,6 +89,7 @@ rescue
         end
 
         rows.concat(check_local_images(targets))
+        rows.concat(check_local_transfer_tools)
         rows.concat(check_local_files(targets))
         rows.concat(check_accessory_readiness_resolution)
 
@@ -99,6 +108,20 @@ rescue
             pass("local", "image:#{image}", index, "present")
           else
             fail("local", "image:#{image}", index, "not found locally; build or pull it first")
+          end
+        end
+      end
+
+      # `tool:` rows above prove the *remote* side. Both transfer classes shell out
+      # locally too and only raise DependencyMissing once the deploy is underway,
+      # so the local side belongs in preflight as well.
+      private def check_local_transfer_tools : Array(ProbeResult)
+        local_transfer_tools.map_with_index do |tool, index|
+          position = 60 + index
+          if @local_command_probe.call(tool)
+            pass("local", "tool:#{tool}", position, "found")
+          else
+            fail("local", "tool:#{tool}", position, "not found locally; install it to use transfer mode #{@config.transfer.try(&.mode)}")
           end
         end
       end
@@ -232,6 +255,17 @@ rescue
               35,
               ["podman", "image", "exists", proxy.healthcheck.probe_image],
               proxy.healthcheck.probe_image
+            )
+          end
+          # Without this mount Caddy answers every asset request with 404 and the
+          # deploy reports success; it appears once `meridian setup` has re-run.
+          if @config.assets
+            results << command_probe(
+              host_context.host,
+              "caddy-assets",
+              36,
+              ["podman", "exec", Proxy::Manager::PROXY_NAME, "test", "-d", "/srv/assets"],
+              "mounted"
             )
           end
         end
@@ -493,6 +527,19 @@ rescue
         return ["zstd"] if mode.stream?
 
         ["zstd", "rsync", "skopeo"]
+      end
+
+      # Mirrors the `ensure_local_dependency!` calls in Transfer::Stream and
+      # Transfer::Incremental. Deliberately not `transfer_tools`: that list is the
+      # remote requirement, which `server bootstrap` installs. Locally, incremental
+      # needs only rsync -- it exports through `podman save`, and skopeo runs on the
+      # host, not here.
+      private def local_transfer_tools : Array(String)
+        mode = @config.transfer.try(&.mode)
+        return [] of String if mode.nil? || mode.registry?
+        return ["zstd"] if mode.stream?
+
+        ["rsync"]
       end
 
       private def secret_names : Array(String)

@@ -84,9 +84,18 @@ module Meridian
         route(proxy.host, proxy.path, proxy.ssl?, "respond 503")
       end
 
-      def proxy_asset_route(host : String, target : String) : String
+      def proxy_asset_route : String
+        assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
         ssl = @config.servers["web"]?.try(&.proxy).try(&.ssl?) || false
-        route(host, nil, ssl, "reverse_proxy #{target}")
+        handler = String.build do |io|
+          io << "root * /srv/assets/" << @config.service << "/current\n"
+          io << "header Access-Control-Allow-Origin \"*\"\n"
+          io << "header Cache-Control \"public, max-age=31536000, immutable\"\n"
+          io << "encode zstd gzip\n" if assets.compression?
+          io << "file_server"
+        end
+
+        route(assets.host, nil, ssl, handler)
       end
 
       private def route(host : String?, path : String?, ssl : Bool, handler : String) : String
@@ -130,10 +139,11 @@ module Meridian
         ).to_s
       end
 
-      def assets_volume_file : String
-        AssetsVolumeTemplate.new.to_s
-      end
-
+      # The `:U` mount option makes Podman chown the bind source to the builder's
+      # mapped UID - the same thing a named volume got for free - so an app image
+      # running as non-root can write. It re-chowns on every start, which is fine
+      # for asset bundles. It also means only the user namespace can prune old
+      # releases; see Orchestrator#run_asset_build_on_host.
       def assets_builder_file(release_id : String) : String
         assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
         environment = @config.env.try(&.clear) || EMPTY_ENV
@@ -148,20 +158,6 @@ module Meridian
           environment: environment,
           secrets: secrets
         ).to_s
-      end
-
-      def assets_server_file : String
-        raise ArgumentError.new("Missing assets configuration") unless @config.assets
-
-        AssetsServerTemplate.new(
-          service: @config.service,
-          network: Runtime::Paths::SHARED_PROXY_NETWORK
-        ).to_s
-      end
-
-      def assets_caddy_config : String
-        assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
-        AssetsCaddyConfigTemplate.new(assets.compression?).to_s
       end
 
       def render_file_sync_template(source : String) : String
@@ -222,12 +218,10 @@ module Meridian
         if @config.assets
           assets_dir = File.join(output_dir, "assets")
           Dir.mkdir_p(assets_dir)
-          File.write(File.join(assets_dir, "#{@config.service}-assets.volume"), assets_volume_file)
           File.write(File.join(assets_dir, "#{@config.service}-assets-builder.container"), assets_builder_file("<RELEASE_ID>"))
-          File.write(File.join(assets_dir, "#{@config.service}-assets-server.container"), assets_server_file)
-          caddy_dir = File.join(assets_dir, "caddy")
-          Dir.mkdir_p(caddy_dir)
-          File.write(File.join(caddy_dir, "Caddyfile"), assets_caddy_config)
+          if proxied_service?
+            File.write(File.join(output_dir, "caddy", "routes", "#{@config.service}-assets.caddy"), proxy_asset_route)
+          end
         end
       end
 
@@ -298,10 +292,6 @@ module Meridian
         ECR.def_to_s "src/quadlet/templates/accessory_container_file.ecr"
       end
 
-      private class AssetsVolumeTemplate
-        ECR.def_to_s "src/quadlet/templates/assets_volume_file.ecr"
-      end
-
       private class AssetsBuilderTemplate
         def initialize(
           @service : String,
@@ -315,20 +305,6 @@ module Meridian
         end
 
         ECR.def_to_s "src/quadlet/templates/assets_builder_file.ecr"
-      end
-
-      private class AssetsServerTemplate
-        def initialize(@service : String, @network : String)
-        end
-
-        ECR.def_to_s "src/quadlet/templates/assets_server_file.ecr"
-      end
-
-      private class AssetsCaddyConfigTemplate
-        def initialize(@compression : Bool)
-        end
-
-        ECR.def_to_s "src/quadlet/templates/assets_caddy_config_file.ecr"
       end
     end
   end

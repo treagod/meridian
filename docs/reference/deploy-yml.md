@@ -335,7 +335,10 @@ transfer:
 | `mode` | `registry`, `stream`, or `incremental` | Required when `transfer:` is present | `stream` | Unknown modes fail parse; empty mode fails validation. |
 
 Omit `transfer:` for registry pull. `stream` uses `podman save | zstd | ssh |
-podman load`; `incremental` exports an OCI layout and syncs changed layers.
+podman load`; `incremental` exports an OCI layout with `podman save --format
+oci-dir`, rsyncs it to the host, and imports it there with `skopeo` inside `podman unshare`, so a
+redeploy only sends the layers that changed. Both export through `podman`, so
+both work from macOS, where Podman runs inside a VM.
 
 ## `accessories`
 
@@ -629,8 +632,9 @@ files:
 Meridian's built-in path for publishing fingerprinted static assets as part of the
 deploy - distinct from your app's dynamic responses and from user media uploads.
 The `command` builds the front-end bundle inside the app image, its `output_dir`
-output is copied into a deploy-managed volume, and a generated Caddy server
-publishes the result on a separate `host` that Caddy routes to.
+output is copied into a deploy-managed release directory under
+`~/.local/state/meridian/assets/<service>/`, and the shared Caddy proxy serves it
+directly on a separate `host`.
 
 ```yaml
 assets:
@@ -645,15 +649,22 @@ assets:
 | --- | --- | --- | --- | --- |
 | `host` | `String` | Required | `assets.my-app.example.com` | Must resolve to the server before HTTPS issuance. |
 | `command` | `String` | Required | `bin/manage collectassets --fingerprint --no-input` | Runs in an app-image one-shot unit. |
-| `output_dir` | `String` | Required | `/app/assets` | Directory copied into the asset release volume. |
+| `output_dir` | `String` | Required | `/app/assets` | Directory copied into the asset release directory. |
 | `retain_releases` | `Int32` | Optional, default `2` | `2` | Number of old asset releases kept. |
-| `compression` | `Bool` | Optional, default `true` | `true` | Emits `encode zstd gzip` in the asset Caddyfile. Set `false` to disable compression. |
+| `compression` | `Bool` | Optional, default `true` | `true` | Emits `encode zstd gzip` in the asset route fragment. Set `false` to disable compression. |
 
-Validation: `assets:` requires `servers.web.proxy` because the asset server is
-published through the proxied web host.
+Validation: `assets:` requires `servers.web.proxy` because the assets are served
+by the same shared Caddy instance that fronts the proxied web host.
 `strategy: recreate` rejects `assets:` in this release rather than publishing a
 partial asset transaction.
 
-The asset server always sends fingerprinted files with a long-lived
+The asset route always sends fingerprinted files with a long-lived
 `Cache-Control: public, max-age=31536000, immutable` header, and — unless
 `compression: false` — negotiates `zstd`/`gzip` compression per request.
+
+Assets are served by the shared `meridian-caddy` proxy, which bind-mounts
+`~/.local/state/meridian/assets` read-only at `/srv/assets`. That mount is
+installed by `meridian setup`, so an existing install must re-run setup before
+its first deploy with this Meridian version; `meridian check` reports it as
+`caddy-assets`. See
+[Assets 404 after updating Meridian](/guide/troubleshooting#assets-404-after-updating-meridian).
