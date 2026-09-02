@@ -64,7 +64,7 @@ Marten's [deployment](https://martenframework.com/docs/deployment/introduction/)
 and [asset handling](https://martenframework.com/docs/assets/introduction/)
 guidance. Marten's `config.assets.url` (in the production settings below) must
 point at the same host as `assets.host` so fingerprinted URLs resolve to the
-generated asset server; see
+shared Caddy proxy; see
 [CSS `url()` 404s](/guide/troubleshooting#css-url-assets-404-against-the-asset-cdn)
 if CSS-referenced files 404.
 

@@ -263,4 +263,28 @@ describe Meridian::Runtime::ServiceManifest do
       parsed.map(&.service).should eq(["freshrss"])
     end
   end
+
+  describe "#generated_files" do
+    it "claims only the builder Quadlet for a service with assets" do
+      manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+        service: myapp
+        image: registry.example.com/myorg/myapp
+
+        servers:
+          web:
+            hosts:
+              - 192.168.1.10
+            proxy:
+              host: myapp.example.com
+
+        assets:
+          host: static.example.com
+          command: bin/build-assets
+          output_dir: /app/public/assets
+        YAML
+
+      manifest.generated_files.select(&.includes?("assets"))
+        .should eq([".config/containers/systemd/myapp-assets-builder.container"])
+    end
+  end
 end

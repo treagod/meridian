@@ -32,7 +32,7 @@ crystal build src/meridian_cli.cr --release -o meridian
 sudo mv meridian /usr/local/bin/
 ```
 
-Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.4+ and systemd. Registry-free transfers also want `zstd` (stream mode) or `rsync` plus `skopeo` (incremental mode) on both ends — `meridian server bootstrap` installs the remote side for you.
+Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.4+ and systemd. Registry-free transfers also want `zstd` (stream mode) on both ends, or, for incremental mode, `rsync` on both ends plus `skopeo` on the host — `meridian server bootstrap` installs the remote side for you. Incremental exports through `podman save`, so no local `skopeo` is needed (and none would work on macOS, where Podman runs in a VM).
 
 ## Five minutes from zero to deployed
 
@@ -98,6 +98,7 @@ Read-only preflight, and the thing to put in CI ahead of `deploy`. Any failure e
 - Caddy 2.11.2+, its private admin API, active configuration, and the shared `meridian-proxy` network on web hosts
 - Route and ownership collisions against other Meridian services on the same host
 - Local `files:` sources are readable, and for `stream` and `incremental` transfers, that the images exist in *local* Podman storage
+- Transfer tooling on the machine you deploy from, not just on the hosts — `zstd` for `stream`, `rsync` for `incremental`
 
 `deploy` re-runs the local half of this — images, `files:` sources, accessory readiness, registry credentials — so skipping `check` still fails before any remote change or lock acquisition.
 
@@ -107,7 +108,7 @@ Read-only preflight, and the thing to put in CI ahead of `deploy`. Any failure e
 
 **`transfer.mode: stream`.** `podman save | zstd | ssh | podman load`. The whole image crosses the wire every deploy, but there's nothing to set up beyond `zstd` on both ends. Best for single-server setups where running a registry isn't worth it.
 
-**`transfer.mode: incremental`.** Exports to a local OCI layout, rsyncs to the host, imports remotely with `skopeo`. The first deploy transfers everything; later ones send only changed layers. This is the one to pick when you redeploy often over a slow link — a Crystal project with one heavy base layer and a thin top layer, say.
+**`transfer.mode: incremental`.** Exports to a local OCI layout with `podman save`, rsyncs to the host, imports remotely with `skopeo`. The first deploy transfers everything; later ones send only changed layers. This is the one to pick when you redeploy often over a slow link — a Crystal project with one heavy base layer and a thin top layer, say.
 
 ## A realistic `deploy.yml`
 
@@ -174,7 +175,7 @@ boot:
   wait: 10
 ```
 
-That's a working config. Everything else is opt-in: `strategy`, `volumes`, `ports`, `transfer`, `files` (upload supporting config, optionally ECR-templated), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static assets served by a Caddy sidecar on its own subdomain). `strategy: recreate` cannot currently be combined with `assets:`.
+That's a working config. Everything else is opt-in: `strategy`, `volumes`, `ports`, `transfer`, `files` (upload supporting config, optionally ECR-templated), `hooks` (run commands on hosts at deploy phases), and `assets` (fingerprinted static assets served by the shared Caddy on its own subdomain). `strategy: recreate` cannot currently be combined with `assets:`.
 
 Per-role `image:` overrides the global one, which helps when your worker image differs from your web image. Unknown keys fail fast instead of being silently ignored. `build:` is reserved but not implemented, so bring your own image for now.
 
@@ -228,11 +229,12 @@ crystal spec
 Every documented `deploy.yml` block is strictly loaded and used to generate Quadlets in `crystal spec`. The verified recipes go further and deploy for real:
 
 ```bash
-make e2e-marten            # SQLite volume persistence, assets, and rollback across two tagged releases
-make e2e-marten-postgres   # Postgres and Dragonfly accessories, verified through the deployed app
-make e2e-rails-postgres    # non-Crystal stack, db:prepare before app start, app-served assets
-make e2e-go                # scratch image with no shell, health-checked entirely from the probe sidecar
-make e2e-all               # all four, in sequence
+make e2e-marten              # SQLite volume persistence, assets, and rollback across two tagged releases
+make e2e-marten-incremental  # same app over `transfer.mode: incremental`, asserting the redeploy only sends the changed layer
+make e2e-marten-postgres     # Postgres and Dragonfly accessories, verified through the deployed app
+make e2e-rails-postgres      # non-Crystal stack, db:prepare before app start, app-served assets
+make e2e-go                  # scratch image with no shell, health-checked entirely from the probe sidecar
+make e2e-all                 # all five, in sequence
 ```
 
 Each one builds an ephemeral Ubuntu 24.04 VM with [Lima](https://lima-vm.io/), then runs the real bootstrap, secret, proxy setup, check, deploy, migration, and redeploy paths against it. A successful run removes the VM; set `KEEP_VM=1` to keep it and the temporary logs around for inspection. You'll need macOS, Lima 2+, Podman, Crystal, `curl`, `expect`, plus `ssh-keygen` and `nc`.

@@ -4,7 +4,7 @@ Description=<%= @service %> asset builder
 [Container]
 Image=<%= @image %>
 ContainerName=<%= @service %>-assets-builder
-Volume=<%= @service %>-assets.volume:/mnt/assets
+Volume=%h/<%= Meridian::Runtime::Paths.assets_directory(@service) %>:/mnt/assets:U
 <% @environment.each do |key, value| %>
 Environment=<%= key %>=<%= value %>
 <% end %>

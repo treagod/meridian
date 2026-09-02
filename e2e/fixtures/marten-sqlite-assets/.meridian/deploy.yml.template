@@ -27,7 +27,7 @@ ssh:
     - __SSH_KEY__
 
 transfer:
-  mode: stream
+  mode: __TRANSFER_MODE__
 
 volumes:
   - meridian-e2e-data:/app/data

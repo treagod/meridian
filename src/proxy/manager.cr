@@ -41,7 +41,7 @@ module Meridian
 
         hosts.each do |host|
           log(host, "Ensuring Caddy directories exist")
-          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY, ROUTES_DIR])
+          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY, ROUTES_DIR, Runtime::Paths::ASSETS_DIRECTORY])
           data_dir_command = "path=$1; case \"$path\" in %h*) path=$HOME${path#%h};; esac; mkdir -p -- \"$path\""
           run_ssh!(host, ["sh", "-lc", data_dir_command, "meridian", proxy.data_dir])
           run_ssh!(host, ["sh", "-lc", "command -v flock >/dev/null"])
@@ -79,10 +79,13 @@ module Meridian
         activate_route(host, @config.service, @quadlet_generator.proxy_maintenance_route(proxy), removed_target: old_target)
       end
 
+      # Assets are served by this proxy straight off its read-only /srv/assets
+      # mount, so there is no upstream to confirm after a reload: an SSH drop
+      # mid-reload surfaces as SwitchUncertain. Route activation is idempotent,
+      # so rerunning the deploy resolves it.
       def register_assets(host : String) : Nil
-        assets = @config.assets || raise RouteFailed.new("Missing assets configuration")
-        target = "#{@config.service}-assets-server:80"
-        activate_route(host, "#{@config.service}-assets", @quadlet_generator.proxy_asset_route(assets.host, target), expected_target: target)
+        raise RouteFailed.new("Missing assets configuration") unless @config.assets
+        activate_route(host, "#{@config.service}-assets", @quadlet_generator.proxy_asset_route)
       end
 
       def drain(host : String, target : String) : Nil

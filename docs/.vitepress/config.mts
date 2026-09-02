@@ -21,9 +21,8 @@ export default defineConfig({
       'script',
       {
         defer: '',
-        src: 'https://cloud.greenlight-analytics.eu/gl.js',
-        'data-site': 'ee5e1cd3-dd1d-4af1-a03b-10a39d688ddb',
-        'data-do-not-track': 'false'
+        src: 'https://cloud.umami.is/script.js',
+        'data-website-id': '29c7a8a4-a30b-45f2-a36e-a07fdb27ea7d'
       }
     ]
   ],

@@ -296,34 +296,49 @@ Fix: don't reference fingerprinted assets from inside CSS files. Resolve the URL
 The path is resolved through Marten's manifest in the template; the CSS just
 consumes the resulting URL.
 
-## Asset CDN Still Serves Old Headers After Meridian Update
+## Assets 404 After Updating Meridian
 
-Problem: after updating Meridian (for example to pick up a Caddyfile template change), the asset CDN still returns the old headers — no `Content-Encoding: zstd` after the compression patch, or no `Access-Control-Allow-Origin: *` after the CORS patch — even though `meridian deploy` reported success.
+Problem: after updating Meridian, every fingerprinted asset URL returns 404, even though `meridian deploy` reported success and the app itself serves fine.
 
-Root cause: `meridian deploy` regenerates the Caddyfile on the server and writes it to its mount path (`~/.config/containers/<service>-assets-caddy/Caddyfile`). The `<service>-assets-server` container is already running; Caddy reads its configuration only at process start, not when the underlying file changes. Nothing triggers a re-read automatically.
+Root cause: assets used to be served by a per-service `<service>-assets-server` sidecar. They are now served directly by the shared `meridian-caddy` proxy, off a read-only bind mount of `~/.local/state/meridian/assets`. That mount is added to the proxy's Quadlet by `meridian setup`. If you upgraded and deployed without re-running setup, the proxy has no `/srv/assets` to serve from, so its asset route matches and then finds nothing.
 
 Diagnose:
 
 ```bash
-# 1. Confirm the new Caddyfile content is on the server:
-ssh deploy@prod-01.example.com \
-  'cat .config/containers/my-app-assets-caddy/Caddyfile'
-
-# 2. Confirm the running asset-server still serves old headers:
-curl -sI -H "Accept-Encoding: zstd, gzip" \
-  https://assets.my-app.example.com/css/app.<hash>.css \
-  | grep -iE "content-encoding|cache-control|access-control"
+meridian check --config .meridian/deploy.yml
 ```
 
-If the on-disk Caddyfile shows the new directives but the curl response does not, the asset-server has not picked up the new config yet.
+A failing `caddy-assets` probe is exactly this. You can confirm it by hand:
+
+```bash
+ssh deploy@prod-01.example.com \
+  'podman exec meridian-caddy test -d /srv/assets && echo mounted || echo MISSING'
+```
 
 Fix:
 
 ```bash
-ssh deploy@prod-01.example.com \
-  'systemctl --user restart my-app-assets-server.service'
+meridian setup --config .meridian/deploy.yml
+meridian deploy --config .meridian/deploy.yml
 ```
 
-Caddy starts up against the new Caddyfile (~500 ms of asset-server downtime; cached browser responses keep working through the gap because the asset CDN sets `Cache-Control: public, max-age=31536000, immutable`).
+Setup rewrites the proxy Quadlet with the mount and restarts `meridian-caddy`; the next deploy republishes the assets into the new location.
 
-This restart is **not** needed on a normal `meridian deploy` — only when the Caddyfile content itself has changed. That happens at most a couple of times per year, typically when picking up a Meridian release that touches `src/quadlet/templates/assets_caddy_config_file.ecr`.
+### Removing the old asset sidecar
+
+The upgrade leaves the previous sidecar's resources behind untouched — Meridian does not delete them for you. Once the new path serves correctly, clean them up on each web host:
+
+```bash
+ssh deploy@prod-01.example.com '
+  systemctl --user stop my-app-assets-server.service
+  rm -f ~/.config/containers/systemd/my-app-assets-server.container \
+        ~/.config/containers/systemd/my-app-assets.volume
+  rm -rf ~/.config/containers/my-app-assets-caddy
+  systemctl --user daemon-reload
+  podman volume rm systemd-my-app-assets
+'
+```
+
+Nothing is migrated out of the old volume; the first deploy after the upgrade rebuilds the assets into `~/.local/state/meridian/assets/<service>/`.
+
+Note that the old "asset CDN still serves stale headers after an update" problem is gone with the sidecar. Cache-Control, CORS, and compression now live in the proxy's `<service>-assets.caddy` route fragment, which every deploy reloads — changing `assets.compression` takes effect on the next deploy with no restart.

@@ -233,8 +233,8 @@ first-deploy failures.
 
 `assets:` is optional. When you declare it, `assets.command` runs in your app image
 during the deploy, and the files it writes to `assets.output_dir` are copied into a
-deploy-managed volume as a fingerprinted release. Requests to `assets.host` are routed
-by the shared Caddy proxy to a generated Caddy asset server that serves the current release.
+deploy-managed release directory on the host. The shared Caddy proxy serves the current
+release directly on `assets.host`.
 Typical small and medium Rails or Marten apps reach production this way without object
 storage or a CDN; see [`assets`](/reference/deploy-yml#assets).
 

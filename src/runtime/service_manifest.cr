@@ -320,10 +320,7 @@ module Meridian
         end
 
         if config.assets
-          files << File.join(Quadlet::DIRECTORY, "#{config.service}-assets.volume")
           files << File.join(Quadlet::DIRECTORY, "#{config.service}-assets-builder.container")
-          files << File.join(Quadlet::DIRECTORY, "#{config.service}-assets-server.container")
-          files << File.join(".config", "containers", "#{config.service}-assets-caddy", "Caddyfile")
         end
 
         files.uniq!
