@@ -106,6 +106,7 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
   getter queued_results = [] of Meridian::SSH::Result
   getter queued_results_by_host : Hash(String, Array(Meridian::SSH::Result))
   property next_result : Meridian::SSH::Result = Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: "")
+  property ssh_units_result : Meridian::SSH::Result? = nil
 
   def initialize
     @invocation_events = Channel(FakeSSHInvocation).new(256)
@@ -158,6 +159,16 @@ class FakeSSHRunner < Meridian::SSH::Executor::Runner
 
     if invocation.remote_command.try(&.includes?("/reverse_proxy/upstreams"))
       raise "Missing explicit fake result for Caddy upstream query"
+    end
+
+    # A healthy socket-activated host, so specs that are not about the ssh units
+    # need not stub them. Set `ssh_units_result` to test the probe itself.
+    if invocation.remote_command.try(&.includes?("systemctl is-active"))
+      return @ssh_units_result || Meridian::SSH::Result.new(
+        exit_code: 0,
+        stdout: "ssh.socket=active\nssh.service=inactive\n",
+        stderr: ""
+      )
     end
 
     @next_result

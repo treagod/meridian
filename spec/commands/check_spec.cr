@@ -205,6 +205,36 @@ describe "Meridian::Commands::Check" do
       text.should contain("Check failed")
     end
 
+    it "passes ssh-units when a systemd unit owns the listener" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(runner: runner, output: output)
+
+      command.run
+
+      remote_commands_for(runner).any?(&.includes?("systemctl is-active")).should be_true
+      output.to_s.should contain("ssh-units                               ok      ssh.socket=active")
+    end
+
+    # The 2026-09-01 outage: an orphaned sshd kept serving :22 after its unit
+    # stopped, so connectivity passed while the control plane was unmanaged.
+    it "fails ssh-units when no ssh unit is active" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      command = build_check_command(runner: runner, output: output)
+      runner.ssh_units_result = ssh_ok(
+        "ssh.socket=failed\nssh.service=inactive\nsshd.socket=inactive\nsshd.service=inactive\n"
+      )
+
+      command.run.should be_false
+
+      text = output.to_s
+      text.should contain("ssh-units")
+      text.should contain("ssh.socket=failed")
+      text.should contain("unmanaged process")
+      text.should contain("Check failed")
+    end
+
     it "short-circuits a host when SSH connectivity fails" do
       runner = FakeSSHRunner.new
       output = IO::Memory.new

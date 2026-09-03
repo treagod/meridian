@@ -284,6 +284,8 @@ rescue
         results.concat(accessory_networks_probes(host_context.host))
         results.concat(shared_accessory_probes(host_context.host, manifests))
         results.concat(accessory_readiness_probes(host_context.host))
+        # Runs last, renders at position 4 next to the ssh row.
+        results << check_ssh_units(host_context.host, 4)
 
         results
       end
@@ -435,6 +437,29 @@ rescue
         end
       rescue ex : SSH::ConnectionError
         fail(host, "podman", position, ex.message || "podman version check failed")
+      end
+
+      SSH_UNITS = %w[ssh.socket ssh.service sshd.socket sshd.service]
+
+      # SSH is the only control plane, so a working connection is not enough: it
+      # must come from a live systemd unit. An orphaned sshd still holding :22
+      # after its unit stopped serves connections until it doesn't, and nothing
+      # recovers from that state on its own.
+      private def check_ssh_units(host : String, position : Int32) : ProbeResult
+        result = run_ssh(host, ["sh", "-lc", ssh_units_check], batch_mode: true)
+        states = result.stdout.lines.map(&.strip).reject(&.empty?)
+        active = states.select(&.ends_with?("=active"))
+
+        return pass(host, "ssh-units", position, active.join(" ")) if active.present?
+
+        detail = states.present? ? states.join(" ") : failure_detail(result)
+        fail(host, "ssh-units", position, "#{detail} - port 22 is served by an unmanaged process")
+      rescue ex : SSH::ConnectionError
+        fail(host, "ssh-units", position, ex.message || "ssh unit check failed")
+      end
+
+      private def ssh_units_check : String
+        "for u in #{SSH_UNITS.join(' ')}; do printf '%s=%s\\n' \"$u\" \"$(systemctl is-active \"$u\" 2>/dev/null)\"; done"
       end
 
       private def check_caddy(host : String, position : Int32) : ProbeResult
