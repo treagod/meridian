@@ -47,6 +47,14 @@ module Meridian
 
       @allowed_hosts : Hash(String, Array(String))? = nil
 
+      # Roles on the same host normally share the service image, so the secondary
+      # rollout would re-transfer bytes the web role just sent. One gate per
+      # host+image pair per run: a concurrent role waits on the gate rather than
+      # starting a duplicate transfer, and skips only once the first one finished.
+      @transfer_gates = {} of String => Mutex
+      @transferred_images = Set(String).new
+      @transfer_registry = Mutex.new
+
       alias LocalImageProbe = Proc(String, Bool)
 
       DEFAULT_LOCAL_IMAGE_PROBE = ->(image : String) do
@@ -413,6 +421,7 @@ module Meridian
         run_post_deploy_hook
       ensure
         @allowed_hosts = nil
+        @transfer_registry.synchronize { @transfer_gates.clear; @transferred_images.clear }
       end
 
       private def run_recreate_deploy : Nil
@@ -923,6 +932,21 @@ module Meridian
       end
 
       private def transfer_image_to_host(host : String, image : String) : Nil
+        key = "#{host}\t#{image}"
+        gate = @transfer_registry.synchronize { @transfer_gates[key] ||= Mutex.new }
+
+        gate.synchronize do
+          if @transfer_registry.synchronize { @transferred_images.includes?(key) }
+            log(host, "Reusing image #{image} transferred earlier in this deploy")
+            return
+          end
+
+          perform_image_transfer(host, image)
+          @transfer_registry.synchronize { @transferred_images << key }
+        end
+      end
+
+      private def perform_image_transfer(host : String, image : String) : Nil
         transfer_mode = @config.transfer.try(&.mode)
 
         if transfer_mode.nil? || transfer_mode.registry?
