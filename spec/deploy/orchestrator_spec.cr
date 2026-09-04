@@ -1925,7 +1925,8 @@ describe "Meridian::Deploy::Orchestrator" do
       cron_active_index.should be < switch_index
       switch_index.should be < manifest_index
       switch_index.should be < cleanup_index
-      commands.count(&.==("podman pull registry.example.com/myorg/myapp:2")).should eq(2)
+      # web and cron share host and image, so the run pulls once for both roles
+      commands.count(&.==("podman pull registry.example.com/myorg/myapp:2")).should eq(1)
       value!(commands.index("cat > .config/containers/systemd/myapp-cron.container")).should be < maintenance_index
     end
 
@@ -2187,6 +2188,33 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       commands.should contain("systemctl --user start myapp-web.service")
       commands.none?(&.includes?("caddy reload")).should be_true
+    end
+
+    it "transfers the image once when several roles share a host and image" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(
+        content: <<-YAML,
+          service: myapp
+          image: registry.example.com/myorg/myapp
+
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+            workers:
+              hosts:
+                - 192.168.1.10
+              cmd: bin/sidekiq
+          YAML
+        runner: runner
+      )
+
+      orchestrator.deploy
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      commands.count("podman pull registry.example.com/myorg/myapp").should eq(1)
+      commands.should contain("systemctl --user start myapp-web.service")
+      commands.should contain("systemctl --user start myapp-workers.service")
     end
 
     it "deploys to all hosts in the web role" do
