@@ -240,7 +240,8 @@ service manifests already present on the host:
 ```
 
 Each `manifest.json` records what a service owns: proxy host/path, asset host,
-published ports, accessory names, generated files, and service-state paths.
+published ports, accessory names, generated files, and service-state paths. It
+also records the writing Meridian version for diagnostics.
 `meridian check` fails before deploy if `my-blog` tries to claim something
 already owned by `my-app`.
 

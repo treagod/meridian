@@ -121,6 +121,20 @@ describe Meridian::Runtime::ServiceManifest do
       manifest_for(service: "freshrss").schema_version.should eq(2)
     end
 
+    it "records the Meridian version that wrote the manifest" do
+      manifest = manifest_for(service: "freshrss")
+
+      manifest.meridian_version.should eq(Meridian::VERSION)
+      Meridian::Runtime::ServiceManifest.from_json(manifest.to_json).meridian_version.should eq(Meridian::VERSION)
+    end
+
+    it "reads schema 2 manifests written before the Meridian version was recorded" do
+      manifest = manifest_for(service: "freshrss")
+      json = manifest.to_json.sub(%(,"meridian_version":"#{Meridian::VERSION}"), "")
+
+      Meridian::Runtime::ServiceManifest.from_json(json).meridian_version.should be_nil
+    end
+
     it "round-trips through JSON" do
       manifest = manifest_for(service: "freshrss")
 
@@ -157,6 +171,7 @@ describe Meridian::Runtime::ServiceManifest do
         JSON
 
       legacy.accessories.keys.should eq(["postgres"])
+      legacy.meridian_version.should be_nil
       legacy.accessories["postgres"].fingerprint.should be_nil
       legacy.accessories["postgres"].definition.should be_empty
 
@@ -195,6 +210,15 @@ describe Meridian::Runtime::ServiceManifest do
         JSON
 
       current.collisions_with(legacy).should be_empty
+    end
+
+    it "does not treat a different Meridian version as an ownership conflict" do
+      current = manifest_for(service: "freshrss")
+      older = Meridian::Runtime::ServiceManifest.from_json(
+        current.to_json.sub(%("meridian_version":"#{Meridian::VERSION}"), %("meridian_version":"0.0.1"))
+      )
+
+      current.collisions_with(older).should be_empty
     end
 
     it "collides when the same name describes a different deployment" do
