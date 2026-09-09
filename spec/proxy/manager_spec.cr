@@ -123,7 +123,7 @@ describe "Meridian::Proxy::Manager" do
       manager.setup
 
       commands = remote_commands_for(runner)
-      commands.any? { |command| command.ends_with?("meridian /srv/meridian-caddy") }.should be_true
+      commands.any?(&.ends_with?("meridian /srv/meridian-caddy")).should be_true
       commands.any? { |command| command.ends_with?("--head http://127.0.0.1:8080/") }.should be_true
     end
 

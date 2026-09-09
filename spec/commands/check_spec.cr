@@ -797,7 +797,7 @@ describe "Meridian::Commands::Check" do
           YAML
         runner: runner,
         output: output,
-        local_command_probe: ->(command : String) { probed << command; true }
+        local_command_probe: ->(binary : String) { probed << binary; true }
       )
 
       runner.enqueue_results(
@@ -835,7 +835,7 @@ describe "Meridian::Commands::Check" do
             mode: stream
           YAML
         runner: runner,
-        local_command_probe: ->(command : String) { probed << command; true }
+        local_command_probe: ->(binary : String) { probed << binary; true }
       )
 
       runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
@@ -861,7 +861,7 @@ describe "Meridian::Commands::Check" do
             mode: registry
           YAML
         runner: runner,
-        local_command_probe: ->(command : String) { probed << command; true }
+        local_command_probe: ->(binary : String) { probed << binary; true }
       )
 
       runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
@@ -888,7 +888,7 @@ describe "Meridian::Commands::Check" do
           YAML
         runner: runner,
         output: output,
-        local_command_probe: ->(command : String) { command != "rsync" }
+        local_command_probe: ->(binary : String) { binary != "rsync" }
       )
 
       runner.enqueue_results(
