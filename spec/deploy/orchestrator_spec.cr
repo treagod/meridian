@@ -604,19 +604,23 @@ class RecreateSSHRunner < FakeSSHRunner
     when "cat .local/state/meridian/services/myapp/release-state.json"
       ssh_fail(1, "", "missing\n")
     else
-      if match = /systemctl --user is-active (\S+)/.match(remote)
-        @active_units.includes?(match[1]) ? ssh_ok("active\n") : ssh_fail(3, "inactive\n")
-      elsif match = /systemctl --user start (\S+)/.match(remote)
-        @active_units << match[1]
-        ssh_ok
-      elsif match = /systemctl --user stop (\S+)/.match(remote)
-        @active_units.delete(match[1])
-        ssh_ok
-      elsif remote.starts_with?("podman run --rm --network=meridian-proxy")
-        health_fails? ? ssh_fail(1, "", "unhealthy\n") : ssh_ok("ok\n")
-      else
-        ssh_ok
-      end
+      unit_result_for(remote)
+    end
+  end
+
+  private def unit_result_for(remote : String) : Meridian::SSH::Result
+    if match = /systemctl --user is-active (\S+)/.match(remote)
+      @active_units.includes?(match[1]) ? ssh_ok("active\n") : ssh_fail(3, "inactive\n")
+    elsif match = /systemctl --user start (\S+)/.match(remote)
+      @active_units << match[1]
+      ssh_ok
+    elsif match = /systemctl --user stop (\S+)/.match(remote)
+      @active_units.delete(match[1])
+      ssh_ok
+    elsif remote.starts_with?("podman run --rm --network=meridian-proxy")
+      health_fails? ? ssh_fail(1, "", "unhealthy\n") : ssh_ok("ok\n")
+    else
+      ssh_ok
     end
   end
 end
@@ -1390,8 +1394,8 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner)
-      deploy_index = commands.index { |command| command.includes?("caddy reload") } || raise "Expected Caddy reload"
-      drain_index = commands.index { |command| command.includes?("/reverse_proxy/upstreams") } || raise "Expected drain query"
+      deploy_index = commands.index(&.includes?("caddy reload")) || raise "Expected Caddy reload"
+      drain_index = commands.index(&.includes?("/reverse_proxy/upstreams")) || raise "Expected drain query"
       stop_index = commands.index("systemctl --user stop myapp-green.service") || raise "Expected old service stop"
 
       deploy_index.should be < stop_index
@@ -1475,7 +1479,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       health_index = commands.index { |command| health_command?(command) } || raise "Expected health check invocation"
-      deploy_index = commands.index { |command| command.includes?("caddy reload") } || raise "Expected Caddy reload"
+      deploy_index = commands.index(&.includes?("caddy reload")) || raise "Expected Caddy reload"
 
       health_index.should be < deploy_index
     end
@@ -2001,7 +2005,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       commands = remote_commands_for(runner)
       transfer_hook_index = value!(commands.index("sh -lc 'test -n \"$USER\"'"))
-      maintenance_index = value!(commands.index { |command| command.includes?("caddy reload") })
+      maintenance_index = value!(commands.index(&.includes?("caddy reload")))
       old_stop_index = value!(commands.index("systemctl --user stop myapp-green.service"))
       upload_index = value!(commands.index("cat > .config/myapp/runtime.conf"))
       upload_hook_index = value!(commands.index("sh -lc 'systemctl --user start --wait myapp-migrate.service'"))

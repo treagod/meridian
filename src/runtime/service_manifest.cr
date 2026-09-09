@@ -298,7 +298,7 @@ module Meridian
         differing << "proxy_routes" unless proxy_routes.map(&.display).sort! == other.proxy_routes.map(&.display).sort!
         differing << "asset_host" unless asset_host == other.asset_host
         differing << "ports" unless ports == other.ports
-        differing << "accessories" unless accessories.keys.sort == other.accessories.keys.sort
+        differing << "accessories" unless accessories.keys.sort! == other.accessories.keys.sort!
         differing << "networks" unless networks.sort == other.networks.sort
 
         differing

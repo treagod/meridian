@@ -146,7 +146,7 @@ module Meridian
         return if result.exit_code.zero?
 
         raise RouteFailed.new(SSH::Executor.command_failure_message(host, "reload Caddy route #{name}", result))
-      rescue ex : SSH::ConnectionError
+      rescue SSH::ConnectionError
         upstreams = query_upstreams(host)
         if upstreams
           return if expected_target && upstreams.includes?(expected_target)
@@ -177,7 +177,7 @@ module Meridian
         result = run_ssh(host, admin_curl_command("/reverse_proxy/upstreams"))
         return unless result.exit_code.zero?
 
-        JSON.parse(result.stdout).as_a.map { |entry| entry["address"].as_s }
+        JSON.parse(result.stdout).as_a.map(&.["address"].as_s)
       rescue JSON::ParseException | TypeCastError | KeyError | SSH::ConnectionError
         nil
       end

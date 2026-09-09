@@ -173,7 +173,6 @@ module Meridian
         raise DeployFailed.new(ex.message || "Deploy to #{host} failed")
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       def zero_downtime_deploy_to_host(host : String, role : String) : Nil
         server = server_config(role)
         return deploy_existing_units_to_host(host, role, server) unless server.managed?
@@ -181,11 +180,8 @@ module Meridian
         require_accessory_preflight!(host)
 
         proxy = server.proxy || raise DeployFailed.new("Missing proxy configuration for role: #{role}")
-        stored_color = stored_active_color_entry(host)
-        old_color = stored_color.try(&.color) || detect_current_color(host)
-        old_active = service_active?(host, old_color)
-        migrate_legacy_active_color(host, old_color) if stored_color.try(&.path) == LEGACY_ACTIVE_COLOR_FILE
-        new_color = inactive_color(old_color)
+        colors = resolve_deploy_colors(host)
+        old_color, new_color, old_active = colors.old, colors.new, colors.old_active
         new_service = service_name(new_color)
         image = server.image || @config.image
         release_id = generate_release_id
@@ -194,39 +190,8 @@ module Meridian
         transfer_image_to_host(host, image)
         run_remote_hooks(host, role, "after_transfer")
 
-        log(host, "Ensuring Quadlet directory exists")
-        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
-        ensure_service_state_dir(host)
+        start_candidate(host, role, server, new_color, release_id)
 
-        log(host, "Uploading shared proxy network Quadlet")
-        upload_proxy_network_quadlet(host)
-
-        log(host, "Uploading service Quadlet")
-        upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
-
-        upload_file_syncs(host, role)
-
-        if @config.assets
-          upload_assets_to_host(host, release_id)
-        end
-        run_remote_hooks(host, role, "after_upload")
-
-        log(host, "Reloading user systemd")
-        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-
-        wait_for_accessories(host)
-
-        run_remote_hooks(host, role, "before_start")
-
-        if @config.assets
-          run_asset_build_on_host(host)
-        end
-
-        log(host, "Starting service #{service_unit(new_color)}")
-        run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
-        run_remote_hooks(host, role, "after_start")
-
-        proxy_committed = false
         begin
           log(host, "Checking health for #{new_service}")
           poll_container_health(host, proxy, new_service)
@@ -235,14 +200,16 @@ module Meridian
 
           log(host, "Switching proxy traffic to #{new_service}")
           @proxy_manager.switch(host, proxy, "#{new_service}:#{proxy.app_port}")
-          proxy_committed = true
-          run_remote_hooks(host, role, "after_switch")
         rescue ex : Proxy::SwitchUncertain
           raise DeployFailed.new(ex.message || "Caddy switch state is uncertain")
         rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed
-          cleanup_failed_candidate(host, new_color) unless proxy_committed
+          cleanup_failed_candidate(host, new_color)
           raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
         end
+
+        # Past the switch the candidate is live, so failures below must not
+        # clean it up; the method-level rescue turns them into DeployFailed.
+        run_remote_hooks(host, role, "after_switch")
 
         if old_active
           log(host, "Draining #{service_name(old_color)}")
@@ -266,6 +233,42 @@ module Meridian
         run_remote_hooks(host, role, "after_deploy")
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed
         raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
+      end
+
+      # Uploads the candidate colour's Quadlet and payload, then boots it. The
+      # candidate is not receiving traffic yet - the caller switches the proxy.
+      private def start_candidate(
+        host : String,
+        role : String,
+        server : Config::ServerConfig,
+        new_color : Quadlet::Color,
+        release_id : String,
+      ) : Nil
+        log(host, "Ensuring Quadlet directory exists")
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        ensure_service_state_dir(host)
+
+        log(host, "Uploading shared proxy network Quadlet")
+        upload_proxy_network_quadlet(host)
+
+        log(host, "Uploading service Quadlet")
+        upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(server, new_color))
+
+        upload_file_syncs(host, role)
+        upload_assets_to_host(host, release_id) if @config.assets
+        run_remote_hooks(host, role, "after_upload")
+
+        log(host, "Reloading user systemd")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        wait_for_accessories(host)
+
+        run_remote_hooks(host, role, "before_start")
+        run_asset_build_on_host(host) if @config.assets
+
+        log(host, "Starting service #{service_unit(new_color)}")
+        run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
+        run_remote_hooks(host, role, "after_start")
       end
 
       def deploy(targets : Array(CLI::TargetSelector::Target)? = nil) : Nil
@@ -430,121 +433,158 @@ module Meridian
         proxy = web.proxy || raise DeployFailed.new("strategy: recreate requires servers.web.proxy")
         secondary_roles = ordered_secondary_roles
         roles = ["web"] + secondary_roles
-        stored_color = stored_active_color_entry(host)
-        old_color = stored_color.try(&.color) || detect_current_color(host)
-        old_active = service_active?(host, old_color)
-        migrate_legacy_active_color(host, old_color) if stored_color.try(&.path) == LEGACY_ACTIVE_COLOR_FILE
-        new_color = inactive_color(old_color)
+        colors = resolve_deploy_colors(host)
+        old_color, new_color, old_active = colors.old, colors.new, colors.old_active
         release_id = generate_release_id
-        maintenance_started = false
-        candidate_started = false
-        candidate_healthy = false
-        resumed = false
+
+        @output.puts "Deploying #{@config.service} with recreate strategy on #{host}"
+        prepare_recreate_host(host, web, roles, secondary_roles, new_color)
+
+        active_secondary_roles = secondary_roles.select do |role|
+          run_ssh(host, ["systemctl", "--user", "is-active", role_service_unit(role)]).exit_code.zero?
+        end
+        maintenance = old_active || active_secondary_roles.present?
+
+        if maintenance
+          swap_under_maintenance(host, proxy, roles, secondary_roles, active_secondary_roles, old_color, new_color, old_active)
+        else
+          swap_recreate_candidate(host, proxy, roles, secondary_roles, new_color)
+        end
+
+        finalize_recreate(host, web, roles, old_color, new_color, release_id)
+        @audit_logger.record(host, "maintenance", "end active=#{new_color.slug}") if maintenance
+
+        roles.each { |role| record_deploy_audit(host, role) }
+        roles.each { |role| run_remote_hooks(host, role, "after_deploy") }
+      rescue ex : Exception
+        raise deploy_failure(ex, "Recreate deploy on #{host}")
+      end
+
+      private def prepare_recreate_host(
+        host : String,
+        web : Config::ServerConfig,
+        roles : Array(String),
+        secondary_roles : Array(String),
+        new_color : Quadlet::Color,
+      ) : Nil
+        require_service_network!(host, "meridian deploy")
+        require_proxy_network!(host)
+        require_accessory_preflight!(host)
+
+        roles.each do |role|
+          server = server_config(role)
+          run_remote_hooks(host, role, "before_transfer")
+          transfer_image_to_host(host, server.image || @config.image)
+          run_remote_hooks(host, role, "after_transfer")
+        end
+
+        log(host, "Ensuring Quadlet directory exists")
+        run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
+        ensure_service_state_dir(host)
+
+        log(host, "Uploading shared proxy network Quadlet")
+        upload_proxy_network_quadlet(host)
+        log(host, "Uploading service Quadlet")
+        upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(web, new_color))
+        secondary_roles.each do |role|
+          log(host, "Uploading #{role} role Quadlet")
+          upload_ssh(host, role_container_path(role), @quadlet_generator.role_container_file(role, server_config(role)))
+        end
+
+        log(host, "Reloading user systemd")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+        wait_for_accessories(host)
+      end
+
+      # Once the old release is stopped there is no safe automatic unwind, so any
+      # failure between here and the proxy switch leaves the service in maintenance
+      # and is reported with recovery instructions rather than retried.
+      private def swap_under_maintenance(
+        host : String,
+        proxy : Config::ServerProxyConfig,
+        roles : Array(String),
+        secondary_roles : Array(String),
+        active_secondary_roles : Array(String),
+        old_color : Quadlet::Color,
+        new_color : Quadlet::Color,
+        old_active : Bool,
+      ) : Nil
+        log(host, "Putting #{@config.service} into maintenance")
+        @proxy_manager.maintenance(host, proxy, "#{service_name(old_color)}:#{proxy.app_port}")
+        @audit_logger.record(host, "maintenance", "begin old=#{old_color.slug} new=#{new_color.slug}")
 
         begin
-          @output.puts "Deploying #{@config.service} with recreate strategy on #{host}"
-          require_service_network!(host, "meridian deploy")
-          require_proxy_network!(host)
-          require_accessory_preflight!(host)
+          @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}") if old_active
+          active_secondary_roles.each { |role| stop_unit!(host, role_service_unit(role)) }
+          stop_unit!(host, service_unit(old_color)) if old_active
 
-          roles.each do |role|
-            server = server_config(role)
-            run_remote_hooks(host, role, "before_transfer")
-            transfer_image_to_host(host, server.image || @config.image)
-            run_remote_hooks(host, role, "after_transfer")
-          end
-
-          log(host, "Ensuring Quadlet directory exists")
-          run_ssh!(host, ["mkdir", "-p", Quadlet::DIRECTORY])
-          ensure_service_state_dir(host)
-
-          log(host, "Uploading shared proxy network Quadlet")
-          upload_proxy_network_quadlet(host)
-          log(host, "Uploading service Quadlet")
-          upload_ssh(host, container_path(new_color), @quadlet_generator.container_file(web, new_color))
-          secondary_roles.each do |role|
-            log(host, "Uploading #{role} role Quadlet")
-            upload_ssh(host, role_container_path(role), @quadlet_generator.role_container_file(role, server_config(role)))
-          end
-
-          log(host, "Reloading user systemd")
-          run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-          wait_for_accessories(host)
-
-          active_secondary_roles = secondary_roles.select do |role|
-            run_ssh(host, ["systemctl", "--user", "is-active", role_service_unit(role)]).exit_code.zero?
-          end
-
-          if old_active || active_secondary_roles.present?
-            log(host, "Putting #{@config.service} into maintenance")
-            @proxy_manager.maintenance(host, proxy, "#{service_name(old_color)}:#{proxy.app_port}")
-            maintenance_started = true
-            @audit_logger.record(host, "maintenance", "begin old=#{old_color.slug} new=#{new_color.slug}")
-            @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}") if old_active
-
-            active_secondary_roles.each do |role|
-              stop_unit!(host, role_service_unit(role))
-            end
-            stop_unit!(host, service_unit(old_color)) if old_active
-          end
-
-          roles.each { |role| upload_file_syncs(host, role) }
-          roles.each { |role| run_remote_hooks(host, role, "after_upload") }
-          log(host, "Reloading user systemd after file syncs")
-          run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-
-          run_remote_hooks(host, "web", "before_start")
-          log(host, "Starting service #{service_unit(new_color)}")
-          run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
-          candidate_started = true
-          run_remote_hooks(host, "web", "after_start")
-
-          log(host, "Checking health for #{service_name(new_color)}")
-          poll_container_health(host, proxy, service_name(new_color))
-          candidate_healthy = true
-
-          secondary_roles.each do |role|
-            unit = role_service_unit(role)
-            run_remote_hooks(host, role, "before_start")
-            log(host, "Starting service #{unit}")
-            run_ssh!(host, ["systemctl", "--user", "start", unit])
-            ensure_unit_active!(host, unit)
-            run_remote_hooks(host, role, "after_start")
-          end
-
-          run_remote_hooks(host, "web", "before_switch")
-          log(host, "Switching proxy target to #{service_name(new_color)}")
-          @proxy_manager.switch(host, proxy, "#{service_name(new_color)}:#{proxy.app_port}")
-          resumed = true
-          run_remote_hooks(host, "web", "after_switch")
-
-          log(host, "Recording active color #{new_color.slug}")
-          record_active_color(host, new_color)
-          record_release(host, "web", new_color, web.image || @config.image, release_id)
-          record_service_manifest(host)
-
-          log(host, "Removing inactive Quadlet #{container_path(old_color)}")
-          run_ssh!(host, ["rm", "-f", container_path(old_color)])
-          run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-          prune_images(host)
-
-          if maintenance_started
-            @audit_logger.record(host, "maintenance", "end active=#{new_color.slug}")
-          end
-
-          roles.each { |role| record_deploy_audit(host, role) }
-          roles.each { |role| run_remote_hooks(host, role, "after_deploy") }
+          swap_recreate_candidate(host, proxy, roles, secondary_roles, new_color)
         rescue ex : Exception
           failure = deploy_failure(ex, "Recreate deploy on #{host}")
-          stop_unhealthy_candidate(host, new_color) if candidate_started && !candidate_healthy
-
-          if maintenance_started && !resumed
-            @audit_logger.record(host, "maintenance", "failed: #{failure.message}")
-            raise DeployFailed.new(recreate_maintenance_failure(host, old_color, new_color, secondary_roles, failure), failure)
-          end
-
-          raise failure
+          @audit_logger.record(host, "maintenance", "failed: #{failure.message}")
+          raise DeployFailed.new(recreate_maintenance_failure(host, old_color, new_color, secondary_roles, failure), failure)
         end
+      end
+
+      private def swap_recreate_candidate(
+        host : String,
+        proxy : Config::ServerProxyConfig,
+        roles : Array(String),
+        secondary_roles : Array(String),
+        new_color : Quadlet::Color,
+      ) : Nil
+        roles.each { |role| upload_file_syncs(host, role) }
+        roles.each { |role| run_remote_hooks(host, role, "after_upload") }
+        log(host, "Reloading user systemd after file syncs")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+
+        run_remote_hooks(host, "web", "before_start")
+        log(host, "Starting service #{service_unit(new_color)}")
+        run_ssh!(host, ["systemctl", "--user", "start", service_unit(new_color)])
+
+        begin
+          run_remote_hooks(host, "web", "after_start")
+          log(host, "Checking health for #{service_name(new_color)}")
+          poll_container_health(host, proxy, service_name(new_color))
+        rescue ex : Exception
+          # Started but never went healthy - stop it before unwinding.
+          stop_unhealthy_candidate(host, new_color)
+          raise ex
+        end
+
+        secondary_roles.each do |role|
+          unit = role_service_unit(role)
+          run_remote_hooks(host, role, "before_start")
+          log(host, "Starting service #{unit}")
+          run_ssh!(host, ["systemctl", "--user", "start", unit])
+          ensure_unit_active!(host, unit)
+          run_remote_hooks(host, role, "after_start")
+        end
+
+        run_remote_hooks(host, "web", "before_switch")
+        log(host, "Switching proxy target to #{service_name(new_color)}")
+        @proxy_manager.switch(host, proxy, "#{service_name(new_color)}:#{proxy.app_port}")
+      end
+
+      private def finalize_recreate(
+        host : String,
+        web : Config::ServerConfig,
+        roles : Array(String),
+        old_color : Quadlet::Color,
+        new_color : Quadlet::Color,
+        release_id : String,
+      ) : Nil
+        run_remote_hooks(host, "web", "after_switch")
+
+        log(host, "Recording active color #{new_color.slug}")
+        record_active_color(host, new_color)
+        record_release(host, "web", new_color, web.image || @config.image, release_id)
+        record_service_manifest(host)
+
+        log(host, "Removing inactive Quadlet #{container_path(old_color)}")
+        run_ssh!(host, ["rm", "-f", container_path(old_color)])
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+        prune_images(host)
       end
 
       private def build_allowed_hosts(targets : Array(CLI::TargetSelector::Target)?) : Hash(String, Array(String))?
@@ -585,6 +625,19 @@ module Meridian
 
       private def server_config(role : String) : Config::ServerConfig
         @config.servers[role]? || raise Config::UnknownRole.new("Unknown role: #{role}")
+      end
+
+      record DeployColors, old : Quadlet::Color, new : Quadlet::Color, old_active : Bool
+
+      # Resolves which colour is live and which one this deploy will occupy,
+      # migrating the pre-state-dir marker file on the way if it is still in use.
+      private def resolve_deploy_colors(host : String) : DeployColors
+        stored_color = stored_active_color_entry(host)
+        old_color = stored_color.try(&.color) || detect_current_color(host)
+        old_active = service_active?(host, old_color)
+        migrate_legacy_active_color(host, old_color) if stored_color.try(&.path) == LEGACY_ACTIVE_COLOR_FILE
+
+        DeployColors.new(old: old_color, new: inactive_color(old_color), old_active: old_active)
       end
 
       private def inactive_color(color : Quadlet::Color) : Quadlet::Color
