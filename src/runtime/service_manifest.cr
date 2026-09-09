@@ -68,6 +68,7 @@ module Meridian
       SCHEMA_VERSION = 2
 
       getter schema_version : Int32
+      getter meridian_version : String? = nil
       getter service : String
       getter proxy_routes : Array(ProxyRoute)
       getter asset_host : String?
@@ -95,6 +96,7 @@ module Meridian
         @lock_path : String,
         @audit_path : String,
         @incremental_cache_path : String,
+        @meridian_version : String? = Meridian::VERSION,
       )
         @schema_version = SCHEMA_VERSION
       end

@@ -138,7 +138,7 @@ Meridian stores runtime state per service, not globally:
 | File | Purpose | Read by | Written by |
 | --- | --- | --- | --- |
 | `active-color` | Current proxied color, `blue` or `green`. | `status`, `exec`, `rollback` | proxied `deploy`, `rollback` |
-| `manifest.json` | Ownership manifest for proxy routes, assets, ports, accessories, generated files, and state paths. | `check`, `proxy remove` | `deploy` |
+| `manifest.json` | Ownership manifest for proxy routes, assets, ports, accessories, generated files, and state paths, plus the writing Meridian version for diagnostics. | `check`, `proxy remove` | `deploy` |
 | `release-state.json` | Current and previous proxied releases; only Blue/Green releases are image-rollback-safe. | `status`, `rollback` | proxied `deploy`, `rollback` |
 | `lock/meta.json` | Deploy lock holder, timestamp, and optional message. | `lock status`, `deploy` | `deploy`, `lock acquire`, `lock release` |
 | `audit.log` | Line-oriented history of deploy, rollback, proxy, accessory, and lock operations. | `audit` | mutating commands |

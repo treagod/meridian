@@ -96,7 +96,7 @@ Read-only preflight, and the thing to put in CI ahead of `deploy`. Any failure e
 - SSH reachability, Podman version, lingering, and a writable Quadlet directory
 - Transfer tooling and Podman secrets on every host
 - Caddy 2.11.2+, its private admin API, active configuration, and the shared `meridian-proxy` network on web hosts
-- Route and ownership collisions against other Meridian services on the same host
+- Route and ownership collisions against other Meridian services on the same host; manifests record the writing Meridian version for diagnostics
 - Local `files:` sources are readable, and for `stream` and `incremental` transfers, that the images exist in *local* Podman storage
 - Transfer tooling on the machine you deploy from, not just on the hosts — `zstd` for `stream`, `rsync` for `incremental`
 
