@@ -625,7 +625,8 @@ describe "Meridian::Quadlet::Generator" do
 
       Meridian::Quadlet::Generator.new(config).proxy_asset_route.should eq(
         "static.example.com {\n" \
-        "\troot * /srv/assets/myapp/current\n" \
+        "\troot * /srv/assets/myapp\n" \
+        "\ttry_files /current{path} /previous{path}\n" \
         "\theader Access-Control-Allow-Origin \"*\"\n" \
         "\theader Cache-Control \"public, max-age=31536000, immutable\"\n" \
         "\tencode zstd gzip\n" \
@@ -1064,7 +1065,8 @@ describe "Meridian::Quadlet::Generator" do
         build_quadlet_generator(assets_config).write_to_directory(path, Meridian::Quadlet::Color::Green)
 
         route = File.read(File.join(path, "caddy", "routes", "myapp-assets.caddy"))
-        route.should contain("root * /srv/assets/myapp/current")
+        route.should contain("root * /srv/assets/myapp")
+        route.should contain("try_files /current{path} /previous{path}")
         route.should contain("file_server")
         route.should_not contain("reverse_proxy")
       end

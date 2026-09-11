@@ -650,7 +650,7 @@ assets:
 | `host` | `String` | Required | `assets.my-app.example.com` | Must resolve to the server before HTTPS issuance. |
 | `command` | `String` | Required | `bin/manage collectassets --fingerprint --no-input` | Runs in an app-image one-shot unit. |
 | `output_dir` | `String` | Required | `/app/assets` | Directory copied into the asset release directory. |
-| `retain_releases` | `Int32` | Optional, default `2` | `2` | Number of old asset releases kept. |
+| `retain_releases` | `Int32` | Optional, default `2` | `2` | Release directories kept on disk. The route serves the newest two; older ones are retained but not reachable. |
 | `compression` | `Bool` | Optional, default `true` | `true` | Emits `encode zstd gzip` in the asset route fragment. Set `false` to disable compression. |
 
 Validation: `assets:` requires `servers.web.proxy` because the assets are served
@@ -661,6 +661,10 @@ partial asset transaction.
 The asset route always sends fingerprinted files with a long-lived
 `Cache-Control: public, max-age=31536000, immutable` header, and — unless
 `compression: false` — negotiates `zstd`/`gzip` compression per request.
+
+The route tries `current` first, then `previous`. This keeps pages loaded before
+a deploy from losing their fingerprinted assets. Older retained releases are not
+served.
 
 Assets are served by the shared `meridian-caddy` proxy, which bind-mounts
 `~/.local/state/meridian/assets` read-only at `/srv/assets`. That mount is

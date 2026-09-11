@@ -499,6 +499,7 @@ def enqueue_zero_downtime_assets_success(
   # network the app joins. It runs right after the service network precheck.
   results.insert(1, ssh_ok) if accessory_preflight > 0
   accessory_probes.times { results << ssh_ok }
+  results << ssh_ok # record previous asset release
   results << ssh_ok # restart assets-builder.service
   if real_proxy
     results << ssh_ok # upload pending Caddy asset route
@@ -2844,9 +2845,30 @@ describe "Meridian::Deploy::Orchestrator" do
       orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
 
       commands = remote_commands_for(runner, "192.168.1.10")
-      prune_command = commands.find(&.includes?("podman unshare")) || raise "Expected asset prune command"
+      prune_command = commands.find { |command| command.includes?("podman unshare") && command.includes?("find ") } ||
+                      raise "Expected asset prune command"
       prune_command.should contain("find .local/state/meridian/assets/myapp")
       prune_command.should contain("head -n -2")
+    end
+
+    it "points previous at the outgoing release before the builder repoints current" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_assets_success(runner)
+      orchestrator = build_orchestrator(content: ASSETS_CONFIG, runner: runner)
+
+      orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner, "192.168.1.10")
+      link_index = commands.index { |command| command.includes?("podman unshare") && command.includes?("ln -snf") } ||
+                   raise "Expected previous-release link command"
+      build_index = commands.index("systemctl --user restart myapp-assets-builder.service") ||
+                    raise "Expected asset builder restart"
+
+      link_index.should be < build_index
+
+      link_command = commands[link_index]
+      link_command.should contain("readlink .local/state/meridian/assets/myapp/current")
+      link_command.should contain(".local/state/meridian/assets/myapp/previous")
     end
 
     it "does not run asset steps when assets are not configured" do

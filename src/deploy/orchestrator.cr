@@ -1353,6 +1353,15 @@ module Meridian
       private def run_asset_build_on_host(host : String) : Nil
         assets = @config.assets || raise DeployFailed.new("assets configuration missing")
 
+        # The :U mount means this link has to be changed inside Podman's user namespace.
+        log(host, "Recording the previous asset release")
+        link_cmd = "prev=$(readlink #{Process.quote_posix(File.join(assets_directory, "current"))} 2>/dev/null); " \
+                   "if test -n \"$prev\"; then ln -snf \"$prev\" #{Process.quote_posix(File.join(assets_directory, "previous"))}; fi"
+        link_result = run_ssh(host, ["bash", "-c", "podman unshare sh -c #{Process.quote_posix(link_cmd)}"])
+        unless link_result.exit_code.zero?
+          log(host, "Recording the previous asset release failed with exit code #{link_result.exit_code}")
+        end
+
         log(host, "Running asset builder")
         run_ssh!(host, ["systemctl", "--user", "restart", "#{@config.service}-assets-builder.service"])
 

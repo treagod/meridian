@@ -88,7 +88,9 @@ module Meridian
         assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
         ssl = @config.servers["web"]?.try(&.proxy).try(&.ssl?) || false
         handler = String.build do |io|
-          io << "root * /srv/assets/" << @config.service << "/current\n"
+          io << "root * /srv/assets/" << @config.service << "\n"
+          # Keep assets from the outgoing release available during a deploy.
+          io << "try_files /current{path} /previous{path}\n"
           io << "header Access-Control-Allow-Origin \"*\"\n"
           io << "header Cache-Control \"public, max-age=31536000, immutable\"\n"
           io << "encode zstd gzip\n" if assets.compression?

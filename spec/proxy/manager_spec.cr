@@ -259,7 +259,8 @@ describe "Meridian::Proxy::Manager" do
 
       # Served off the proxy's own read-only mount - no sidecar upstream.
       route = upload.input || raise "Expected route"
-      route.should contain("root * /srv/assets/myapp/current")
+      route.should contain("root * /srv/assets/myapp")
+      route.should contain("try_files /current{path} /previous{path}")
       route.should contain("file_server")
       route.should_not contain("reverse_proxy")
     end
