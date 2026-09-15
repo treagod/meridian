@@ -654,7 +654,7 @@ assets:
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `host` | `String` | Required | `assets.my-app.example.com` | Must resolve to the server before HTTPS issuance. |
-| `command` | `String` | Required | `bin/manage collectassets --fingerprint --no-input` | Runs in an app-image one-shot unit. |
+| `command` | `String` | Required | `bin/manage collectassets --fingerprint --no-input` | Runs in an app-image one-shot unit without a container network. Disable eager cache or database connections for this command. |
 | `output_dir` | `String` | Required | `/app/assets` | Directory copied into the asset release directory. |
 | `retain_releases` | `Int32` | Optional, default `2` | `2` | Release directories kept on disk. The route serves the newest two; older ones are retained but not reachable. |
 | `compression` | `Bool` | Optional, default `true` | `true` | Emits `encode zstd gzip` in the asset route fragment. Set `false` to disable compression. |
@@ -674,7 +674,4 @@ served.
 
 Assets are served by the shared `meridian-caddy` proxy, which bind-mounts
 `~/.local/state/meridian/assets` read-only at `/srv/assets`. That mount is
-installed by `meridian setup`, so an existing install must re-run setup before
-its first deploy with this Meridian version; `meridian check` reports it as
-`caddy-assets`. See
-[Assets 404 after updating Meridian](/guide/troubleshooting#assets-404-after-updating-meridian).
+installed by `meridian setup`; `meridian check` verifies it as `caddy-assets`.

@@ -295,3 +295,73 @@ Fix: don't reference fingerprinted assets from inside CSS files. Resolve the URL
 
 The path is resolved through Marten's manifest in the template; the CSS just
 consumes the resulting URL.
+
+## Asset Build Fails With A DNS Or Connection Error
+
+Problem: deploy stops at `Running asset builder`, and the journal shows a DNS or
+connection error for an accessory such as `redis` or `postgres`.
+
+Cause: the asset builder has no container network. Settings that connect to a
+cache or database while loading fail before the asset command runs.
+
+Diagnose:
+
+```bash
+ssh deploy@prod-01.example.com 'journalctl --user -u my-app-assets-builder.service -n 60 --no-pager'
+ssh deploy@prod-01.example.com 'grep -c "^Network=" ~/.config/containers/systemd/my-app-assets-builder.container'
+```
+
+The second command should print `0`.
+
+Fix: skip the connection for asset commands in every environment that builds
+assets:
+
+```crystal
+# config/settings/production.cr
+config.cache_store =
+  if ENV["MARTEN_BUILDING_IMAGE"]? || %w(collectassets collectassets_minified).includes?(ARGV.first?)
+    Marten::Cache::Store::Null.new
+  else
+    MartenRedisCache::Store.new(uri: ENV.fetch("REDIS_URL", "redis://redis:6379"))
+  end
+```
+
+The same applies to eager cache clients and connection pools in other frameworks.
+See [`assets.command`](/reference/deploy-yml#assets).
+
+## `meridian server bootstrap` Cannot Log In As root
+
+Problem: bootstrap fails at upload with `Permission denied (publickey,password)`.
+
+Cause: bootstrap uses the root password because the key is not installed yet.
+OpenSSH's common `PermitRootLogin prohibit-password` default rejects that login.
+
+Diagnose:
+
+```bash
+ssh deploy@prod-01.example.com 'grep -rE "^\s*PermitRootLogin" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null'
+```
+
+No output usually means the `prohibit-password` default applies.
+
+Fix, in order of preference:
+
+1. **Use the provider console.** Set a root password, temporarily enable
+   `PermitRootLogin yes` and `PasswordAuthentication yes`, run bootstrap, then
+   restore the SSH settings. Meridian does not change sshd configuration.
+2. **Provision by hand** if the intended deploy user already runs rootless
+   Podman and has your SSH key:
+
+   ```bash
+   sudo apt-get install -y ca-certificates curl podman uidmap slirp4netns fuse-overlayfs zstd
+   echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-rootless-low-ports.conf
+   sudo sysctl --system
+   sudo loginctl enable-linger deploy
+   ```
+
+3. **Keep an existing port forwarder.** Point
+   [`proxy.http_port` and `proxy.https_port`](/reference/deploy-yml#proxy) at its
+   higher ports.
+
+Run `meridian check` afterward to verify Podman, lingering, and the Quadlet
+directory.
