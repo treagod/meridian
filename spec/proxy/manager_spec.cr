@@ -127,26 +127,6 @@ describe "Meridian::Proxy::Manager" do
       commands.any? { |command| command.ends_with?("--head http://127.0.0.1:8080/") }.should be_true
     end
 
-    it "refuses to migrate legacy kamal-proxy resources automatically" do
-      runner = FakeSSHRunner.new
-      runner.enqueue_results(ssh_fail(1))
-      manager = build_proxy_manager(
-        content: <<-YAML,
-          service: myapp
-          image: example.com/myapp
-          servers:
-            web:
-              hosts: [192.168.1.10]
-              proxy:
-                host: example.com
-          YAML
-        runner: runner
-      )
-
-      expect_raises(Meridian::Proxy::SetupFailed, /Legacy kamal-proxy resources exist/) { manager.setup }
-      remote_commands_for(runner).should_not contain("systemctl --user stop kamal-proxy.service")
-    end
-
     it "normalizes remote setup failures" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(ssh_ok, ssh_fail(1, stderr: "mkdir failed"))

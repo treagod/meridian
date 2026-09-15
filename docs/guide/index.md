@@ -15,6 +15,8 @@ production defaults that framework expects.
   topology, blue/green. Read this before debugging anything.
 - [Multi-App Hosting](/guide/multi-app) — add a second app to a VPS that already runs
   one Meridian service.
+- [Taking Over An Existing Host](/guide/taking-over-a-host) — move a server you
+  already run by hand onto Meridian without moving its data.
 - [Pre-Flight Checklist](/guide/preflight) — DNS, images, app ports, secrets, and
   accessories, verified before the first deploy.
 - [Troubleshooting](/guide/troubleshooting) — the failures you actually hit, with

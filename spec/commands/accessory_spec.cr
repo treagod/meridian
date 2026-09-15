@@ -354,7 +354,7 @@ describe "Meridian::Commands::Accessory" do
       commands = accessory_commands_for(runner, "192.168.1.20")
       commands.should_not contain("systemctl --user stop myapp-blue.service")
       commands.should_not contain("systemctl --user stop myapp-green.service")
-      commands.any?(&.includes?("kamal-proxy")).should be_false
+      commands.any?(&.includes?("meridian-caddy")).should be_false
     end
   end
 

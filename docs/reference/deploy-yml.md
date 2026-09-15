@@ -222,12 +222,14 @@ proxy:
 | `image` | `String` | Optional, runtime default `docker.io/library/caddy:2.11.4-alpine` | `docker.io/library/caddy:2.11.4-alpine` | Must contain Caddy 2.11.2 or newer. |
 | `http_port` | `Int32` | Optional, default `80` | `80` | Positive host port; rootless low-port binding must be enabled. |
 | `https_port` | `Int32` | Optional, default `443` | `443` | Positive host port with the same low-port requirement. |
+
+The defaults need `net.ipv4.ip_unprivileged_port_start=80`, which `meridian server bootstrap` sets. Without root, use higher ports and keep an existing port forwarder in front.
 | `data_dir` | `String` | Optional, default `%h/.local/share/meridian-caddy` | `"%h/.local/share/meridian-caddy"` | Mounted at `/data` for certificates and Caddy state. `%h` is systemd's deploy-user home specifier. |
 | `drain_timeout` | `Int32` | Optional, default `300` | `300` | Positive seconds to wait for in-flight requests on the removed upstream; timeout warns and force-stops it. |
 
 The `data_dir` default lives under the deploy user's home so that nothing in Meridian needs root on the host. Meridian also stores the root Caddyfile, per-service route fragments, Unix admin socket, and reload lock under `~/.config/containers/meridian-caddy/`.
 
-Caddy obtains and renews certificates automatically when `servers.web.proxy.ssl: true`; `ssl: false` emits an explicit HTTP site address. For a service without an existing fragment, `meridian setup` installs a persistent 503 maintenance route until the first successful deploy; existing routes are preserved. Setup refuses to continue while a legacy `kamal-proxy.container`, unit, or container exists. Stop and remove it during a maintenance window, run setup once, then redeploy every service on the host. No legacy routes or certificate state are imported automatically, and the old data directory is not deleted.
+Caddy obtains and renews certificates automatically when `servers.web.proxy.ssl: true`; `ssl: false` emits an explicit HTTP site address. For a service without an existing fragment, `meridian setup` installs a persistent 503 maintenance route until the first successful deploy; existing routes are preserved.
 
 A root-owned path requires you to create it yourself — Meridian will not use `sudo`.
 
@@ -270,9 +272,13 @@ env:
 | Key | Type | Required / default | Example | Rules |
 | --- | --- | --- | --- | --- |
 | `clear` | `Hash(String, String)` | Optional, default `{}` | `{ MARTEN_ENV: production }` | Written directly into generated Quadlets. |
-| `secret` | `Array(String)` | Optional, default `[]` | `[DATABASE_URL]` | Names Podman secrets already present on target hosts. |
+| `secret` | `Array(String)` | Optional, default `[]` | `[DATABASE_URL]` | Names Podman secrets already present on target hosts. The secret name **is** the environment variable name the container sees; there is no rename step. |
 
 Use service-prefixed secret names when multiple apps share one host.
+
+If an existing secret has another name, copy it under the expected name; see
+[Taking Over An Existing Host](/guide/taking-over-a-host#secrets-the-name-is-the-variable).
+Accessory [`secrets`](#accessories) can rename variables with `target=VAR`.
 
 Meridian creates these with `podman secret create` over SSH stdin and lets Podman
 store them with whatever secret driver is configured on that host; it does not

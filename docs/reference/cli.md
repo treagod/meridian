@@ -103,9 +103,7 @@ meridian setup --config config/production.yml
 
 Uploads and starts `<service>.network` on configured service hosts and on
 service-networked accessory hosts, uploads `meridian-proxy.network` and
-`meridian-caddy.container`, the root Caddyfile, and `meridian-proxy.network` to web hosts; creates `proxy.data_dir`; gives a service without an existing route an initial persistent HTTP 503 route; reloads user systemd; and restarts Caddy. Setup requires `flock`, verifies Caddy 2.11.2 or newer, its private Unix admin API, and HTTP reachability, and refuses to proceed while any legacy kamal-proxy Quadlet, unit, or container exists. Existing service routes are preserved and no per-service release state is written.
-
-For an existing host, schedule a maintenance window, remove the old proxy image override from every `deploy.yml`, stop and remove kamal-proxy yourself, run setup once, and redeploy every registered Meridian service. Meridian does not import old routes or delete the old certificate/data directory.
+`meridian-caddy.container`, the root Caddyfile, and `meridian-proxy.network` to web hosts; creates `proxy.data_dir`; gives a service without an existing route an initial persistent HTTP 503 route; reloads user systemd; and restarts Caddy. Setup requires `flock`, verifies Caddy 2.11.2 or newer, its private Unix admin API, and HTTP reachability. Existing service routes are preserved and no per-service release state is written.
 
 See [`proxy`](/reference/deploy-yml#proxy) and
 [`servers.<role>.proxy`](/reference/deploy-yml#servers-role-proxy). Failures usually land

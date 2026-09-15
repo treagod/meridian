@@ -36,7 +36,6 @@ module Meridian
         proxy_url = "http://127.0.0.1:#{proxy.http_port}/"
         web_proxy = @config.servers["web"].proxy || raise SetupFailed.new("Missing proxy configuration for role: web")
 
-        hosts.each { |host| reject_legacy_proxy!(host) }
         service_network_hosts.each { |host| setup_service_network(host, network_quadlet) }
 
         hosts.each do |host|
@@ -201,19 +200,6 @@ module Meridian
         return if result.exit_code.zero?
 
         raise RouteFailed.new(SSH::Executor.command_failure_message(host, "remove Caddy routes", result))
-      end
-
-      private def reject_legacy_proxy!(host : String) : Nil
-        legacy_quadlet = File.join(Quadlet::DIRECTORY, "kamal-proxy.container")
-        command = "if test -e #{Process.quote_posix(legacy_quadlet)} || " \
-                  "systemctl --user cat kamal-proxy.service >/dev/null 2>&1 || " \
-                  "podman container exists kamal-proxy; then exit 1; fi"
-        result = run_ssh(host, ["sh", "-lc", command])
-        return if result.exit_code.zero?
-
-        raise SetupFailed.new(
-          "Legacy kamal-proxy resources exist on #{host}. Stop and remove kamal-proxy during a maintenance window before running `meridian setup`; Meridian will not remove it automatically."
-        )
       end
 
       private def verify_caddy!(host : String) : Nil

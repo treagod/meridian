@@ -49,7 +49,7 @@ meridian deploy
 
 `init` sniffs out Marten, Rails, Elixir, Go, and Node projects and seeds sensible defaults. Whatever it can't guess, it asks.
 
-Upgrading a host that still runs kamal-proxy requires an explicit maintenance cutover: remove the old proxy image from `deploy.yml`, stop and remove `kamal-proxy.container`, run `meridian setup`, then redeploy every Meridian service registered on that host. Setup gives a service without an existing route a persistent HTTP 503 maintenance route until its first deploy. Meridian refuses to mix both proxies and leaves the old kamal-proxy data directory untouched for manual cleanup.
+`setup` gives a service without an existing route a persistent HTTP 503 maintenance route until its first deploy.
 
 ## Commands
 
