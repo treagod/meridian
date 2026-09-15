@@ -1276,7 +1276,20 @@ module Meridian
 
       private def record_service_manifest(host : String) : Nil
         manifest = Runtime::ServiceManifest.from_config(@config)
+        report_generated_file_drift(host, manifest)
         upload_ssh(host, manifest_file, "#{manifest.to_json}\n")
+      end
+
+      private def report_generated_file_drift(host : String, manifest : Runtime::ServiceManifest) : Nil
+        result = run_ssh(host, ["cat", manifest_file])
+        return unless result.exit_code.zero?
+
+        stale = Runtime::ServiceManifest.from_json(result.stdout).generated_files - manifest.generated_files
+        return if stale.empty?
+
+        log(host, "Stale generated files: #{stale.size}; run `meridian prune` to remove them")
+      rescue JSON::ParseException
+        # Drift reporting must not fail a completed deploy.
       end
 
       private def record_release(

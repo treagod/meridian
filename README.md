@@ -61,6 +61,7 @@ Upgrading a host that still runs kamal-proxy requires an explicit maintenance cu
 | [`check`](https://meridian-deploy.dev/reference/cli#check) | Read-only preflight against every configured host |
 | [`plan`](https://meridian-deploy.dev/reference/cli#plan) | Print what Meridian resolved from `deploy.yml`, touching no server |
 | [`deploy`](https://meridian-deploy.dev/reference/cli#deploy) | Deploy all roles with the resolved service strategy |
+| [`prune`](https://meridian-deploy.dev/reference/cli#prune) | Remove stale generated files without removing Podman volumes |
 | [`rollback`](https://meridian-deploy.dev/reference/cli#rollback) | Restore the previous blue/green web release |
 | [`status`](https://meridian-deploy.dev/reference/cli#status) / [`logs`](https://meridian-deploy.dev/reference/cli#logs) | Inspect deployed state, stream `journalctl` |
 | [`exec`](https://meridian-deploy.dev/reference/cli#exec) / [`run`](https://meridian-deploy.dev/reference/cli#run) | Run a command in the live container, or in a fresh one-off container |

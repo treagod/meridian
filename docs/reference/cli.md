@@ -133,6 +133,22 @@ See [`proxy`](/reference/deploy-yml#proxy),
 [`manifest-collisions: fail`](/guide/troubleshooting#manifest-collisions-fail) for
 ownership problems.
 
+## `prune` {#prune}
+
+Removes files left by an earlier configuration. Deploy reports these files but
+does not remove them.
+
+```bash
+meridian prune
+meridian prune --force
+```
+
+Quadlet units are stopped before their files are removed. Podman volumes are
+listed but never removed. Paths outside `.config/containers/` and
+`.local/state/meridian/` are rejected, and the manifest itself is kept.
+
+The command asks before removing anything. `--force` skips the prompt.
+
 ## `check` {#check}
 
 Runs read-only preflight probes against the selected hosts. Changes nothing.

@@ -21,6 +21,7 @@ describe "Meridian::CLI" do
       result.output.should contain("accessory")
       result.output.should contain("quadlet")
       result.output.should contain("proxy")
+      result.output.should contain("prune")
       result.output.should contain("Run `meridian COMMAND --help`")
     end
 
@@ -269,6 +270,14 @@ describe "Meridian::CLI" do
         uploads = runner.invocations.select(&.remote_command.==("cat > .config/containers/systemd/.meridian-color"))
         uploads.size.should eq(2)
       end
+    end
+
+    it "prints help for the prune subcommand" do
+      result = run_cli(["prune", "--help"])
+      result.exit_code.should eq 0
+      result.output.should contain("Usage: meridian prune")
+      result.output.should contain("--force")
+      result.output.should contain("never removed")
     end
 
     it "prints help for the init subcommand" do

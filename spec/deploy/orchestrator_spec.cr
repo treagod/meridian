@@ -156,6 +156,7 @@ def enqueue_zero_downtime_success(
     ssh_ok,                            # upload legacy active-color
     ssh_fail(1, "", "No such file\n"), # read prior release-state
     ssh_ok,                            # upload release-state
+    ssh_fail(1, "", "No such file\n"), # read prior manifest for drift
     ssh_ok,                            # upload service manifest
     prune_result,
   ])
@@ -248,6 +249,7 @@ def enqueue_zero_downtime_success_for_host(
     ssh_ok,                            # upload legacy active-color
     ssh_fail(1, "", "No such file\n"), # read prior release-state
     ssh_ok,                            # upload release-state
+    ssh_fail(1, "", "No such file\n"), # read prior manifest for drift
     ssh_ok,                            # upload service manifest
     prune_result,
   ])
@@ -386,8 +388,9 @@ def enqueue_deploy_success_for_host(
   ]
   results << ssh_ok if active_service # stop active service
   results.concat([
-    ssh_ok, # start service
-    ssh_ok, # upload service manifest
+    ssh_ok,                            # start service
+    ssh_fail(1, "", "No such file\n"), # read prior manifest for drift
+    ssh_ok,                            # upload service manifest
   ])
 
   runner.enqueue_results_for_host(host, results)
@@ -523,6 +526,7 @@ def enqueue_zero_downtime_assets_success(
     ssh_ok("green\n"),                 # upload legacy .meridian-color
     ssh_fail(1, "", "No such file\n"), # read prior release-state
     ssh_ok,                            # upload release-state
+    ssh_fail(1, "", "No such file\n"), # read prior manifest for drift
     ssh_ok,                            # upload service manifest
     ssh_ok,                            # podman image prune
   ])
@@ -807,16 +811,15 @@ describe "Meridian::Deploy::Orchestrator" do
     it "raises DeployFailed when systemctl start fails" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "active\n", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 0, stdout: "", stderr: ""),
-        Meridian::SSH::Result.new(exit_code: 1, stdout: "", stderr: "start failed\n"),
+        ssh_ok,                            # podman network exists
+        ssh_ok,                            # podman pull
+        ssh_ok,                            # mkdir -p Quadlet directory
+        ssh_ok,                            # mkdir -p service state dir
+        ssh_ok,                            # upload container Quadlet
+        ssh_ok,                            # daemon-reload
+        ssh_ok("active\n"),                # is-active: an old service is running
+        ssh_ok,                            # stop it
+        ssh_fail(1, "", "start failed\n"), # start the new one
       )
       orchestrator = build_orchestrator(runner: runner)
 
@@ -2881,6 +2884,56 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner, "192.168.1.10")
       commands.should_not contain("systemctl --user restart myapp-assets-builder.service")
       commands.should_not contain("systemctl --user start myapp-assets-server.service")
+    end
+  end
+
+  describe "generated file drift" do
+    it "reports stale generated files" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      recorded = Meridian::Runtime::ServiceManifest.from_config(load_config(FULL_CONFIG))
+      stale = recorded.to_json.sub(
+        %("generated_files":[),
+        %("generated_files":[".config/containers/systemd/myapp-assets-server.container",)
+      )
+      runner.enqueue_results(
+        ssh_ok,        # podman network exists
+        ssh_ok,        # podman pull
+        ssh_ok,        # mkdir -p Quadlet directory
+        ssh_ok,        # mkdir -p service state dir
+        ssh_ok,        # upload container Quadlet
+        ssh_ok,        # daemon-reload
+        ssh_fail(3),   # is-active: nothing running yet
+        ssh_ok,        # start
+        ssh_ok(stale), # read prior manifest
+      )
+
+      build_orchestrator(runner: runner, output: output).deploy_to_host("192.168.1.10", "web")
+
+      output.to_s.should contain("Stale generated files: 1")
+      output.to_s.should contain("meridian prune")
+      remote_commands_for(runner).none?(&.starts_with?("rm -f")).should be_true
+    end
+
+    it "stays quiet when the recorded manifest matches" do
+      runner = FakeSSHRunner.new
+      output = IO::Memory.new
+      recorded = Meridian::Runtime::ServiceManifest.from_config(load_config(FULL_CONFIG))
+      runner.enqueue_results(
+        ssh_ok,                   # podman network exists
+        ssh_ok,                   # podman pull
+        ssh_ok,                   # mkdir -p Quadlet directory
+        ssh_ok,                   # mkdir -p service state dir
+        ssh_ok,                   # upload container Quadlet
+        ssh_ok,                   # daemon-reload
+        ssh_fail(3),              # is-active: nothing running yet
+        ssh_ok,                   # start
+        ssh_ok(recorded.to_json), # read prior manifest
+      )
+
+      build_orchestrator(runner: runner, output: output).deploy_to_host("192.168.1.10", "web")
+
+      output.to_s.should_not contain("meridian prune")
     end
   end
 

@@ -57,6 +57,7 @@ module Meridian
       Commands::Status,
       Commands::Check,
       Commands::Plan,
+      Commands::Prune,
       Commands::Logs,
       Commands::Exec,
       Commands::Run,

@@ -14,7 +14,7 @@ Three steps:
 
 ### Worked example: `meridian prune`
 
-A hypothetical command that removes stale images from each web host.
+This is the command from `src/cli/commands/prune.cr`.
 
 **`src/cli/commands/prune.cr`:**
 
@@ -24,14 +24,14 @@ module Meridian
     module Commands
       class Prune < Command
         @file = Meridian::Paths::CONFIG_FILE
-        @keep = 3
+        @force = false
 
         def name : String
           "prune"
         end
 
         def summary : String
-          "Remove old container images from web hosts"
+          "Remove stale generated files from hosts"
         end
 
         def usage : String
@@ -39,17 +39,21 @@ module Meridian
         end
 
         def description : String
-          "Remove stale container images from each configured web host."
+          "Remove generated files that are no longer in the config. " \
+          "Podman volumes are kept."
         end
 
         def configure(parser : OptionParser) : Nil
           parser.on("--config PATH", "Path to deploy config (default: .meridian/deploy.yml)") { |v| @file = v }
-          parser.on("--keep N", "Number of recent images to retain (default: 3)") { |v| @keep = v.to_i }
+          parser.on("--force", "Remove without asking for confirmation") { @force = true }
         end
 
-        # Optional - only override when the command can raise something the default doesn't cover.
         def rescuable : Array(Exception.class)
-          super + [SSH::ConnectionError.as(Exception.class)]
+          super + [
+            ArgumentError,
+            SSH::CommandFailed,
+            SSH::ConnectionError,
+          ] of Exception.class
         end
 
         def failure_message : String
@@ -63,7 +67,7 @@ module Meridian
             ssh_executor: ctx.ssh_executor,
             output: ctx.output,
             error: ctx.error,
-          ).run(keep: @keep)
+          ).run(force: @force)
           0
         end
       end
