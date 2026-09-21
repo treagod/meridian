@@ -141,6 +141,7 @@ def enqueue_zero_downtime_success(
     health_successes.times { results << ssh_ok(health_status) }
   end
   if real_proxy
+    results << ssh_ok              # Caddy resolves the new upstream
     results << ssh_ok              # upload pending Caddy route
     results << ssh_ok              # atomically reload Caddy
     results << ssh_ok if redirects # upload redirect route
@@ -237,6 +238,7 @@ def enqueue_zero_downtime_success_for_host(
   else
     health_successes.times { results << ssh_ok(health_status) }
   end
+  results << ssh_ok # Caddy resolves the new upstream
   results << ssh_ok # upload pending Caddy route
   results << ssh_ok # atomically reload Caddy
   results << ssh_ok # remove stale redirect route
@@ -520,6 +522,7 @@ def enqueue_zero_downtime_assets_success(
     ssh_ok("200"), # health check (consecutive success 3/3)
   ])
   if real_proxy
+    results << ssh_ok # Caddy resolves the new upstream
     results << ssh_ok # upload pending Caddy app route
     results << ssh_ok # atomically reload Caddy app route
     results << ssh_ok # remove stale redirect route

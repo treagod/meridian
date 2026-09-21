@@ -118,7 +118,7 @@ def enqueue_release_rollback_success(runner : FakeSSHRunner) : Nil
     ssh_ok(rollback_release_state.to_json),
     ssh_ok, ssh_ok, ssh_ok, ssh_ok,
     ssh_ok("ok"), ssh_ok("ok"), ssh_ok("ok"),
-    ssh_ok, ssh_ok, ssh_ok("[]"), ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
+    ssh_ok, ssh_ok, ssh_ok, ssh_ok("[]"), ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
   )
 end
 
@@ -150,8 +150,8 @@ describe "Meridian::Commands::Rollback" do
     it "reads the active colour from the service-scoped state path on each host when no release state is present" do
       runner = FakeSSHRunner.new
       command = build_rollback_command(runner: runner)
-      runner.enqueue_results_for_host("192.168.1.10", ssh_fail(1, "", "No such file\n"), ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok("[]"))
-      runner.enqueue_results_for_host("192.168.1.11", ssh_fail(1, "", "No such file\n"), ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok("[]"))
+      runner.enqueue_results_for_host("192.168.1.10", ssh_fail(1, "", "No such file\n"), ssh_ok("blue\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok, ssh_ok("[]"))
+      runner.enqueue_results_for_host("192.168.1.11", ssh_fail(1, "", "No such file\n"), ssh_ok("green\n"), ssh_ok, ssh_ok("true\n"), ssh_ok, ssh_ok, ssh_ok, ssh_ok("[]"))
 
       command.run
 
@@ -190,6 +190,7 @@ describe "Meridian::Commands::Rollback" do
         ssh_ok,
         ssh_ok("false\n"),
         ssh_ok("myapp-green\n"),
+        ssh_ok,
         ssh_ok,
         ssh_ok,
         ssh_ok("[]"),
@@ -320,6 +321,7 @@ describe "Meridian::Commands::Rollback" do
         ssh_ok,                       # daemon-reload
         ssh_ok,                       # systemctl start
         ssh_ok("ok"),                 # health probe passes
+        ssh_ok,                       # Caddy resolves the new upstream
         ssh_ok,                       # upload pending Caddy route
         ssh_fail(1, "", "no route\n") # Caddy reload fails
       )

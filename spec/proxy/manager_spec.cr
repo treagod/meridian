@@ -162,9 +162,34 @@ describe "Meridian::Proxy::Manager" do
       reload.should contain("mv .config/containers/meridian-caddy/routes/myapp.caddy.backup")
     end
 
+    it "waits for Caddy to resolve the new upstream before staging the route" do
+      runner = FakeSSHRunner.new
+      config = load_config(FULL_CONFIG)
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+      build_proxy_manager(runner: runner).switch("192.168.1.10", proxy, "myapp-blue:3000")
+
+      commands = remote_commands_for(runner)
+      resolve = commands.index(&.includes?("getent hosts myapp-blue")) || raise "Expected resolve wait"
+      upload = commands.index(&.includes?("myapp.caddy.pending")) || raise "Expected route upload"
+      resolve.should be < upload
+      commands[resolve].should contain("timeout -k 5 120 podman exec meridian-caddy")
+    end
+
+    it "fails the switch without touching the route when Caddy cannot resolve the upstream" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(ssh_fail(124))
+      config = load_config(FULL_CONFIG)
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+
+      expect_raises(Meridian::Proxy::RouteFailed, /could not resolve myapp-blue within 120s/) do
+        build_proxy_manager(runner: runner).switch("192.168.1.10", proxy, "myapp-blue:3000")
+      end
+      remote_commands_for(runner).size.should eq(1)
+    end
+
     it "restores an old route or removes a first route when Caddy rejects a reload" do
       runner = FakeSSHRunner.new
-      runner.enqueue_results(ssh_ok, ssh_fail(1, stderr: "bad config"))
+      runner.enqueue_results(ssh_ok, ssh_ok, ssh_fail(1, stderr: "bad config"))
       config = load_config(FULL_CONFIG)
       proxy = config.servers["web"].proxy || raise "Expected proxy"
 
@@ -180,6 +205,7 @@ describe "Meridian::Proxy::Manager" do
       runner = FakeSSHRunner.new
       runner.enqueue_results(
         ssh_ok,
+        ssh_ok,
         ssh_fail(255),
         ssh_ok(%([{"address":"myapp-blue:3000","num_requests":0,"fails":0}])),
       )
@@ -191,7 +217,7 @@ describe "Meridian::Proxy::Manager" do
 
     it "leaves an unqueryable SSH disconnect explicitly uncertain" do
       runner = FakeSSHRunner.new
-      runner.enqueue_results(ssh_ok, ssh_fail(255), ssh_fail(1))
+      runner.enqueue_results(ssh_ok, ssh_ok, ssh_fail(255), ssh_fail(1))
       config = load_config(FULL_CONFIG)
       proxy = config.servers["web"].proxy || raise "Expected proxy"
 
@@ -202,7 +228,7 @@ describe "Meridian::Proxy::Manager" do
 
     it "rejects a disconnected switch when Caddy lacks the expected target" do
       runner = FakeSSHRunner.new
-      runner.enqueue_results(ssh_ok, ssh_fail(255), ssh_ok("[]"))
+      runner.enqueue_results(ssh_ok, ssh_ok, ssh_fail(255), ssh_ok("[]"))
       config = load_config(FULL_CONFIG)
       proxy = config.servers["web"].proxy || raise "Expected proxy"
 

@@ -15,6 +15,9 @@ module Meridian
       VERSION_CHECK         = "version=$(podman exec #{PROXY_NAME} caddy version) || exit; " \
                               "printf '%s\\n' \"$version\" | awk -F. 'BEGIN { ok=0 } { gsub(/^v/, \"\", $1); ok=($1 > 2 || ($1 == 2 && ($2 > 11 || ($2 == 11 && $3 >= 2)))) } END { exit !ok }'"
 
+      RESOLVE_TIMEOUT   = 120
+      RESOLVE_SUCCESSES =   3
+
       def initialize(
         @config : Config::DeployConfig,
         @ssh_executor : SSH::Executor = SSH::Executor.new,
@@ -71,6 +74,7 @@ module Meridian
       end
 
       def switch(host : String, proxy : Config::ServerProxyConfig, target : String) : Nil
+        await_upstream_resolvable!(host, target)
         activate_route(host, @config.service, @quadlet_generator.proxy_route(proxy, target), expected_target: target)
       end
 
@@ -129,6 +133,21 @@ module Meridian
         end
       rescue ex : SSH::CommandFailed | SSH::ConnectionError | ArgumentError | RouteFailed
         raise RemoveFailed.new(ex.message || "Caddy removal failed")
+      end
+
+      # The probe sidecar can resolve a new container before Caddy can.
+      private def await_upstream_resolvable!(host : String, target : String) : Nil
+        name = target.rpartition(':').first
+        log(host, "Waiting for Caddy to resolve #{name}")
+        wait = "n=0; until [ $n -ge #{RESOLVE_SUCCESSES} ]; do " \
+               "if getent hosts #{Process.quote_posix(name)} >/dev/null 2>&1; then n=$((n+1)); else n=0; fi; " \
+               "[ $n -ge #{RESOLVE_SUCCESSES} ] || sleep 1; done"
+        result = run_ssh(host, ["timeout", "-k", "5", RESOLVE_TIMEOUT.to_s, "podman", "exec", PROXY_NAME, "sh", "-c", wait])
+        unless result.exit_code.zero?
+          raise RouteFailed.new("Caddy could not resolve #{name} within #{RESOLVE_TIMEOUT}s; traffic was not switched")
+        end
+      rescue ex : SSH::ConnectionError
+        raise RouteFailed.new("SSH disconnected while waiting for Caddy to resolve #{name}; traffic was not switched: #{ex.message}")
       end
 
       private def activate_route(
