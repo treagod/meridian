@@ -658,6 +658,56 @@ describe "Meridian::Quadlet::Generator" do
     end
   end
 
+  describe "#proxy_redirects_route" do
+    it "issues a permanent HTTPS redirect to the canonical host" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+              ssl: true
+              redirect_hosts:
+                - www.example.com
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+
+      Meridian::Quadlet::Generator.new(config).proxy_redirects_route(proxy).should eq(
+        "www.example.com {\n" \
+        "\tredir https://example.com{uri} permanent\n" \
+        "}\n"
+      )
+    end
+
+    it "renders one block per host and stays HTTP without ssl" do
+      config = load_config(<<-YAML)
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+              redirect_hosts:
+                - www.example.com
+                - old.example.com
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+
+      Meridian::Quadlet::Generator.new(config).proxy_redirects_route(proxy).should eq(
+        "http://www.example.com {\n" \
+        "\tredir http://example.com{uri} permanent\n" \
+        "}\n" \
+        "\n" \
+        "http://old.example.com {\n" \
+        "\tredir http://example.com{uri} permanent\n" \
+        "}\n"
+      )
+    end
+  end
+
   describe "#accessory_container_file" do
     it "names the accessory container after the accessory key" do
       config = load_config(FULL_CONFIG)

@@ -110,6 +110,14 @@ module Meridian
             host: proxy.host,
             path: proxy.path
           )
+
+          proxy.redirect_hosts.each do |redirect_host|
+            proxy_routes << ProxyRoute.new(
+              name: "#{config.service}-redirect",
+              host: redirect_host,
+              path: nil
+            )
+          end
         end
 
         asset_host = config.assets.try(&.host)

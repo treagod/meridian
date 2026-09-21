@@ -166,6 +166,8 @@ module Meridian
           if proxy.app_port < 1
             raise ValidationError.new("servers.#{role}.proxy.app_port must be positive")
           end
+
+          validate_redirect_hosts!(role, proxy)
         end
 
         if server.managed?
@@ -189,6 +191,14 @@ module Meridian
             raise ValidationError.new("servers.#{role}.cmd is not supported when managed: false")
           end
         end
+      end
+
+      private def validate_redirect_hosts!(role : String, proxy : ServerProxyConfig) : Nil
+        return if proxy.redirect_hosts.empty?
+
+        raise ValidationError.new("servers.#{role}.proxy.redirect_hosts requires host") if proxy.host.to_s.strip.empty?
+        raise ValidationError.new("servers.#{role}.proxy.redirect_hosts must not contain host") if proxy.redirect_hosts.includes?(proxy.host)
+        raise ValidationError.new("servers.#{role}.proxy.redirect_hosts must not contain duplicates") unless proxy.redirect_hosts.uniq.size == proxy.redirect_hosts.size
       end
     end
 
@@ -224,6 +234,7 @@ module Meridian
       getter app_port : Int32 = 3000
       getter healthcheck : HealthcheckConfig = HealthcheckConfig.new
       getter path : String?
+      getter redirect_hosts : Array(String) = [] of String
     end
 
     struct ProxyConfig
@@ -564,7 +575,7 @@ module Meridian
       ROOT_KEYS           = {"service", "strategy", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
       BUILD_KEYS          = {"dockerfile", "context", "args", "platform", "builder"}
       SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units"}
-      SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path"}
+      SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path", "redirect_hosts"}
       HEALTHCHECK_KEYS    = {"path", "interval", "timeout", "retries", "probe_image", "required_successes"}
       PROXY_KEYS          = {"image", "http_port", "https_port", "data_dir", "drain_timeout"}
       REGISTRY_KEYS       = {"server", "username", "password"}

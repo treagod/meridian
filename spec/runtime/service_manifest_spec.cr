@@ -260,6 +260,52 @@ describe Meridian::Runtime::ServiceManifest do
       left.collisions_with(right).any?(&.includes?("proxy route")).should be_true
     end
 
+    it "records redirect hosts as their own proxy routes" do
+      manifest = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: one
+          image: registry.example.com/myorg/one
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: app.example.com
+                redirect_hosts:
+                  - www.app.example.com
+        YAML
+
+      hosts = manifest.proxy_routes.map(&.host)
+      hosts.should contain("app.example.com")
+      hosts.should contain("www.app.example.com")
+    end
+
+    it "flags a redirect host already served by another service" do
+      serves = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: one
+          image: registry.example.com/myorg/one
+          servers:
+            web:
+              hosts:
+                - 192.168.1.10
+              proxy:
+                host: www.app.example.com
+        YAML
+      redirects = Meridian::Runtime::ServiceManifest.from_config(load_config(<<-YAML))
+          service: two
+          image: registry.example.com/myorg/two
+          servers:
+            web:
+              hosts:
+                - 192.168.1.11
+              proxy:
+                host: app.example.com
+                redirect_hosts:
+                  - www.app.example.com
+        YAML
+
+      serves.collisions_with(redirects).any?(&.includes?("proxy route")).should be_true
+    end
+
     it "reports overlapping hostless routes but permits distinct prefixes" do
       config = ->(service : String, path : String) do
         load_config(<<-YAML)

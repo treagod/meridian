@@ -67,7 +67,9 @@ meridian-caddy ── meridian-proxy network ── my-app-blue OR my-app-green
 
 Check what the old proxy does besides forwarding traffic. Meridian's Caddy does
 not accept arbitrary mounts, so move disk-served uploads elsewhere and carry over
-redirects or access controls explicitly.
+redirects or access controls explicitly. For host aliases, use
+[`redirect_hosts`](/reference/deploy-yml#servers-role-proxy); other rules still
+need a home outside Meridian.
 
 Prepare the image as described in the [Quickstart](/guide/quickstart), then review
 deploy hooks for unwanted migrations or other data changes.

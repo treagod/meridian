@@ -244,6 +244,55 @@ describe "Meridian::Proxy::Manager" do
       route.should contain("file_server")
       route.should_not contain("reverse_proxy")
     end
+
+    it "publishes redirect hosts in a single stable fragment" do
+      runner = FakeSSHRunner.new
+      redirect_config = <<-YAML
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: myapp.example.com
+              ssl: true
+              redirect_hosts:
+                - www.myapp.example.com
+        YAML
+      proxy = load_config(redirect_config).servers["web"].proxy || raise "Expected proxy"
+      build_proxy_manager(content: redirect_config, runner: runner).register_redirects("192.168.1.10", proxy)
+
+      upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/meridian-caddy/routes/myapp-redirects.caddy.pending")) || raise "Expected redirect upload"
+      (upload.input || raise "Expected route").should contain("redir https://myapp.example.com{uri} permanent")
+      reload = remote_commands_for(runner).find(&.includes?("caddy reload")) || raise "Expected reload"
+      reload.should contain("mv .config/containers/meridian-caddy/routes/myapp-redirects.caddy.pending .config/containers/meridian-caddy/routes/myapp-redirects.caddy")
+    end
+
+    it "removes the redirect fragment when no hosts remain" do
+      runner = FakeSSHRunner.new
+      config = load_config(FULL_CONFIG)
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+      build_proxy_manager(runner: runner).register_redirects("192.168.1.10", proxy)
+
+      runner.invocations.none? { |inv| inv.remote_command.try(&.starts_with?("cat >")) }.should be_true
+      command = remote_commands_for(runner).find(&.includes?("myapp-redirects.caddy")) || raise "Expected redirect cleanup"
+      command.should contain("test -f .config/containers/meridian-caddy/routes/myapp-redirects.caddy || exit 0")
+    end
+
+    it "restores the redirect fragment when Caddy rejects its removal" do
+      runner = FakeSSHRunner.new
+      runner.enqueue_results(ssh_fail(1, stderr: "bad config"))
+      config = load_config(FULL_CONFIG)
+      proxy = config.servers["web"].proxy || raise "Expected proxy"
+
+      expect_raises(Meridian::Proxy::RouteFailed, /bad config/) do
+        build_proxy_manager(runner: runner).register_redirects("192.168.1.10", proxy)
+      end
+
+      remote_commands_for(runner).last.should contain(
+        "mv .config/containers/meridian-caddy/routes/myapp-redirects.caddy.removed .config/containers/meridian-caddy/routes/myapp-redirects.caddy"
+      )
+    end
   end
 
   describe "#drain" do

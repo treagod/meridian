@@ -87,6 +87,7 @@ def enqueue_zero_downtime_success(
   before_start_hooks : Int32 = 0,
   prune_result : Meridian::SSH::Result = ssh_ok,
   real_proxy : Bool = true,
+  redirects : Bool = false,
 )
   results = [] of Meridian::SSH::Result
   results << ssh_ok # service network precheck
@@ -140,8 +141,10 @@ def enqueue_zero_downtime_success(
     health_successes.times { results << ssh_ok(health_status) }
   end
   if real_proxy
-    results << ssh_ok # upload pending Caddy route
-    results << ssh_ok # atomically reload Caddy
+    results << ssh_ok              # upload pending Caddy route
+    results << ssh_ok              # atomically reload Caddy
+    results << ssh_ok if redirects # upload redirect route
+    results << ssh_ok              # reload or remove redirect route
   end
 
   if resolved_old_active
@@ -236,6 +239,7 @@ def enqueue_zero_downtime_success_for_host(
   end
   results << ssh_ok # upload pending Caddy route
   results << ssh_ok # atomically reload Caddy
+  results << ssh_ok # remove stale redirect route
 
   if resolved_old_active
     results << ssh_ok(%([])) # removed upstream is drained
@@ -518,6 +522,7 @@ def enqueue_zero_downtime_assets_success(
   if real_proxy
     results << ssh_ok # upload pending Caddy app route
     results << ssh_ok # atomically reload Caddy app route
+    results << ssh_ok # remove stale redirect route
   end
   results.concat([
     ssh_ok,                            # rm old container
@@ -1376,6 +1381,19 @@ describe "Meridian::Deploy::Orchestrator" do
   end
 
   describe "#zero_downtime_deploy_to_host" do
+    it "publishes redirects after switching the app route" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true, redirects: true)
+      config = FULL_CONFIG.sub("ssl: true", "ssl: true\n        redirect_hosts: [www.myapp.example.com]")
+
+      build_orchestrator(content: config, runner: runner).zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      commands = remote_commands_for(runner)
+      app_index = commands.index(&.includes?("myapp.caddy.pending")) || raise "Expected app route"
+      redirect_index = commands.index(&.includes?("myapp-redirects.caddy.pending")) || raise "Expected redirect route"
+      app_index.should be < redirect_index
+    end
+
     it "starts the new colour before stopping the old one" do
       runner = FakeSSHRunner.new
       enqueue_zero_downtime_success(runner, green_active: true)
@@ -1418,6 +1436,7 @@ describe "Meridian::Deploy::Orchestrator" do
 
       manager.switch_calls.should eq([{host: "192.168.1.10", target: "myapp-blue:3000"}])
       manager.drain_calls.should eq([{host: "192.168.1.10", target: "myapp-green:3000"}])
+      manager.register_redirects_calls.should eq(["192.168.1.10"])
     end
 
     it "probes the new container from a sidecar on the shared proxy network" do
@@ -1857,6 +1876,15 @@ describe "Meridian::Deploy::Orchestrator" do
   end
 
   describe "#deploy" do
+    it "publishes redirects during recreate" do
+      runner = RecreateSSHRunner.new
+      config = RECREATE_WEB_CONFIG.sub("host: myapp.example.com", "host: myapp.example.com\n      redirect_hosts: [www.myapp.example.com]")
+
+      build_orchestrator(content: config, runner: runner).deploy
+
+      remote_commands_for(runner).any?(&.includes?("myapp-redirects.caddy.pending")).should be_true
+    end
+
     it "performs a first recreate deploy without entering or resuming maintenance" do
       runner = RecreateSSHRunner.new
       audit = FakeAuditLogger.new(load_config(RECREATE_WEB_CONFIG))

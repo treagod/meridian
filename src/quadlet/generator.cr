@@ -84,6 +84,14 @@ module Meridian
         route(proxy.host, proxy.path, proxy.ssl?, "respond 503")
       end
 
+      def proxy_redirects_route(proxy : Config::ServerProxyConfig) : String
+        canonical = proxy.host || raise ArgumentError.new("redirect_hosts requires proxy host")
+        scheme = proxy.ssl? ? "https" : "http"
+        proxy.redirect_hosts.map do |redirect_host|
+          route(redirect_host, nil, proxy.ssl?, "redir #{scheme}://#{canonical}{uri} permanent")
+        end.join("\n")
+      end
+
       def proxy_asset_route : String
         assets = @config.assets || raise ArgumentError.new("Missing assets configuration")
         ssl = @config.servers["web"]?.try(&.proxy).try(&.ssl?) || false

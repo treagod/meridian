@@ -87,6 +87,15 @@ module Meridian
         activate_route(host, "#{@config.service}-assets", @quadlet_generator.proxy_asset_route)
       end
 
+      def register_redirects(host : String, proxy : Config::ServerProxyConfig) : Nil
+        name = "#{@config.service}-redirects"
+        if proxy.redirect_hosts.empty?
+          deactivate_route(host, name)
+        else
+          activate_route(host, name, @quadlet_generator.proxy_redirects_route(proxy))
+        end
+      end
+
       def drain(host : String, target : String) : Nil
         timeout = @config.resolved_proxy.drain_timeout
         timeout.times do |elapsed|
@@ -181,8 +190,24 @@ module Meridian
         nil
       end
 
+      private def deactivate_route(host : String, name : String) : Nil
+        active = route_path(name)
+        backup = "#{active}.removed"
+        command = "set -eu; exec 9>#{Process.quote_posix(RELOAD_LOCK)}; flock 9; " \
+                  "test -f #{Process.quote_posix(active)} || exit 0; " \
+                  "cp #{Process.quote_posix(active)} #{Process.quote_posix(backup)}; rm -f #{Process.quote_posix(active)}; " \
+                  "if podman exec #{PROXY_NAME} caddy reload --config /config/Caddyfile --adapter caddyfile --address unix//config/admin.sock; then " \
+                  "rm -f #{Process.quote_posix(backup)}; else " \
+                  "mv #{Process.quote_posix(backup)} #{Process.quote_posix(active)}; exit 1; fi"
+
+        result = run_ssh(host, ["sh", "-lc", command])
+        return if result.exit_code.zero?
+
+        raise RouteFailed.new(SSH::Executor.command_failure_message(host, "remove Caddy route #{name}", result))
+      end
+
       private def remove_current_service_routes(host : String) : Nil
-        names = [@config.service]
+        names = [@config.service, "#{@config.service}-redirects"]
         names << "#{@config.service}-assets" if @config.assets
         active_paths = names.map { |name| route_path(name) }
         backups = active_paths.map { |path| "#{path}.removed" }

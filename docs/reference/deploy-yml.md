@@ -171,6 +171,8 @@ servers:
       path: /
       ssl: true
       app_port: 8000
+      redirect_hosts:
+        - www.my-app.example.com
       healthcheck:
         path: /health
         required_successes: 3
@@ -183,6 +185,7 @@ servers:
 | `app_port` | `Int32` | Optional, default `3000` | `8000` | Positive port matching the app listener inside the container. |
 | `healthcheck` | `HealthcheckConfig` | Optional, default object | See below | Controls readiness before proxy switch. |
 | `path` | `String` | Optional | `/admin` | Exact path and subtree registered in Caddy; the prefix is stripped before proxying. |
+| `redirect_hosts` | `Array(String)` | Optional, default `[]` | `[www.my-app.example.com]` | Hostnames redirected permanently to `host`, including path and query. Values must be unique and differ from `host`. Uses HTTPS when `ssl: true`. |
 
 ### `servers.<role>.proxy.healthcheck` {#healthcheck}
 

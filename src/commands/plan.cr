@@ -66,6 +66,9 @@ module Meridian
         if path = proxy.path
           parts << "path=#{path}"
         end
+        unless proxy.redirect_hosts.empty?
+          parts << "redirects=#{proxy.redirect_hosts.join(",")}"
+        end
         parts.join(" ")
       end
 

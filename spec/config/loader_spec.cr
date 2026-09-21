@@ -495,6 +495,70 @@ describe "Meridian::Config::Loader" do
       server_proxy.host.should eq("myapp.example.com")
     end
 
+    it "parses redirect hosts" do
+      config = Meridian::Config::Loader.load(write_config(<<-YAML))
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+            proxy:
+              host: example.com
+              redirect_hosts:
+                - www.example.com
+        YAML
+      proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      proxy.redirect_hosts.should eq(["www.example.com"])
+    end
+
+    it "rejects redirect hosts without a host" do
+      expect_raises(Meridian::Config::ValidationError, /redirect_hosts requires host/) do
+        Meridian::Config::Loader.load(write_config(<<-YAML))
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                redirect_hosts:
+                  - www.example.com
+          YAML
+      end
+    end
+
+    it "rejects a redirect host equal to the canonical host" do
+      expect_raises(Meridian::Config::ValidationError, /redirect_hosts must not contain host/) do
+        Meridian::Config::Loader.load(write_config(<<-YAML))
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                host: example.com
+                redirect_hosts:
+                  - example.com
+          YAML
+      end
+    end
+
+    it "rejects duplicate redirect hosts" do
+      expect_raises(Meridian::Config::ValidationError, /redirect_hosts must not contain duplicates/) do
+        Meridian::Config::Loader.load(write_config(<<-YAML))
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                host: example.com
+                redirect_hosts:
+                  - www.example.com
+                  - www.example.com
+          YAML
+      end
+    end
+
     it "parses the registry server" do
       config = Meridian::Config::Loader.load(write_config(MINIMAL_CONFIG))
       registry = config.registry || raise "Expected registry config"

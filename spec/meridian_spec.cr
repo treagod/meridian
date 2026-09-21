@@ -277,7 +277,7 @@ describe "Meridian::CLI" do
       result.exit_code.should eq 0
       result.output.should contain("Usage: meridian prune")
       result.output.should contain("--force")
-      result.output.should contain("never removed")
+      result.output.should contain("volumes are kept")
     end
 
     it "prints help for the init subcommand" do

@@ -211,6 +211,8 @@ module Meridian
         # clean it up; the method-level rescue turns them into DeployFailed.
         run_remote_hooks(host, role, "after_switch")
 
+        register_redirect_hosts(host, proxy)
+
         if old_active
           log(host, "Draining #{service_name(old_color)}")
           @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}")
@@ -564,6 +566,14 @@ module Meridian
         run_remote_hooks(host, "web", "before_switch")
         log(host, "Switching proxy target to #{service_name(new_color)}")
         @proxy_manager.switch(host, proxy, "#{service_name(new_color)}:#{proxy.app_port}")
+        register_redirect_hosts(host, proxy)
+      end
+
+      private def register_redirect_hosts(host : String, proxy : Config::ServerProxyConfig) : Nil
+        if proxy.redirect_hosts.present?
+          log(host, "Registering redirect hosts: #{proxy.redirect_hosts.size}")
+        end
+        @proxy_manager.register_redirects(host, proxy)
       end
 
       private def finalize_recreate(

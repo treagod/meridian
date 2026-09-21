@@ -305,6 +305,7 @@ class FakeProxyManager < Meridian::Proxy::Manager
   getter drain_calls = [] of NamedTuple(host: String, target: String)
   getter maintenance_calls = [] of NamedTuple(host: String, target: String)
   getter register_assets_calls = [] of String
+  getter register_redirects_calls = [] of String
 
   def initialize(
     config : Meridian::Config::DeployConfig,
@@ -361,6 +362,10 @@ class FakeProxyManager < Meridian::Proxy::Manager
     if error = @register_assets_error
       raise error
     end
+  end
+
+  def register_redirects(host : String, proxy : Meridian::Config::ServerProxyConfig) : Nil
+    @register_redirects_calls << host
   end
 end
 
