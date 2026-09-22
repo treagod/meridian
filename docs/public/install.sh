@@ -29,18 +29,19 @@ case "$ARCH" in
     ;;
 esac
 
-# ── Resolve latest version ────────────────────────────────────────────────────
-echo "Fetching latest Meridian release..."
-VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-  | grep '"tag_name"' \
+# ── Resolve release version ───────────────────────────────────────────────────
+# /releases/latest excludes prereleases.
+echo "Fetching Meridian release..."
+VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" \
+  | grep '"tag_name"' | head -n1 \
   | sed 's/.*"tag_name":[[:space:]]*"v\([^"]*\)".*/\1/')"
 
 if [ -z "$VERSION" ]; then
-  echo "error: Could not determine latest release version." >&2
+  echo "error: Could not determine release version." >&2
   echo "       Check https://github.com/${REPO}/releases for available builds." >&2
   exit 1
 fi
-echo "Latest version: ${VERSION}"
+echo "Release: ${VERSION}"
 
 # ── Build download URLs ───────────────────────────────────────────────────────
 ARTIFACT="${BINARY_NAME}-${VERSION}-${ARCH_SUFFIX}"

@@ -18,9 +18,15 @@ curl -fsSL https://meridian-deploy.dev/install.sh | sh
 The installer covers Linux on x86_64 and ARM64, verifies the release checksum, and
 drops the binary in `/usr/local/bin`.
 
-macOS builds, and any install you would rather do by hand, come from the
-[releases page](https://github.com/treagod/meridian/releases) — grab the binary for
-your platform and put it on your `PATH`:
+For macOS, install the libraries used by the release binary:
+
+```bash
+brew install libyaml pcre2 bdw-gc
+```
+
+Download the binary for your platform from the
+[releases page](https://github.com/treagod/meridian/releases) and put it on your
+`PATH`:
 
 ```bash
 sudo mv meridian /usr/local/bin/
