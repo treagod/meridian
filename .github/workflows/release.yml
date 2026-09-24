@@ -34,7 +34,7 @@ jobs:
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
                 -o meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64 && \
-              llvm-strip meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64
+              strip meridian-${{ steps.version.outputs.VERSION }}-linux-x86_64
             "
 
       - name: Build arm64 binary
@@ -48,7 +48,7 @@ jobs:
               shards install --without-development && \
               crystal build src/meridian_cli.cr --release --static \
                 -o meridian-${{ steps.version.outputs.VERSION }}-linux-arm64 && \
-              llvm-strip meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
+              strip meridian-${{ steps.version.outputs.VERSION }}-linux-arm64
             "
 
       - name: Verify Linux binary version matches tag
