@@ -1,5 +1,8 @@
 # Meridian
 
+[![CI](https://github.com/treagod/meridian/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/treagod/meridian/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/treagod/meridian?include_prereleases&sort=semver)](https://github.com/treagod/meridian/releases)
+
 Deploy containers to Linux servers over SSH. No Docker, no Kubernetes, no registry required.
 
 Meridian runs your containers as [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html), so they end up as ordinary systemd services: they show up in `journalctl`, restart on failure, and run rootless without a daemon. Traffic switches through [Caddy](https://caddyserver.com/) with no dropped requests. Images can come from a registry, or you can skip the registry entirely and ship them straight over SSH.
