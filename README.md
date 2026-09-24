@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/treagod/meridian/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/treagod/meridian/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/treagod/meridian?include_prereleases&sort=semver)](https://github.com/treagod/meridian/releases)
+[![License](https://img.shields.io/github/license/treagod/meridian)](LICENSE)
 
 Deploy containers to Linux servers over SSH. No Docker, no Kubernetes, no registry required.
 
