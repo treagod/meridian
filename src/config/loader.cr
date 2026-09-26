@@ -625,8 +625,9 @@ module Meridian
         nil
       end
 
-      # Ticket 001 will delete this hand-rolled walker once the double YAML parse
-      # is removed; until then the complexity here is inherent to the schema scan.
+      # This hand-rolled walker exists only because the config is parsed twice;
+      # a single-parse loader would remove it. Until then the complexity here is
+      # inherent to the schema scan.
       # ameba:disable Metrics/CyclomaticComplexity
       private def self.validate_config_mapping(mapping : Hash(YAML::Any, YAML::Any)) : String?
         if key = unknown_key(mapping, ROOT_KEYS)
