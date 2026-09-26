@@ -32,26 +32,30 @@ sequence on each selected host:
 
 `strategy: recreate` is one serial transaction across every app role on one
 host. Images, networks, candidate Quadlets, systemd reload, and accessory
-readiness are prepared while the old release still runs. A first deploy has no
-existing route, so it skips maintenance.
+readiness are prepared while the old release still runs. When no old app units
+are active, the deploy skips entering maintenance; setup may already have seeded
+a persistent 503 route.
 
 On a redeploy Meridian installs a persisted Caddy 503 route, drains the old upstream, stops all active
 secondary roles, and then stops the old web color. Only after those stops
 complete does it upload `files:`, run `after_upload`/`before_start`, and start
 the candidate web color. The web healthcheck must pass before cron, worker, or
-other secondary roles start. Meridian then updates the proxy target and runtime
-state by atomically replacing maintenance with the candidate route, then removes the old Quadlet.
+other secondary roles start. Meridian then atomically replaces maintenance with
+the candidate route, records runtime state, and removes the old Quadlet. Traffic
+switching and state writes are separate operations.
 
 Old and new web colors are never active together. Accessories are not app roles:
 they remain running throughout the transaction and only participate through
 their readiness checks.
 
-If anything fails after maintenance begins, Meridian does not restart the old
-release, roll back an image, or resume traffic. Persistent data may already have
+After maintenance begins, Meridian does not automatically restart the old
+release or roll back an image on failure. Persistent data may already have
 been migrated. An unhealthy candidate is stopped; a healthy candidate is kept
-for diagnosis and repair. The route remains intentionally blocked until the
-operator repairs the service or restores image, database, and volumes from a
-matching backup, then reruns `meridian deploy` to replace the maintenance route.
+for diagnosis and repair. A failure before the final route switch leaves
+maintenance active; repair the service or restore image, database, and volumes
+from a matching backup before redeploying. A failure after the final switch does
+not restore maintenance, and an uncertain switch requires inspecting Caddy
+before assuming either route is active.
 
 For field-level details, see [`servers.<role>.proxy.healthcheck`](/reference/deploy-yml#healthcheck),
 [`accessories.<name>.ready`](/reference/deploy-yml#accessory-readiness),

@@ -256,16 +256,18 @@ The previous container does not survive a successful deploy — its unit is stop
 its Quadlet removed. So rollback **reconstructs** it: Meridian reads the recorded
 release state, regenerates the Quadlet for the previous image and color, starts it, and
 polls it with the same health check your `deploy.yml` configures. Traffic moves back
-only after that health check passes. If the candidate fails, Meridian tears it down and
-the current release keeps serving.
+only after that health check passes. A definitive failure before switching tears
+down the reconstructed candidate and keeps the current release serving. An
+uncertain switch preserves both releases for inspection; failures after switching
+do not tear down the restored release.
 
 Two things decide whether rollback is available:
 
 - **A previous release must be recorded.** The first deploy of a service has nothing to
   roll back to; rollback becomes available after the second.
 - **The previous image must still be on the host.** This is why you tag every release
-  uniquely — with a reused tag the old image is gone and rollback refuses rather than
-  quietly serving the wrong code.
+  uniquely: a reused tag may now resolve to the new image. Meridian checks that
+  the reference exists, not that it still identifies the old release.
 
 Only the image and color come from recorded state. Env, volumes, ports, and command
 always come from your current `deploy.yml`. Rollback covers the proxied `web` role;

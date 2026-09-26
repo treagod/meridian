@@ -42,6 +42,10 @@ This is deliberate. Once Meridian has stopped old app processes, hooks or the ne
 container may have migrated the database or persistent volumes. Meridian therefore
 does not restart the old image, perform an image-only rollback, or replace the persisted Caddy 503 route automatically.
 
+If the final route switch was uncertain or a later step failed, the candidate
+may already be serving; the error alone does not prove maintenance is active.
+Inspect Caddy before assuming the route is blocked.
+
 Diagnose every app role named in the deploy error:
 
 ```bash

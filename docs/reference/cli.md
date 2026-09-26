@@ -210,11 +210,14 @@ Finally writes `manifest.json`, appends audit entries, and releases the lock in 
 With `strategy: recreate`, Meridian first transfers every role image and uploads
 all new Quadlets on the service's single host. On a redeploy it atomically installs a persistent Caddy 503 route, drains the old upstream, stops active secondary roles, and stops the old web colour
 before starting anything new. The new web colour must pass its direct container
-healthcheck before secondary roles start. Traffic resumes only after every role,
-the proxy target, and runtime state are ready. Accessories remain running.
+healthcheck before secondary roles start. Traffic resumes after every role is
+ready and Caddy accepts the new target; runtime state is recorded afterwards.
+Accessories remain running.
 
-If Recreate fails after maintenance begins, Meridian deliberately leaves the route
-blocked by the persisted 503 route and never restarts the old image. The error names the units and logs to inspect; repair the service and rerun `meridian deploy` to replace maintenance.
+If Recreate fails while maintenance is active, the persisted 503 route stays
+blocked and Meridian does not restart the old image. Repair the service before
+redeploying. Failures after the final switch do not restore maintenance; inspect
+Caddy when the switch result is uncertain, even if the error mentions maintenance.
 
 Lock contention is reported as a normal failed deploy, not a separate numeric code.
 
@@ -244,8 +247,10 @@ container health check. Then the rolled-back-from release is stopped and its Qua
 removed, `active-color` and `release-state.json` are rewritten (current and previous
 swap), and an audit entry is appended.
 
-If the health check or proxy switch fails, the candidate is torn down and the
-currently active release keeps serving. On legacy hosts without release state,
+If the health check or proxy switch definitively fails before cutover, the
+reconstructed candidate is torn down and the current release keeps serving. An
+uncertain switch preserves both releases; failures after cutover do not tear down
+the restored release. On legacy hosts without release state,
 rollback falls back to restarting the surviving inactive-color container.
 
 Two limits decide whether rollback is available at all:
@@ -253,7 +258,9 @@ Two limits decide whether rollback is available at all:
 - Only the proxied web role is rolled back. Secondary roles go back by deploying the
   previous image.
 - The previous release's image must still be on the host. With a reused tag such as
-  `latest` the next deploy retags or prunes it, and rollback refuses to run.
+  `latest`, the reference may resolve to newer contents and the old image may be
+  pruned. Meridian checks reference existence, not image identity; use unique
+  release tags to avoid restoring the wrong code.
 
 Non-image configuration — env, volumes, ports, command — comes from the current
 config file, not from the previous release.
