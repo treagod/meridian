@@ -650,12 +650,10 @@ def run_deploy_async(orchestrator : Meridian::Deploy::Orchestrator) : Channel(Ex
   finished = Channel(Exception?).new
 
   spawn do
-    begin
-      orchestrator.deploy
-      finished.send(nil)
-    rescue ex : Exception
-      finished.send(ex)
-    end
+    orchestrator.deploy
+    finished.send(nil)
+  rescue ex : Exception
+    finished.send(ex)
   end
 
   finished

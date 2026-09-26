@@ -692,7 +692,7 @@ module Meridian
         end
 
         if color = stored_color_at(host, LEGACY_ACTIVE_COLOR_FILE)
-          return StoredActiveColor.new(color: color, path: LEGACY_ACTIVE_COLOR_FILE)
+          StoredActiveColor.new(color: color, path: LEGACY_ACTIVE_COLOR_FILE)
         end
       rescue ex : SSH::ConnectionError
         raise DeployFailed.new(ex.message || "Failed to read active color for #{host}")

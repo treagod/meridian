@@ -79,15 +79,13 @@ describe "Meridian::Commands::Logs" do
 
       finished = Channel(Exception?).new(1)
       spawn do
-        begin
-          command.run([
-            logs_target("web", "192.168.1.10"),
-            logs_target("web", "192.168.1.11"),
-          ])
-          finished.send(nil)
-        rescue ex : Exception
-          finished.send(ex)
-        end
+        command.run([
+          logs_target("web", "192.168.1.10"),
+          logs_target("web", "192.168.1.11"),
+        ])
+        finished.send(nil)
+      rescue ex : Exception
+        finished.send(ex)
       end
 
       select
