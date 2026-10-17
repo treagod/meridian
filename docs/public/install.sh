@@ -4,6 +4,7 @@ set -e
 REPO="treagod/meridian"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="meridian"
+ALIAS_NAME="mer"
 
 # ── OS check ──────────────────────────────────────────────────────────────────
 OS="$(uname -s)"
@@ -86,6 +87,19 @@ else
   sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 fi
 
+# Short alias; never clobber an unrelated `mer` that is not a symlink.
+ALIAS_PATH="${INSTALL_DIR}/${ALIAS_NAME}"
+if [ ! -e "$ALIAS_PATH" ] || [ -L "$ALIAS_PATH" ]; then
+  echo "Linking ${ALIAS_PATH} -> ${BINARY_NAME}..."
+  if [ -w "$INSTALL_DIR" ]; then
+    ln -sf "$BINARY_NAME" "$ALIAS_PATH"
+  else
+    sudo ln -sf "$BINARY_NAME" "$ALIAS_PATH"
+  fi
+else
+  echo "warning: ${ALIAS_PATH} already exists; skipping the ${ALIAS_NAME} alias." >&2
+fi
+
 echo ""
 echo "Meridian ${VERSION} installed successfully."
-echo "Run: ${BINARY_NAME} --version"
+echo "Run: ${BINARY_NAME} --version (or ${ALIAS_NAME} --version)"

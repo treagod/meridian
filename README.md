@@ -24,7 +24,7 @@ It is explicitly not a Kubernetes replacement. If you need that, you need that.
 curl -fsSL https://meridian-deploy.dev/install.sh | sh
 ```
 
-The installer covers Linux on x86_64 and ARM64, verifies the release checksum, and drops the binary in `/usr/local/bin`. For macOS, install `libyaml`, `pcre2`, and `bdw-gc` with Homebrew, then download a binary from the [releases page](https://github.com/treagod/meridian/releases).
+The installer covers Linux on x86_64 and ARM64, verifies the release checksum, and drops the binary in `/usr/local/bin` along with a short `mer` symlink, so `mer deploy` works the same as `meridian deploy`. For macOS, install `libyaml`, `pcre2`, and `bdw-gc` with Homebrew, then download a binary from the [releases page](https://github.com/treagod/meridian/releases).
 
 ## From source
 
@@ -34,6 +34,7 @@ cd meridian
 shards install
 crystal build src/meridian_cli.cr --release -o meridian
 sudo mv meridian /usr/local/bin/
+sudo ln -s meridian /usr/local/bin/mer   # optional short alias
 ```
 
 Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.4+ and systemd. Registry-free transfers also want `zstd` (stream mode) on both ends, or, for incremental mode, `rsync` on both ends plus `skopeo` on the host — `meridian server bootstrap` installs the remote side for you. Incremental exports through `podman save`, so no local `skopeo` is needed (and none would work on macOS, where Podman runs in a VM).
