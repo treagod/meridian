@@ -12,6 +12,15 @@
     --gold-400: #f3ce6b;
     --gold-300: #f9e1a1;
 
+    /* Gold alpha tints; one-off levels are inlined at their site. */
+    --gold-tint-04: color-mix(in oklab, var(--gold-500) 4%, transparent);
+    --gold-tint-08: color-mix(in oklab, var(--gold-500) 8%, transparent);
+    --gold-tint-10: color-mix(in oklab, var(--gold-500) 10%, transparent);
+    --gold-tint-12: color-mix(in oklab, var(--gold-500) 12%, transparent);
+    --gold-tint-15: color-mix(in oklab, var(--gold-500) 15%, transparent);
+    --gold-tint-18: color-mix(in oklab, var(--gold-500) 18%, transparent);
+    --gold-tint-20: color-mix(in oklab, var(--gold-500) 20%, transparent);
+
     --cream: #f5ebd6;
     --cream-muted: #c9bfa5;
     --slate: #aba386;
@@ -85,7 +94,7 @@
     background: var(--md-nav-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(232, 184, 70, 0.08);
+    border-bottom: 1px solid var(--gold-tint-08);
 }
 .landing-root nav.top .container {
     display: flex;
@@ -110,7 +119,7 @@
     flex-shrink: 0;
     display: block;
     object-fit: contain;
-    filter: drop-shadow(0 2px 6px rgba(232, 184, 70, 0.15));
+    filter: drop-shadow(0 2px 6px var(--gold-tint-15));
 }
 .landing-root .brand-mark-sm {
     width: 22px;
@@ -251,7 +260,7 @@
     height: 1400px;
     transform: translate(-50%, -30%);
     border-radius: 50%;
-    border: 1px solid rgba(232, 184, 70, 0.04);
+    border: 1px solid var(--gold-tint-04);
     pointer-events: none;
 }
 .landing-root .hero .container {
@@ -336,7 +345,7 @@
 
 .landing-root .install {
     background: var(--navy-850);
-    border: 1px solid rgba(232, 184, 70, 0.18);
+    border: 1px solid var(--gold-tint-18);
     border-radius: var(--radius);
     padding: 18px 20px;
     display: flex;
@@ -399,7 +408,7 @@
 }
 .landing-root .install button {
     background: transparent;
-    border: 1px solid rgba(232, 184, 70, 0.3);
+    border: 1px solid color-mix(in oklab, var(--gold-500) 30%, transparent);
     color: var(--gold-400);
     font-family: var(--mono);
     font-size: 11px;
@@ -505,7 +514,7 @@
     padding: 0;
     overflow: hidden;
     box-shadow:
-        0 0 0 1px rgba(232, 184, 70, 0.15),
+        0 0 0 1px var(--gold-tint-15),
         0 20px 60px -15px rgba(0, 0, 0, 0.6),
         inset 0 1px 0 rgba(249, 225, 161, 0.08);
 }
@@ -519,7 +528,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    border-bottom: 1px solid rgba(232, 184, 70, 0.15);
+    border-bottom: 1px solid var(--gold-tint-15);
     font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 0.1em;
@@ -541,7 +550,7 @@
     height: 10px;
     border-radius: 50%;
     background: var(--navy-700);
-    border: 1px solid rgba(232, 184, 70, 0.2);
+    border: 1px solid var(--gold-tint-20);
 }
 .landing-root .terminal-body {
     padding: 20px 22px;
@@ -553,7 +562,7 @@
     background:
         radial-gradient(
             circle at 80% 10%,
-            rgba(232, 184, 70, 0.04) 0%,
+            var(--gold-tint-04) 0%,
             transparent 50%
         ),
         var(--navy-950);
@@ -626,7 +635,7 @@
     background:
         radial-gradient(
             circle at 80% 10%,
-            rgba(232, 184, 70, 0.04) 0%,
+            var(--gold-tint-04) 0%,
             transparent 50%
         ),
         var(--navy-950);
@@ -692,7 +701,7 @@
     color: var(--cream-muted);
     font-size: 14.5px;
     line-height: 1.55;
-    border-top: 1px solid rgba(232, 184, 70, 0.08);
+    border-top: 1px solid var(--gold-tint-08);
 }
 .landing-root .config-callouts li:first-child {
     border-top: 0;
@@ -733,7 +742,7 @@
     background: linear-gradient(
         90deg,
         transparent,
-        rgba(232, 184, 70, 0.25),
+        color-mix(in oklab, var(--gold-500) 25%, transparent),
         transparent
     );
 }
@@ -792,8 +801,8 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 2px;
-    background: rgba(232, 184, 70, 0.12);
-    border: 1px solid rgba(232, 184, 70, 0.12);
+    background: var(--gold-tint-12);
+    border: 1px solid var(--gold-tint-12);
     border-radius: 8px;
     overflow: hidden;
 }
@@ -853,8 +862,8 @@
 /* --- manifesto / why --- */
 .landing-root .why {
     background: var(--navy-850);
-    border-top: 1px solid rgba(232, 184, 70, 0.1);
-    border-bottom: 1px solid rgba(232, 184, 70, 0.1);
+    border-top: 1px solid var(--gold-tint-10);
+    border-bottom: 1px solid var(--gold-tint-10);
 }
 .landing-root .why-grid {
     display: grid;
@@ -883,7 +892,7 @@
 }
 .landing-root .why-aside {
     padding-inline-start: 24px;
-    border-inline-start: 1px solid rgba(232, 184, 70, 0.2);
+    border-inline-start: 1px solid var(--gold-tint-20);
 }
 .landing-root .why-aside h3 {
     font-family: var(--mono);
@@ -906,8 +915,8 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 1px;
-    background: rgba(232, 184, 70, 0.1);
-    border: 1px solid rgba(232, 184, 70, 0.1);
+    background: var(--gold-tint-10);
+    border: 1px solid var(--gold-tint-10);
     border-radius: 6px;
     overflow: hidden;
 }
@@ -935,7 +944,7 @@
     width: 36px;
     height: 36px;
     border-radius: 4px;
-    background: rgba(232, 184, 70, 0.1);
+    background: var(--gold-tint-10);
     align-items: center;
     justify-content: center;
     margin-bottom: 16px;
@@ -957,7 +966,7 @@
 
 /* --- comparison table --- */
 .landing-root .compare-wrap {
-    border: 1px solid rgba(232, 184, 70, 0.18);
+    border: 1px solid var(--gold-tint-18);
     border-radius: 8px;
     overflow: hidden;
     background: var(--navy-850);
@@ -973,8 +982,8 @@
 .landing-root table.compare td {
     padding: 16px 20px;
     text-align: start;
-    border-bottom: 1px solid rgba(232, 184, 70, 0.08);
-    border-inline-end: 1px solid rgba(232, 184, 70, 0.08);
+    border-bottom: 1px solid var(--gold-tint-08);
+    border-inline-end: 1px solid var(--gold-tint-08);
 }
 .landing-root table.compare th:last-child,
 .landing-root table.compare td:last-child {
@@ -1009,7 +1018,7 @@
 }
 .landing-root table.compare tbody td.own {
     color: var(--gold-300);
-    background: rgba(232, 184, 70, 0.04);
+    background: var(--gold-tint-04);
     font-weight: 500;
 }
 
@@ -1020,8 +1029,8 @@
     justify-content: center;
     gap: 64px;
     padding: 56px 0;
-    border-top: 1px solid rgba(232, 184, 70, 0.12);
-    border-bottom: 1px solid rgba(232, 184, 70, 0.12);
+    border-top: 1px solid var(--gold-tint-12);
+    border-bottom: 1px solid var(--gold-tint-12);
 }
 .landing-root .stats-row > div {
     text-align: center;
@@ -1074,7 +1083,7 @@
     }
 }
 .landing-root .faq-item {
-    border-bottom: 1px solid rgba(232, 184, 70, 0.1);
+    border-bottom: 1px solid var(--gold-tint-10);
 }
 .landing-root .faq-item summary {
     padding: 22px 0;
@@ -1132,7 +1141,7 @@
     padding: 2px 6px;
     border-radius: 3px;
     color: var(--gold-300);
-    border: 1px solid rgba(232, 184, 70, 0.12);
+    border: 1px solid var(--gold-tint-12);
 }
 /* Slide-in on open: the answer content eases in everywhere, and the
    expanding height is animated where the browser can interpolate to
@@ -1181,7 +1190,7 @@
         var(--navy-800) 0%,
         var(--navy-900) 70%
     );
-    border-top: 1px solid rgba(232, 184, 70, 0.1);
+    border-top: 1px solid var(--gold-tint-10);
     position: relative;
     overflow: hidden;
 }
@@ -1220,7 +1229,7 @@
 /* --- footer --- */
 .landing-root footer {
     padding: 56px 0 40px;
-    border-top: 1px solid rgba(232, 184, 70, 0.08);
+    border-top: 1px solid var(--gold-tint-08);
     font-size: 13px;
     color: var(--slate);
 }

@@ -59,7 +59,17 @@
   --vp-c-brand-1: #E8B846;
   --vp-c-brand-2: #F3CE6B;
   --vp-c-brand-3: #F9E1A1;
-  --vp-c-brand-soft: rgba(232, 184, 70, 0.16);
+  --vp-c-brand-soft: color-mix(in oklab, var(--vp-c-brand-1) 16%, transparent);
+
+  /* Gold alpha tints; one-off levels are inlined at their site. */
+  --gold-tint-04: color-mix(in oklab, var(--vp-c-brand-1) 4%, transparent);
+  --gold-tint-06: color-mix(in oklab, var(--vp-c-brand-1) 6%, transparent);
+  --gold-tint-08: color-mix(in oklab, var(--vp-c-brand-1) 8%, transparent);
+  --gold-tint-12: color-mix(in oklab, var(--vp-c-brand-1) 12%, transparent);
+  --gold-tint-15: color-mix(in oklab, var(--vp-c-brand-1) 15%, transparent);
+  --gold-tint-18: color-mix(in oklab, var(--vp-c-brand-1) 18%, transparent);
+  --gold-tint-20: color-mix(in oklab, var(--vp-c-brand-1) 20%, transparent);
+  --gold-tint-30: color-mix(in oklab, var(--vp-c-brand-1) 30%, transparent);
 
   /* Text */
   --vp-c-text-1: #F5EBD6;
@@ -73,15 +83,15 @@
   --vp-c-bg-soft: #141A3F;
 
   /* Dividers & borders */
-  --vp-c-divider: rgba(232, 184, 70, 0.12);
-  --vp-c-gutter: rgba(232, 184, 70, 0.08);
-  --vp-c-border: rgba(232, 184, 70, 0.18);
+  --vp-c-divider: var(--gold-tint-12);
+  --vp-c-gutter: var(--gold-tint-08);
+  --vp-c-border: var(--gold-tint-18);
 
   /* Neutral channels VP uses internally */
   --vp-c-gray-1: #1B2350;
   --vp-c-gray-2: #141A3F;
   --vp-c-gray-3: #0F1534;
-  --vp-c-gray-soft: rgba(232, 184, 70, 0.08);
+  --vp-c-gray-soft: var(--gold-tint-08);
 
   /* Nav — single source of truth, consumed by landing.css too.
      The landing nav is hand-rolled (index.md uses layout:false) and the docs nav
@@ -110,7 +120,7 @@
   --vp-button-brand-active-border: #B88A2D;
 
   --vp-button-alt-bg: transparent;
-  --vp-button-alt-hover-bg: rgba(232, 184, 70, 0.08);
+  --vp-button-alt-hover-bg: var(--gold-tint-08);
   --vp-button-alt-text: #F5EBD6;
   --vp-button-alt-hover-text: #F3CE6B;
   --vp-button-alt-border: rgba(245, 235, 214, 0.2);
@@ -123,33 +133,33 @@
   /* Code blocks */
   --vp-code-block-bg: #080C1E;
   --vp-code-block-color: #F5EBD6;
-  --vp-code-line-highlight-color: rgba(232, 184, 70, 0.08);
+  --vp-code-line-highlight-color: var(--gold-tint-08);
   --vp-code-line-number-color: #7E7863;
   --vp-code-tab-bg: #0F1534;
-  --vp-code-tab-divider: rgba(232, 184, 70, 0.12);
+  --vp-code-tab-divider: var(--gold-tint-12);
   --vp-code-tab-text-color: #C9BFA5;
   --vp-code-tab-hover-text-color: #F3CE6B;
   --vp-code-tab-active-text-color: #F3CE6B;
   --vp-code-tab-active-bar-color: #E8B846;
-  --vp-code-copy-code-bg: rgba(232, 184, 70, 0.12);
-  --vp-code-copy-code-hover-bg: rgba(232, 184, 70, 0.2);
+  --vp-code-copy-code-bg: var(--gold-tint-12);
+  --vp-code-copy-code-hover-bg: var(--gold-tint-20);
   --vp-code-copy-code-active-text: #F3CE6B;
 
   /* Inline code */
   --vp-c-text-code: #F9E1A1;
 
   /* Custom containers (tip / warning / danger / info) */
-  --vp-custom-block-tip-bg: rgba(232, 184, 70, 0.08);
-  --vp-custom-block-tip-border: rgba(232, 184, 70, 0.3);
+  --vp-custom-block-tip-bg: var(--gold-tint-08);
+  --vp-custom-block-tip-border: var(--gold-tint-30);
   --vp-custom-block-tip-text: #F5EBD6;
   --vp-custom-block-tip-code-bg: #080C1E;
 
   --vp-custom-block-info-bg: rgba(27, 35, 80, 0.5);
-  --vp-custom-block-info-border: rgba(232, 184, 70, 0.2);
+  --vp-custom-block-info-border: var(--gold-tint-20);
   --vp-custom-block-info-text: #F5EBD6;
 
-  --vp-custom-block-warning-bg: rgba(232, 184, 70, 0.06);
-  --vp-custom-block-warning-border: rgba(232, 184, 70, 0.4);
+  --vp-custom-block-warning-bg: var(--gold-tint-06);
+  --vp-custom-block-warning-border: color-mix(in oklab, var(--vp-c-brand-1) 40%, transparent);
   --vp-custom-block-warning-text: #F3CE6B;
 
   --vp-custom-block-danger-bg: rgba(224, 107, 93, 0.08);
@@ -203,7 +213,7 @@
 .vp-doc h2 {
   font-weight: 600;
   font-size: 28px;
-  border-top: 1px solid rgba(232, 184, 70, 0.12);
+  border-top: 1px solid var(--gold-tint-12);
   padding-top: 32px;
   margin-top: 48px;
 }
@@ -215,7 +225,7 @@
 
 .vp-doc a {
   color: #F3CE6B;
-  text-decoration-color: rgba(232, 184, 70, 0.3);
+  text-decoration-color: var(--gold-tint-30);
   text-underline-offset: 3px;
   transition: color 0.15s;
 }
@@ -228,8 +238,8 @@
 /* Inline code — gold-tinted */
 .vp-doc :not(pre) > code {
   color: #F9E1A1;
-  background: rgba(232, 184, 70, 0.08);
-  border: 1px solid rgba(232, 184, 70, 0.15);
+  background: var(--gold-tint-08);
+  border: 1px solid var(--gold-tint-15);
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 0.88em;
@@ -237,7 +247,7 @@
 
 /* Code block frame */
 .vp-doc div[class*='language-'] {
-  border: 1px solid rgba(232, 184, 70, 0.14);
+  border: 1px solid color-mix(in oklab, var(--vp-c-brand-1) 14%, transparent);
   border-radius: 6px;
   background: #080C1E;
 }
@@ -258,7 +268,7 @@
 /* Blockquotes */
 .vp-doc blockquote {
   border-inline-start: 2px solid #E8B846;
-  background: rgba(232, 184, 70, 0.04);
+  background: var(--gold-tint-04);
   padding: 16px 20px;
   border-radius: 0 4px 4px 0;
   color: #C9BFA5;
@@ -274,7 +284,7 @@
 
 /* Tables */
 .vp-doc table {
-  border: 1px solid rgba(232, 184, 70, 0.15);
+  border: 1px solid var(--gold-tint-15);
   border-radius: 6px;
   overflow: hidden;
   border-collapse: separate;
@@ -293,11 +303,11 @@
 
 .vp-doc tr {
   background: transparent;
-  border-top: 1px solid rgba(232, 184, 70, 0.08);
+  border-top: 1px solid var(--gold-tint-08);
 }
 
 .vp-doc tr:nth-child(2n) {
-  background: rgba(232, 184, 70, 0.02);
+  background: color-mix(in oklab, var(--vp-c-brand-1) 2%, transparent);
 }
 
 /* Lists */
@@ -386,7 +396,7 @@
   object-fit: contain;
   margin-right: 0;
   margin-bottom: 0;
-  filter: drop-shadow(0 2px 6px rgba(232, 184, 70, 0.15));
+  filter: drop-shadow(0 2px 6px var(--gold-tint-15));
 }
 
 /* Qualifying with the parent ties VP's scoped .VPNavBarMenuLink[data-v-…] on
@@ -440,7 +450,7 @@
 /* ------------------------------------------------------------------ */
 
 .VPSidebar {
-  border-inline-end: 1px solid rgba(232, 184, 70, 0.08);
+  border-inline-end: 1px solid var(--gold-tint-08);
 }
 
 .VPSidebarItem .text {
@@ -497,20 +507,20 @@
 /* ------------------------------------------------------------------ */
 
 .VPDocFooter {
-  border-top: 1px solid rgba(232, 184, 70, 0.12);
+  border-top: 1px solid var(--gold-tint-12);
   padding-top: 24px;
   margin-top: 56px;
 }
 
 .pager-link {
-  border: 1px solid rgba(232, 184, 70, 0.15) !important;
+  border: 1px solid var(--gold-tint-15) !important;
   border-radius: 6px;
   transition: border-color 0.2s, background 0.2s;
 }
 
 .pager-link:hover {
   border-color: #E8B846 !important;
-  background: rgba(232, 184, 70, 0.04);
+  background: var(--gold-tint-04);
 }
 
 .pager-link .desc {
@@ -528,7 +538,7 @@
 }
 
 .VPFooter {
-  border-top: 1px solid rgba(232, 184, 70, 0.08);
+  border-top: 1px solid var(--gold-tint-08);
   background: #080C1E;
   color: #7E7863;
 }
@@ -553,12 +563,12 @@
    icon button; filling it there turns it into a heavy circle next to the brand. */
 @media (min-width: 768px) {
   .DocSearch-Button {
-    background: rgba(232, 184, 70, 0.06) !important;
-    border: 1px solid rgba(232, 184, 70, 0.18) !important;
+    background: var(--gold-tint-06) !important;
+    border: 1px solid var(--gold-tint-18) !important;
   }
 
   .DocSearch-Button:hover {
     border-color: #E8B846 !important;
-    background: rgba(232, 184, 70, 0.1) !important;
+    background: color-mix(in oklab, var(--vp-c-brand-1) 10%, transparent) !important;
   }
 }
