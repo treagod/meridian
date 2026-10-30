@@ -498,10 +498,6 @@
   color: #F3CE6B;
 }
 
-.VPDocAsideOutline .outline-marker {
-  background-color: #E8B846 !important;
-}
-
 /* ------------------------------------------------------------------ */
 /* Footer + prev/next                                                  */
 /* ------------------------------------------------------------------ */
@@ -512,14 +508,11 @@
   margin-top: 56px;
 }
 
-.pager-link {
-  border: 1px solid var(--gold-tint-15) !important;
-  border-radius: 6px;
-  transition: border-color 0.2s, background 0.2s;
+.VPDocFooter .pager-link {
+  border: 1px solid var(--gold-tint-15);
 }
 
 .pager-link:hover {
-  border-color: #E8B846 !important;
   background: var(--gold-tint-04);
 }
 
@@ -555,20 +548,20 @@
 /* Search (local provider)                                             */
 /* ------------------------------------------------------------------ */
 
-.DocSearch-Button {
-  color: #C9BFA5 !important;
+.DocSearch-Button,
+.DocSearch-Button:is(:hover, :focus, :active) {
+  color: #C9BFA5;
 }
 
 /* Only the wide search field gets a surface. Below 768px VP renders a bare 48x55
    icon button; filling it there turns it into a heavy circle next to the brand. */
 @media (min-width: 768px) {
   .DocSearch-Button {
-    background: var(--gold-tint-06) !important;
-    border: 1px solid var(--gold-tint-18) !important;
+    background: var(--gold-tint-06);
+    border: 1px solid var(--gold-tint-18);
   }
 
   .DocSearch-Button:hover {
-    border-color: #E8B846 !important;
-    background: color-mix(in oklab, var(--vp-c-brand-1) 10%, transparent) !important;
+    background: color-mix(in oklab, var(--vp-c-brand-1) 10%, transparent);
   }
 }
