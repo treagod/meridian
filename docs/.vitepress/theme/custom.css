@@ -259,7 +259,7 @@
 /* Code block language label */
 .vp-doc div[class*='language-']::before {
   color: #7E7863;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -293,7 +293,7 @@
 
 .vp-doc th {
   background: #141A3F;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -481,7 +481,7 @@
 /* ------------------------------------------------------------------ */
 
 .VPDocAsideOutline .outline-title {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -524,7 +524,7 @@
 }
 
 .pager-link .desc {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -545,7 +545,7 @@
 
 .VPFooter .message,
 .VPFooter .copyright {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
