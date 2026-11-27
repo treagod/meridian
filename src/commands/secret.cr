@@ -68,6 +68,7 @@ module Meridian
         hosts = hosts_for_role(role)
         hosts.each do |host|
           log(host, "Setting secret #{name}")
+          # Not `create --replace`: before Podman 5.1 it fails when the secret does not exist yet.
           run_ssh!(host, ["podman", "secret", "rm", "-i", name])
           run_ssh!(host, ["podman", "secret", "create", name, "-"], value)
         end
