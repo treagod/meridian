@@ -1288,4 +1288,50 @@ describe "Meridian::Config::Loader" do
       config.servers["web"].proxy.try(&.healthcheck.required_successes).should eq(1)
     end
   end
+
+  describe "servers.<role>.stop_timeout" do
+    it "defaults to 10 s for the proxied role and 30 s for roles without proxy" do
+      config = Meridian::Config::Loader.parse(FULL_CONFIG)
+
+      config.servers["web"].stop_timeout.should be_nil
+      config.servers["web"].effective_stop_timeout.should eq(10)
+      config.servers["workers"].effective_stop_timeout.should eq(30)
+    end
+
+    it "overrides the default per role" do
+      config = Meridian::Config::Loader.parse(FULL_CONFIG.sub("cmd: bin/sidekiq", "cmd: bin/sidekiq\n      stop_timeout: 40"))
+
+      config.servers["workers"].effective_stop_timeout.should eq(40)
+      config.servers["web"].effective_stop_timeout.should eq(10)
+    end
+
+    it "rejects values that are not a positive integer" do
+      {"0", "-1", "abc", "1.5", "30s"}.each do |value|
+        yaml = FULL_CONFIG.sub("cmd: bin/sidekiq", "cmd: bin/sidekiq\n      stop_timeout: #{value}")
+
+        expect_raises(Meridian::Config::ValidationError, "servers.workers.stop_timeout must be positive") do
+          Meridian::Config::Loader.parse(yaml)
+        end
+      end
+    end
+
+    it "rejects stop_timeout on an unmanaged role" do
+      yaml = <<-YAML
+        service: myapp
+        image: example.com/myapp
+        servers:
+          web:
+            hosts: [192.168.1.10]
+          legacy:
+            hosts: [192.168.1.10]
+            managed: false
+            units: [legacy.service]
+            stop_timeout: 40
+        YAML
+
+      expect_raises(Meridian::Config::ValidationError, "servers.legacy.stop_timeout is not supported when managed: false") do
+        Meridian::Config::Loader.parse(yaml)
+      end
+    end
+  end
 end

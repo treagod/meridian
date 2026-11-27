@@ -361,7 +361,7 @@ describe "Meridian::CLI" do
 
         runner.enqueue_results(
           ssh_ok,
-          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok("podman version 4.9.3\n"),
           ssh_ok,
           ssh_ok
         )

@@ -36,7 +36,7 @@ crystal build src/meridian_cli.cr --release -o meridian
 sudo mv meridian /usr/local/bin/
 ```
 
-Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.4+ and systemd. Registry-free transfers also want `zstd` (stream mode) on both ends, or, for incremental mode, `rsync` on both ends plus `skopeo` on the host — `meridian server bootstrap` installs the remote side for you. Incremental exports through `podman save`, so no local `skopeo` is needed (and none would work on macOS, where Podman runs in a VM).
+Building needs Crystal 1.17+; CI runs on 1.20.2 and 1.21.0, and release binaries are built with 1.21.0. Target servers need Podman 4.9+ and systemd. Registry-free transfers also want `zstd` (stream mode) on both ends, or, for incremental mode, `rsync` on both ends plus `skopeo` on the host — `meridian server bootstrap` installs the remote side for you. Incremental exports through `podman save`, so no local `skopeo` is needed (and none would work on macOS, where Podman runs in a VM).
 
 ## Five minutes from zero to deployed
 
@@ -83,7 +83,7 @@ Upgrading from `v0.1.0-alpha.1` requires a [breaking upgrade](docs/guide/proxy-s
 
 ### deploy
 
-With no explicit `strategy`, proxied web apps keep Meridian's blue/green default: web hosts roll in `boot.limit` batches, and secondary roles start releasing as soon as the first web host finishes. Caddy reloads the route atomically, then Meridian observes the removed upstream's in-flight request count before stopping it. `proxy.drain_timeout` defaults to 300 seconds; expiry warns and stops the old release anyway. Apps without a web proxy keep the existing stop/start path.
+With no explicit `strategy`, proxied web apps keep Meridian's blue/green default: web hosts roll in `boot.limit` batches, and secondary roles start releasing as soon as the first web host finishes. Caddy reloads the route atomically, then Meridian observes the removed upstream's in-flight request count before stopping it. `proxy.drain_timeout` defaults to 300 seconds; expiry warns and stops the old release anyway. Apps without a web proxy keep the existing stop/start path. Each stopped container then gets its role's `stop_timeout` after SIGTERM before SIGKILL: 10 seconds for the proxied web role and 30 seconds for workers unless set, and `deploy` logs how long each stop took.
 
 `strategy: recreate` is the deliberate-downtime option for stateful, single-instance services. Meridian prepares every role first, atomically replaces the Caddy route with a persisted 503 response, drains and stops secondary roles and then the old web colour, starts and health-checks the new web colour, starts secondary roles, and replaces maintenance with the new route after all app roles are ready. Release metadata is written afterwards. This first version requires one shared host, managed roles, and a web proxy; accessories stay running, and `assets:` is rejected. A failure while maintenance is active leaves it blocked for operator recovery. Failures after the final switch do not restore maintenance or restart the old release; an uncertain switch requires inspecting Caddy.
 

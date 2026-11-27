@@ -151,18 +151,17 @@ module Meridian
         upload_file_syncs(host, role)
         run_remote_hooks(host, role, "after_upload")
 
-        log(host, "Reloading user systemd")
-        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
-
         wait_for_accessories(host)
 
         run_remote_hooks(host, role, "before_start")
 
+        # Stop before reloading: the running container keeps the stop timeout it
+        # was started with, so its loaded unit must keep the matching TimeoutStopSec.
         active_service = run_ssh(host, ["systemctl", "--user", "is-active", service_unit])
-        if active_service.exit_code.zero?
-          log(host, "Stopping existing service #{service_unit}")
-          run_ssh!(host, ["systemctl", "--user", "stop", service_unit])
-        end
+        stop_service!(host, service_unit) if active_service.exit_code.zero?
+
+        log(host, "Reloading user systemd")
+        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
         log(host, "Starting service #{deployed_service_name}")
         run_ssh!(host, ["systemctl", "--user", "start", service_unit])
@@ -216,8 +215,7 @@ module Meridian
         if old_active
           log(host, "Draining #{service_name(old_color)}")
           @proxy_manager.drain(host, "#{service_name(old_color)}:#{proxy.app_port}")
-          log(host, "Stopping service #{service_unit(old_color)}")
-          run_ssh!(host, ["systemctl", "--user", "stop", service_unit(old_color)])
+          stop_service!(host, service_unit(old_color))
         end
 
         log(host, "Removing inactive Quadlet #{container_path(old_color)}")
@@ -493,8 +491,8 @@ module Meridian
           upload_ssh(host, role_container_path(role), @quadlet_generator.role_container_file(role, server_config(role)))
         end
 
-        log(host, "Reloading user systemd")
-        run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
+        # No daemon-reload yet: running secondaries must be stopped under the unit
+        # they were started with (see #deploy_to_host); the swap reloads afterwards.
         wait_for_accessories(host)
       end
 
@@ -537,7 +535,7 @@ module Meridian
       ) : Nil
         roles.each { |role| upload_file_syncs(host, role) }
         roles.each { |role| run_remote_hooks(host, role, "after_upload") }
-        log(host, "Reloading user systemd after file syncs")
+        log(host, "Reloading user systemd")
         run_ssh!(host, ["systemctl", "--user", "daemon-reload"])
 
         run_remote_hooks(host, "web", "before_start")
@@ -785,12 +783,22 @@ module Meridian
       end
 
       private def stop_unit!(host : String, unit : String) : Nil
-        log(host, "Stopping service #{unit}")
-        run_ssh!(host, ["systemctl", "--user", "stop", unit])
+        stop_service!(host, unit)
         result = run_ssh(host, ["systemctl", "--user", "is-active", unit])
         return unless result.exit_code.zero?
 
         raise DeployFailed.new("Service #{unit} is still active after systemctl stop")
+      end
+
+      # `systemctl stop` returns once the unit is down, so the elapsed time is how
+      # long the process took to exit. Its limit is the stop timeout the container
+      # was started with, which can differ from the configured one, so it is not
+      # printed here; `meridian plan` shows the configured value.
+      private def stop_service!(host : String, unit : String) : Nil
+        log(host, "Stopping service #{unit}")
+        started = Time.instant
+        run_ssh!(host, ["systemctl", "--user", "stop", unit])
+        log(host, "Stopped #{unit} in #{(Time.instant - started).total_seconds.round(1)}s")
       end
 
       private def ensure_unit_active!(host : String, unit : String) : Nil

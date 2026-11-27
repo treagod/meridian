@@ -235,9 +235,26 @@ describe "Meridian::Commands::Rollback" do
       quadlet_content = value!(value!(quadlet_upload).input)
       quadlet_content.should contain("Image=registry.example.com/myorg/myapp:release-a")
       quadlet_content.should contain("ContainerName=myapp-green")
+      quadlet_content.should contain("PodmanArgs=--stop-timeout=10")
+      quadlet_content.should contain("TimeoutStopSec=70")
 
       deploy = runner.invocations.find(&.remote_command.==("cat > .config/containers/meridian-caddy/routes/myapp.caddy.pending"))
       value!(value!(deploy).input).should contain("reverse_proxy myapp-green:3000")
+    end
+
+    it "renders the configured stop_timeout into the reconstructed release's Quadlet" do
+      runner = FakeSSHRunner.new
+      content = single_host_rollback_config.sub("    proxy:\n      host:", "    stop_timeout: 40\n    proxy:\n      host:")
+      command = build_rollback_command(content: content, runner: runner)
+
+      enqueue_release_rollback_success(runner)
+
+      command.run
+
+      quadlet_upload = runner.invocations.find(&.remote_command.==("cat > .config/containers/systemd/myapp-green.container"))
+      quadlet_content = value!(value!(quadlet_upload).input)
+      quadlet_content.should contain("PodmanArgs=--stop-timeout=40\n")
+      quadlet_content.should contain("TimeoutStopSec=100\n")
     end
 
     it "switches the proxy only after the reconstructed release passes its health check, then retires the old release" do

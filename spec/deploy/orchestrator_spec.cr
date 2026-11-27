@@ -389,11 +389,11 @@ def enqueue_deploy_success_for_host(
     ssh_ok, # mkdir service state dir
     ssh_ok, # upload container
     ssh_ok, # clean up legacy color Quadlets
-    ssh_ok, # daemon-reload
     active_service ? ssh_ok("active\n") : ssh_fail(3, "inactive\n"),
   ]
   results << ssh_ok if active_service # stop active service
   results.concat([
+    ssh_ok,                            # daemon-reload
     ssh_ok,                            # start service
     ssh_fail(1, "", "No such file\n"), # read prior manifest for drift
     ssh_ok,                            # upload service manifest
@@ -770,6 +770,35 @@ describe "Meridian::Deploy::Orchestrator" do
       stop_index.should be < start_index
     end
 
+    it "logs how long stopping the running worker took" do
+      output = IO::Memory.new
+      orchestrator = build_orchestrator(output: output)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      # Only the duration: the retiring container's limit is the one it was started with.
+      output.to_s.should match(/\[192\.168\.1\.12\] Stopped myapp-workers\.service in \d+\.\ds\n/)
+      output.to_s.should_not contain("stop_timeout")
+    end
+
+    it "stops the running worker before reloading systemd onto its replacement Quadlet" do
+      runner = FakeSSHRunner.new
+      orchestrator = build_orchestrator(runner: runner)
+
+      orchestrator.deploy_to_host("192.168.1.12", "workers")
+
+      commands = remote_commands_for(runner, "192.168.1.12")
+      upload_index = commands.index("cat > .config/containers/systemd/myapp-workers.container") || raise "Expected Quadlet upload"
+      stop_index = commands.index("systemctl --user stop myapp-workers.service") || raise "Expected worker stop"
+      reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon-reload"
+      start_index = commands.index("systemctl --user start myapp-workers.service") || raise "Expected worker start"
+
+      upload_index.should be < stop_index
+      stop_index.should be < reload_index
+      reload_index.should be < start_index
+      commands.count("systemctl --user daemon-reload").should eq(1)
+    end
+
     it "writes the role-named container Quadlet without uploading setup-owned networks" do
       runner = FakeSSHRunner.new
       orchestrator = build_orchestrator(
@@ -822,9 +851,9 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,                            # mkdir -p Quadlet directory
         ssh_ok,                            # mkdir -p service state dir
         ssh_ok,                            # upload container Quadlet
-        ssh_ok,                            # daemon-reload
         ssh_ok("active\n"),                # is-active: an old service is running
         ssh_ok,                            # stop it
+        ssh_ok,                            # daemon-reload
         ssh_fail(1, "", "start failed\n"), # start the new one
       )
       orchestrator = build_orchestrator(runner: runner)
@@ -917,8 +946,8 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
-        ssh_ok,
         ssh_fail(3, "inactive\n"),
+        ssh_ok,
         ssh_ok,
       )
       orchestrator = build_orchestrator(
@@ -1005,8 +1034,8 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,
         ssh_ok,
         ssh_ok,
-        ssh_ok,
         ssh_fail(3, "inactive\n"),
+        ssh_ok,
         ssh_ok,
       )
 
@@ -1124,8 +1153,8 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-          ssh_ok,
           ssh_fail(3, "inactive\n"),
+          ssh_ok,
           ssh_ok,
         )
         orchestrator = build_orchestrator(
@@ -1164,8 +1193,8 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-          ssh_ok,
           ssh_fail(3, "inactive\n"),
+          ssh_ok,
           ssh_ok,
         )
         orchestrator = build_orchestrator(
@@ -1202,8 +1231,8 @@ describe "Meridian::Deploy::Orchestrator" do
         runner.enqueue_results_for_host(
           "192.168.1.10",
           ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok, ssh_ok,
-          ssh_ok,
           ssh_fail(3, "inactive\n"),
+          ssh_ok,
           ssh_ok,
         )
         orchestrator = build_orchestrator(
@@ -1424,6 +1453,16 @@ describe "Meridian::Deploy::Orchestrator" do
       deploy_index.should be < stop_index
       deploy_index.should be < drain_index
       drain_index.should be < stop_index
+    end
+
+    it "logs how long stopping the drained old colour took" do
+      runner = FakeSSHRunner.new
+      enqueue_zero_downtime_success(runner, green_active: true)
+      output = IO::Memory.new
+
+      build_orchestrator(runner: runner, output: output).zero_downtime_deploy_to_host("192.168.1.10", "web")
+
+      output.to_s.should match(/Draining myapp-green\n.*Stopping service myapp-green\.service\n.*Stopped myapp-green\.service in \d+\.\ds\n/m)
     end
 
     it "switches and drains the expected Caddy targets" do
@@ -1965,6 +2004,32 @@ describe "Meridian::Deploy::Orchestrator" do
       # web and cron share host and image, so the run pulls once for both roles
       commands.count(&.==("podman pull registry.example.com/myorg/myapp:2")).should eq(1)
       value!(commands.index("cat > .config/containers/systemd/myapp-cron.container")).should be < maintenance_index
+    end
+
+    it "logs how long each recreate stop took" do
+      runner = RecreateSSHRunner.new(old_color: "green", secondary_active: true)
+      output = IO::Memory.new
+
+      build_orchestrator(content: RECREATE_CRON_CONFIG, runner: runner, output: output).deploy
+
+      output.to_s.should match(/Stopped myapp-cron\.service in \d+\.\ds\n/)
+      output.to_s.should match(/Stopped myapp-green\.service in \d+\.\ds\n/)
+    end
+
+    it "stops running secondaries before reloading systemd onto their replacement Quadlets" do
+      runner = RecreateSSHRunner.new(old_color: "green", secondary_active: true)
+
+      build_orchestrator(content: RECREATE_CRON_CONFIG, runner: runner).deploy
+
+      commands = remote_commands_for(runner)
+      upload_index = commands.index("cat > .config/containers/systemd/myapp-cron.container") || raise "Expected cron Quadlet upload"
+      stop_index = commands.index("systemctl --user stop myapp-cron.service") || raise "Expected cron stop"
+      reload_index = commands.index("systemctl --user daemon-reload") || raise "Expected daemon-reload"
+      start_index = commands.index("systemctl --user start myapp-cron.service") || raise "Expected cron start"
+
+      upload_index.should be < stop_index
+      stop_index.should be < reload_index
+      reload_index.should be < start_index
     end
 
     it "keeps accessories running throughout recreate" do
@@ -2931,8 +2996,8 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,        # mkdir -p Quadlet directory
         ssh_ok,        # mkdir -p service state dir
         ssh_ok,        # upload container Quadlet
-        ssh_ok,        # daemon-reload
         ssh_fail(3),   # is-active: nothing running yet
+        ssh_ok,        # daemon-reload
         ssh_ok,        # start
         ssh_ok(stale), # read prior manifest
       )
@@ -2954,8 +3019,8 @@ describe "Meridian::Deploy::Orchestrator" do
         ssh_ok,                   # mkdir -p Quadlet directory
         ssh_ok,                   # mkdir -p service state dir
         ssh_ok,                   # upload container Quadlet
-        ssh_ok,                   # daemon-reload
         ssh_fail(3),              # is-active: nothing running yet
+        ssh_ok,                   # daemon-reload
         ssh_ok,                   # start
         ssh_ok(recorded.to_json), # read prior manifest
       )

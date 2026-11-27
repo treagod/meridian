@@ -538,6 +538,13 @@ if [[ "$ROLLBACK_LEG" == "1" ]]; then
   render_deploy_config "$IMAGE_B"
 fi
 
+if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
+  log_step "Lowering the worker's stop_timeout from 75 to 5 for the redeploy"
+  sed 's/^    stop_timeout: 75$/    stop_timeout: 5/' "$APP_DIR/.meridian/deploy.yml" >"$WORK_DIR/deploy-lowered.yml"
+  mv "$WORK_DIR/deploy-lowered.yml" "$APP_DIR/.meridian/deploy.yml"
+  grep -q '^    stop_timeout: 5$' "$APP_DIR/.meridian/deploy.yml"
+fi
+
 sleep 2
 
 # Seed an old release so the retention check fails if pruning never runs.
@@ -642,6 +649,49 @@ if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
   curl --fail --silent --show-error \
     --resolve "$APP_HOST:80:$VM_IP" \
     "http://$APP_HOST/dragonfly" | grep -q "dragonfly-survives"
+fi
+
+# The fixture's worker runs `sleep infinity` (PID 1, no SIGTERM handler), so a
+# stop lasts its full stop timeout. The first deploy started it with 75 s and the
+# redeploy lowered the setting to 5 s: the old worker must still stop after 75 s
+# (under the unit it was started with, TimeoutStopSec=135), not be cut off by the
+# new unit's TimeoutStopSec=65. The new worker carries 5 s; web keeps 10 s.
+if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
+  log_step "Verifying per-role stop_timeout"
+  WORKER_UNIT="$SERVICE-worker"
+  WEB_UNIT="$SERVICE-$SECOND_COLOR"
+  WORKER_QUADLET="$(ssh_deploy "grep -E '^(PodmanArgs|TimeoutStopSec)=' .config/containers/systemd/$WORKER_UNIT.container" | tr '\n' ' ')"
+  WEB_QUADLET="$(ssh_deploy "grep -E '^(PodmanArgs|TimeoutStopSec)=' .config/containers/systemd/$WEB_UNIT.container" | tr '\n' ' ')"
+  WORKER_SYSTEMD_STOP="$(ssh_deploy "systemctl --user show -p TimeoutStopUSec --value $WORKER_UNIT.service")"
+  MANAGER_DEFAULT_STOP="$(ssh_deploy "systemctl --user show -p DefaultTimeoutStopUSec --value")"
+  WORKER_PODMAN_STOP="$(ssh_deploy "podman inspect --format '{{.Config.StopTimeout}}' $WORKER_UNIT")"
+  WEB_PODMAN_STOP="$(ssh_deploy "podman inspect --format '{{.Config.StopTimeout}}' $WEB_UNIT")"
+  WORKER_STOP_SECONDS="$(
+    sed -n "s/.*Stopped $WORKER_UNIT\.service in \([0-9.]*\)s.*/\1/p" "$LOG_DIR/deploy-second.log" | head -n 1
+  )"
+  USER_MANAGER_STOP="$(ssh_deploy 'systemctl show "user@$(id -u).service" -p TimeoutStopUSec --value')"
+
+  echo "podman:             $(ssh_deploy "podman --version")"
+  echo "plan:               $(grep -o 'stop_timeout: [0-9]*s' "$LOG_DIR/plan.log" | tr '\n' ' ')"
+  echo "worker Quadlet:     $WORKER_QUADLET"
+  echo "web Quadlet:        $WEB_QUADLET"
+  echo "worker systemd:     TimeoutStopUSec=$WORKER_SYSTEMD_STOP (user manager default $MANAGER_DEFAULT_STOP, user@ unit $USER_MANAGER_STOP)"
+  echo "podman StopTimeout: worker=$WORKER_PODMAN_STOP web=$WEB_PODMAN_STOP"
+  echo "worker stop:        ${WORKER_STOP_SECONDS:-missing}s"
+
+  if ! grep -q "stop_timeout: 10s" "$LOG_DIR/plan.log" || ! grep -q "stop_timeout: 75s" "$LOG_DIR/plan.log" ||
+    [[ "$WORKER_QUADLET" != "PodmanArgs=--stop-timeout=5 TimeoutStopSec=65 " ]] ||
+    [[ "$WEB_QUADLET" != "PodmanArgs=--stop-timeout=10 TimeoutStopSec=70 " ]] ||
+    [[ "$WORKER_SYSTEMD_STOP" != "1min 5s" ]] ||
+    [[ "$WORKER_PODMAN_STOP" != "5" || "$WEB_PODMAN_STOP" != "10" ]]; then
+    echo "Rendered stop timeouts do not match the fixture's stop_timeout settings" >&2
+    exit 79
+  fi
+
+  if [[ -z "$WORKER_STOP_SECONDS" ]] || ! awk -v s="$WORKER_STOP_SECONDS" 'BEGIN { exit !(s >= 74.5 && s < 100) }'; then
+    echo "Expected the old worker to stop after the 75 s it was started with, got '${WORKER_STOP_SECONDS:-no log line}'" >&2
+    exit 79
+  fi
 fi
 
 if [[ -n "$ASSET_HREF_PATTERN" ]]; then

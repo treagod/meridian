@@ -220,6 +220,62 @@ describe "Meridian::Quadlet::Generator" do
       output.should contain("Restart=always")
     end
 
+    it "renders the 10 s proxied-role default stop timeout for both colours" do
+      config = load_config(FULL_CONFIG)
+      generator = Meridian::Quadlet::Generator.new(config)
+
+      Meridian::Quadlet::Color.each do |color|
+        output = generator.container_file(config.servers["web"], color)
+        output.should contain("PodmanArgs=--stop-timeout=10\n")
+        output.should contain("TimeoutStopSec=70\n")
+      end
+    end
+
+    it "renders the 30 s default stop timeout for a role without proxy" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).role_container_file("workers", config.servers["workers"])
+
+      output.should contain("PodmanArgs=--stop-timeout=30\n")
+      output.should contain("TimeoutStopSec=90\n")
+    end
+
+    it "renders an explicit stop_timeout with a systemd stop timeout 60 s above it" do
+      yaml = FULL_CONFIG
+        .sub("      proxy:\n        host: myapp.example.com", "      stop_timeout: 40\n      proxy:\n        host: myapp.example.com")
+        .sub("cmd: bin/sidekiq", "cmd: bin/sidekiq\n      stop_timeout: 120")
+      config = load_config(yaml)
+      generator = Meridian::Quadlet::Generator.new(config)
+
+      Meridian::Quadlet::Color.each do |color|
+        web = generator.container_file(config.servers["web"], color)
+        web.should contain("PodmanArgs=--stop-timeout=40\n")
+        web.should contain("TimeoutStopSec=100\n")
+      end
+
+      workers = generator.role_container_file("workers", config.servers["workers"])
+      workers.should contain("PodmanArgs=--stop-timeout=120\n")
+      workers.should contain("TimeoutStopSec=180\n")
+    end
+
+    it "renders the largest accepted stop_timeout without overflowing the systemd timeout" do
+      config = load_config(FULL_CONFIG.sub("cmd: bin/sidekiq", "cmd: bin/sidekiq\n      stop_timeout: #{Int32::MAX}"))
+      output = Meridian::Quadlet::Generator.new(config).role_container_file("workers", config.servers["workers"])
+
+      output.should contain("PodmanArgs=--stop-timeout=2147483647\n")
+      output.should contain("TimeoutStopSec=2147483707\n")
+    end
+
+    it "keeps the stop timeout in [Container] and the systemd timeout in [Service]" do
+      config = load_config(FULL_CONFIG)
+      output = Meridian::Quadlet::Generator.new(config).role_container_file("workers", config.servers["workers"])
+      container, service = output.split("[Service]")
+
+      container.should contain("PodmanArgs=--stop-timeout=30")
+      service.should contain("TimeoutStopSec=90")
+      # Quadlet before Podman 5.0 rejects the whole unit on a StopTimeout= key.
+      output.should_not contain("\nStopTimeout=")
+    end
+
     it "includes the [Install] section" do
       config = load_config(FULL_CONFIG)
       output = Meridian::Quadlet::Generator.new(config).container_file(config.servers["web"], Meridian::Quadlet::Color::Green)

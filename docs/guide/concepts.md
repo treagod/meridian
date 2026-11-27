@@ -24,22 +24,23 @@ sequence on each selected host:
 9. Run the asset builder when `assets:` is configured.
 10. Start and directly healthcheck the inactive color.
 11. Atomically reload the service's Caddy fragment.
-12. Wait for the removed upstream's requests to drain, then stop the old color and remove its Quadlet.
+12. Wait for the removed upstream's requests to drain, then stop the old color (logging how long the stop took) and remove its Quadlet.
 13. Record `active-color`, `release-state.json`, and `manifest.json`.
 14. Run final hooks and release the deploy lock.
 
 ### Recreate Flow
 
 `strategy: recreate` is one serial transaction across every app role on one
-host. Images, networks, candidate Quadlets, systemd reload, and accessory
-readiness are prepared while the old release still runs. When no old app units
-are active, the deploy skips entering maintenance; setup may already have seeded
-a persistent 503 route.
+host. Images, networks, candidate Quadlets, and accessory readiness are prepared
+while the old release still runs; systemd loads the new Quadlets only after the
+old units have stopped, so each stops under the settings it was started with.
+When no old app units are active, the deploy skips entering maintenance; setup
+may already have seeded a persistent 503 route.
 
 On a redeploy Meridian installs a persisted Caddy 503 route, drains the old upstream, stops all active
 secondary roles, and then stops the old web color. Only after those stops
-complete does it upload `files:`, run `after_upload`/`before_start`, and start
-the candidate web color. The web healthcheck must pass before cron, worker, or
+complete does it upload `files:`, run `after_upload`, reload user systemd, run
+`before_start`, and start the candidate web color. The web healthcheck must pass before cron, worker, or
 other secondary roles start. Meridian then atomically replaces maintenance with
 the candidate route, records runtime state, and removes the old Quadlet. Traffic
 switching and state writes are separate operations.
@@ -201,6 +202,13 @@ after switch:   active-color=green  proxy -> my-app-green
 cleanup:        old blue unit is stopped and its Quadlet is removed
 ```
 
+Stopping the old color has two separate limits. `proxy.drain_timeout` works
+at the proxy: Meridian waits up to that long for in-flight requests on the old
+upstream to finish, and Caddy closes open streams to it after the same delay.
+Only then does the old container get SIGTERM, and the
+[`stop_timeout`](/reference/deploy-yml#stop-timeout) it was started with is how
+long its process has to exit before SIGKILL (10 seconds for `web` unless set).
+
 The inactive Quadlet is removed after a successful switch, but release metadata
 keeps the previous rollback-safe release. `meridian rollback` reads
 `release-state.json`, starts the previous color if needed, reloads Caddy, drains the replaced upstream, rewrites `active-color`, swaps current/previous release metadata, and
@@ -219,8 +227,10 @@ rollback.
 
 Every managed role other than `web` — and `web` itself when it has no `proxy:` —
 has one stable unit named `<service>-<role>.service`. Deploy uploads the matching
-`<service>-<role>.container` and restarts it in place, so a short interruption
-is expected. `status`, `logs`, and `exec` target that role unit directly instead
+`<service>-<role>.container`, stops the running unit, reloads user systemd, and
+starts the unit again, so a short interruption is expected. The old process gets
+the `stop_timeout` it was started with (30 seconds unless set) to finish its work
+after SIGTERM. `status`, `logs`, and `exec` target that role unit directly instead
 of consulting active-colour state.
 
 On the first role-named deploy to a host that has no configured proxied managed

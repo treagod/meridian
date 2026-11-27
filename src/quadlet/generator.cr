@@ -14,6 +14,10 @@ module Meridian
     end
 
     class Generator
+      # systemd must not kill `podman rm` while Podman still waits for the
+      # process; `podman generate systemd` uses the same 60 s margin.
+      STOP_TIMEOUT_MARGIN = 60
+
       def initialize(@config : Config::DeployConfig)
       end
 
@@ -40,6 +44,7 @@ module Meridian
           volumes: @config.volumes,
           ports: @config.ports,
           command: server.cmd,
+          stop_timeout: server.effective_stop_timeout,
           accessory_units: co_network_accessory_units
         ).to_s
       end
@@ -250,6 +255,7 @@ module Meridian
           @volumes : Array(String),
           @ports : Array(String),
           @command : String?,
+          @stop_timeout : Int32,
           @accessory_units : Array(String) = [] of String,
         )
         end

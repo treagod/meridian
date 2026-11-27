@@ -54,6 +54,9 @@ module Meridian
           if proxy = role.proxy
             @output.puts "    proxy:    #{format_proxy(proxy)}"
           end
+          if stop_timeout = role.stop_timeout
+            @output.puts "    stop_timeout: #{stop_timeout}s"
+          end
         end
       end
 

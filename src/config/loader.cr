@@ -24,6 +24,18 @@ module Meridian
       end
     end
 
+    # Non-integers parse as 0 so that role validation reports them under
+    # `servers.<role>.stop_timeout` instead of a bare YAML type error.
+    module StopTimeoutConverter
+      def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : Int32
+        node.as?(YAML::Nodes::Scalar).try(&.value.to_i?) || 0
+      end
+
+      def self.to_yaml(value : Int32?, yaml : YAML::Nodes::Builder)
+        yaml.scalar(value || "")
+      end
+    end
+
     EMPTY_ACCESSORIES = {} of String => AccessoryConfig
 
     struct DeployConfig
@@ -170,6 +182,10 @@ module Meridian
           validate_redirect_hosts!(role, proxy)
         end
 
+        if server.stop_timeout.try(&.< 1)
+          raise ValidationError.new("servers.#{role}.stop_timeout must be positive")
+        end
+
         if server.managed?
           unless server.units.empty?
             raise ValidationError.new("servers.#{role}.units requires managed: false")
@@ -179,17 +195,25 @@ module Meridian
             raise ValidationError.new("servers.#{role}.proxy is not supported: web is the only role that can be proxied")
           end
         else
-          if server.units.empty?
-            raise ValidationError.new("servers.#{role}.units is required when managed: false")
-          end
+          validate_unmanaged_server_config!(role, server)
+        end
+      end
 
-          if server.proxy
-            raise ValidationError.new("servers.#{role}.proxy is not supported when managed: false")
-          end
+      private def validate_unmanaged_server_config!(role : String, server : ServerConfig) : Nil
+        if server.units.empty?
+          raise ValidationError.new("servers.#{role}.units is required when managed: false")
+        end
 
-          if server.cmd
-            raise ValidationError.new("servers.#{role}.cmd is not supported when managed: false")
-          end
+        if server.proxy
+          raise ValidationError.new("servers.#{role}.proxy is not supported when managed: false")
+        end
+
+        if server.cmd
+          raise ValidationError.new("servers.#{role}.cmd is not supported when managed: false")
+        end
+
+        if server.stop_timeout
+          raise ValidationError.new("servers.#{role}.stop_timeout is not supported when managed: false")
         end
       end
 
@@ -217,12 +241,24 @@ module Meridian
       include YAML::Serializable
       include YAML::Serializable::Strict
 
+      # Podman's own default; `proxy.drain_timeout` has already drained requests.
+      PROXIED_STOP_TIMEOUT = 10
+      # Kamal 2's default for roles without proxy, which are the ones draining jobs.
+      STOP_TIMEOUT = 30
+
       getter hosts : Array(String) = [] of String
       getter proxy : ServerProxyConfig?
       getter cmd : String?
       getter image : String?
       getter? managed : Bool = true
       getter units : Array(String) = [] of String
+      @[YAML::Field(converter: Meridian::Config::StopTimeoutConverter)]
+      getter stop_timeout : Int32?
+
+      # Seconds the process gets after SIGTERM before Podman sends SIGKILL.
+      def effective_stop_timeout : Int32
+        stop_timeout || (proxy ? PROXIED_STOP_TIMEOUT : STOP_TIMEOUT)
+      end
     end
 
     struct ServerProxyConfig
@@ -581,7 +617,7 @@ module Meridian
     module Loader
       ROOT_KEYS           = {"service", "strategy", "image", "build", "servers", "proxy", "registry", "env", "ssh", "boot", "transfer", "accessories", "volumes", "ports", "hooks", "files", "assets"}
       BUILD_KEYS          = {"dockerfile", "context", "args", "platform", "builder"}
-      SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units"}
+      SERVER_KEYS         = {"hosts", "proxy", "cmd", "image", "managed", "units", "stop_timeout"}
       SERVER_PROXY_KEYS   = {"host", "ssl", "app_port", "healthcheck", "path", "redirect_hosts"}
       HEALTHCHECK_KEYS    = {"path", "interval", "timeout", "retries", "probe_image", "required_successes"}
       PROXY_KEYS          = {"image", "http_port", "https_port", "data_dir", "drain_timeout", "redact_request_logs"}

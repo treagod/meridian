@@ -14,6 +14,14 @@ servers:
         interval: 1
         timeout: 5
         retries: 30
+  # PID 1 without a SIGTERM handler, so each stop runs the full stop_timeout.
+  # The e2e lowers it to 5 before the redeploy: the running worker must still
+  # get the 75 s it was started with, not the replacement unit's 5 + 60 s.
+  worker:
+    hosts:
+      - __HOST__
+    cmd: sleep infinity
+    stop_timeout: 75
 
 env:
   clear:

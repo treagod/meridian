@@ -186,6 +186,21 @@ describe "Meridian::Commands::Plan" do
       output.should contain("legacy (unmanaged)")
       output.should contain("units:    legacy-app.service, legacy-worker.service")
       output.should_not contain("proxy:")
+      output.should contain("stop_timeout: 30s")
+      output.scan("stop_timeout:").size.should eq(1)
+    end
+
+    it "shows the effective stop_timeout per managed role, defaults included" do
+      output = run_plan(FULL_CONFIG)
+
+      output.should match(/web \(managed\).*?stop_timeout: 10s/m)
+      output.should match(/workers \(managed\).*?stop_timeout: 30s/m)
+    end
+
+    it "shows an explicit stop_timeout" do
+      output = run_plan(FULL_CONFIG.sub("cmd: bin/sidekiq", "cmd: bin/sidekiq\n      stop_timeout: 40"))
+
+      output.should match(/workers \(managed\).*?stop_timeout: 40s/m)
     end
 
     it "never prints secret values, only their names" do

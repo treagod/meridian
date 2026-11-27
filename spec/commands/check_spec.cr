@@ -67,7 +67,7 @@ end
 def shared_accessory_results(manifests : String, network : Meridian::SSH::Result) : Array(Meridian::SSH::Result)
   [
     ssh_ok,                           # connectivity
-    ssh_ok("podman version 4.4.0\n"), # podman version
+    ssh_ok("podman version 4.9.3\n"), # podman version
     ssh_ok,                           # lingering
     ssh_ok,                           # quadlet-dir
     ssh_ok(manifests),                # manifest listing
@@ -208,7 +208,7 @@ describe "Meridian::Commands::Check" do
       runner.enqueue_results_for_host(
         "192.168.1.10",
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -280,7 +280,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.3.0\n"),
+        ssh_ok("podman version 4.8.3\n"),
         ssh_ok,
         ssh_ok,
         check_ssh_fail(127, "", "zstd: command not found\n"),
@@ -292,7 +292,7 @@ describe "Meridian::Commands::Check" do
 
       text = output.to_s
       text.should contain("podman")
-      text.should contain("4.3.0 < 4.4")
+      text.should contain("4.8.3 < 4.9")
       text.should contain("tool:zstd")
       text.should contain("secret:DATABASE_URL")
       text.should contain("caddy")
@@ -375,7 +375,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -399,7 +399,7 @@ describe "Meridian::Commands::Check" do
       runner.enqueue_results_for_host(
         "192.168.1.11",
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -433,7 +433,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n")
@@ -475,7 +475,7 @@ describe "Meridian::Commands::Check" do
         output: output
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"))
 
       command.run.should be_true
 
@@ -510,7 +510,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,                           # connectivity
-        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok("podman version 4.9.3\n"), # podman version
         ssh_ok,                           # lingering
         ssh_ok,                           # quadlet-dir
         ssh_ok,                           # manifest-collisions
@@ -545,7 +545,7 @@ describe "Meridian::Commands::Check" do
         output: output
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"))
 
       command.run.should be_false
 
@@ -579,7 +579,7 @@ describe "Meridian::Commands::Check" do
         output: output
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"))
 
       command.run.should be_true
 
@@ -608,7 +608,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,                           # connectivity
-        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok("podman version 4.9.3\n"), # podman version
         ssh_ok,                           # lingering
         ssh_ok,                           # quadlet-dir
         ssh_ok("true\n"),                 # Caddy running
@@ -650,7 +650,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,                           # connectivity
-        ssh_ok("podman version 4.4.0\n"), # podman version
+        ssh_ok("podman version 4.9.3\n"), # podman version
         ssh_ok,                           # lingering
         ssh_ok,                           # quadlet-dir
         ssh_ok("true\n"),                 # Caddy running
@@ -686,7 +686,7 @@ describe "Meridian::Commands::Check" do
         output: output
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.0\n"))
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"))
       command.run
 
       remote_commands_for(runner).any?(&.includes?("test -d /srv/assets")).should be_false
@@ -726,7 +726,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
@@ -778,7 +778,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok("true\n"),
@@ -819,7 +819,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok
@@ -858,7 +858,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok
@@ -896,7 +896,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -931,7 +931,7 @@ describe "Meridian::Commands::Check" do
         local_command_probe: ->(binary : String) { probed << binary; true }
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"), ssh_ok, ssh_ok, ssh_ok)
 
       command.run.should be_true
       probed.should eq(["zstd"])
@@ -957,7 +957,7 @@ describe "Meridian::Commands::Check" do
         local_command_probe: ->(binary : String) { probed << binary; true }
       )
 
-      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.4.1\n"), ssh_ok, ssh_ok, ssh_ok)
+      runner.enqueue_results(ssh_ok, ssh_ok("podman version 4.9.3\n"), ssh_ok, ssh_ok, ssh_ok)
 
       command.run.should be_true
       probed.should be_empty
@@ -986,7 +986,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -1030,7 +1030,7 @@ describe "Meridian::Commands::Check" do
       runner.enqueue_results_for_host(
         "192.168.1.10",
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -1040,7 +1040,7 @@ describe "Meridian::Commands::Check" do
       runner.enqueue_results_for_host(
         "192.168.1.11",
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok,
@@ -1080,7 +1080,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok
       )
@@ -1118,7 +1118,7 @@ describe "Meridian::Commands::Check" do
 
         runner.enqueue_results(
           ssh_ok,
-          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok("podman version 4.9.3\n"),
           ssh_ok,
           ssh_ok
         )
@@ -1156,7 +1156,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok
       )
@@ -1198,7 +1198,7 @@ describe "Meridian::Commands::Check" do
 
         runner.enqueue_results(
           ssh_ok,
-          ssh_ok("podman version 4.4.1\n"),
+          ssh_ok("podman version 4.9.3\n"),
           ssh_ok,
           ssh_ok
         )
@@ -1239,7 +1239,7 @@ describe "Meridian::Commands::Check" do
 
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.1\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok
       )
@@ -1326,7 +1326,7 @@ describe "Meridian::Commands::Check" do
       command = build_check_command(content: content, runner: runner, output: output)
       runner.enqueue_results(
         ssh_ok,
-        ssh_ok("podman version 4.4.0\n"),
+        ssh_ok("podman version 4.9.3\n"),
         ssh_ok,
         ssh_ok,
         ssh_ok(""),

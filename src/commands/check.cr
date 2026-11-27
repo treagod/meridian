@@ -1,8 +1,10 @@
 module Meridian
   module Commands
     class Check < Base
+      # The oldest Podman the e2e covers; generated Quadlets need at least 4.5
+      # for Secret= and HealthCmd=.
       MIN_PODMAN_MAJOR  = 4
-      MIN_PODMAN_MINOR  = 4
+      MIN_PODMAN_MINOR  = 9
       EMPTY_ACCESSORIES = {} of String => Config::AccessoryConfig
 
       private record HostContext,

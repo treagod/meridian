@@ -154,7 +154,8 @@ The command asks before removing anything. `--force` skips the prompt.
 
 ## `check` {#check}
 
-Runs read-only preflight probes against the selected hosts. Proxy probes verify
+Runs read-only preflight probes against the selected hosts. The Podman probe
+requires 4.9 or newer. Proxy probes verify
 the socket unit, Caddy's inherited TCP/UDP listeners, low-port permission and
 Caddy 2.11.6+. Listeners held by `rootlessport` fail the check.
 
@@ -203,6 +204,9 @@ verifies the service network, runs remote hooks, transfers images, uploads app
 Quadlets/files/asset units, and starts new units. Proxied managed
 roles then atomically reload their Caddy route, wait for the removed upstream to drain, and write `active-color` plus `release-state.json`;
 other managed roles restart their stable `<service>-<role>` unit without proxy state.
+Each stop is logged with its duration, for example
+`Stopped my-app-workers.service in 12.4s`; the process gets the
+[`stop_timeout`](/reference/deploy-yml#stop-timeout) its container was started with.
 Finally writes `manifest.json`, appends audit entries, and releases the lock.
 
 With `strategy: recreate`, Meridian first transfers every role image and uploads
@@ -615,5 +619,6 @@ meridian plan --config config/production.yml
 
 It loads the same strict schema as `deploy`, so a config error shows up here first.
 The header includes the effective strategy: `blue_green`, `recreate`, or
-`restart_in_place`. Every field in [`deploy.yml`](/reference/deploy-yml) affects
+`restart_in_place`. Each managed role shows its effective `stop_timeout`,
+including the default. Every field in [`deploy.yml`](/reference/deploy-yml) affects
 the output.

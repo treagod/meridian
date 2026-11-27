@@ -26,9 +26,12 @@ PublishPort=<%= port %>
 <% if command = @command %>
 Exec=<%= command %>
 <% end %>
+# StopTimeout= needs Podman 5.0; PodmanArgs passes the same flag on 4.9.
+PodmanArgs=--stop-timeout=<%= @stop_timeout %>
 
 [Service]
 Restart=always
+TimeoutStopSec=<%= @stop_timeout.to_i64 + Generator::STOP_TIMEOUT_MARGIN %>
 
 [Install]
 WantedBy=default.target

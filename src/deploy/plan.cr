@@ -7,7 +7,8 @@ module Meridian
       managed : Bool,
       cmd : String?,
       units : Array(String),
-      proxy : Config::ServerProxyConfig?
+      proxy : Config::ServerProxyConfig?,
+      stop_timeout : Int32?
 
     record FilePlan,
       source : String,
@@ -105,6 +106,8 @@ module Meridian
             cmd: server.cmd,
             units: server.units,
             proxy: server.proxy,
+            # Unmanaged units are operator-owned, so Meridian sets no stop timeout.
+            stop_timeout: server.managed? ? server.effective_stop_timeout : nil,
           )
         end
       end

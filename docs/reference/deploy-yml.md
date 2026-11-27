@@ -144,11 +144,13 @@ servers:
 | `image` | `String` | Optional | `ghcr.io/acme/my-worker:latest` | Overrides top-level `image` for this role. |
 | `managed` | `Bool` | Optional, default `true` | `false` | `false` switches to existing-unit compatibility mode. |
 | `units` | `Array(String)` | Optional, default `[]` | `["legacy-app.service"]` | Required when `managed: false`; forbidden when `managed: true`. |
+| `stop_timeout` | `Int32` | Optional, default `10` with `proxy:`, `30` without | `40` | Positive seconds the process gets after SIGTERM before Podman sends SIGKILL; forbidden when `managed: false`. See [stop timeout](#stop-timeout). |
 
 Validation: `servers.web` is required. `proxy:` on any other role fails with
 `servers.<role>.proxy is not supported: web is the only role that can be
-proxied`. Unmanaged roles cannot define `proxy` or `cmd`, and must define at
-least one `units` entry.
+proxied`. Unmanaged roles cannot define `proxy`, `cmd` or `stop_timeout`, and
+must define at least one `units` entry. A `stop_timeout` that is not a positive
+integer fails with `servers.<role>.stop_timeout must be positive`.
 
 Managed roles use one of two unit models:
 
@@ -157,6 +159,47 @@ Managed roles use one of two unit models:
 - Without `proxy:`, Meridian deploys one stable `<service>-<role>` unit and
   restarts it in place. This path has brief downtime and does not read or write
   `active-color` or `release-state.json`.
+
+### Stop timeout {#stop-timeout}
+
+When Meridian or systemd stops an app container (the old colour after a
+switch, a worker before its restart, `rollback`, or a host shutdown), Podman
+sends SIGTERM, waits `stop_timeout` seconds, then sends SIGKILL. Set it to
+the longest time your process needs to finish a job or a request after SIGTERM.
+
+```yaml
+servers:
+  web:
+    proxy:
+      host: my-app.example.com
+    stop_timeout: 40
+  workers:
+    cmd: bin/jobs
+    stop_timeout: 90
+```
+
+- Without the key, roles without `proxy:` get 30 seconds, as in Kamal 2,
+  because workers and queue consumers are the ones that finish jobs on SIGTERM.
+  The proxied `web` role keeps Podman's 10 seconds: its requests are already
+  drained at the proxy by [`proxy.drain_timeout`](#proxy) before the stop.
+- Meridian always writes the effective value into the role's Quadlet,
+  `meridian plan` shows it per role, and `deploy` logs how long each stop took,
+  for example `Stopped my-app-workers.service in 12.4s`.
+- The Quadlet carries `PodmanArgs=--stop-timeout=<n>` (Quadlet's own
+  `StopTimeout=` key needs Podman 5.0) and `TimeoutStopSec=<n + 60>` in
+  `[Service]`, so systemd never kills Podman's stop before the timeout ends.
+- There is no top-level `stop_timeout`; the defaults differ by role kind, so
+  set it on each role that needs more time. Accessories do not have the key yet.
+- A container keeps the stop timeout it was started with. After you change
+  `stop_timeout`, the next deploy stops the running container under its old
+  value (Podman's 10 seconds if an older Meridian started it), and the new value
+  applies to the container that deploy starts.
+- On a host shutdown, systemd stops the deploy user's whole service manager,
+  `user@<uid>.service`, under that unit's own stop limit. Upstream systemd sets
+  two minutes, but distribution packages may lower it to a few seconds, and a
+  longer `stop_timeout` is cut off at that limit. Check it with
+  `systemctl show "user@$(id -u).service" -p TimeoutStopUSec`; raising it (a
+  drop-in for `user@.service`) is host configuration that Meridian does not manage.
 
 ## `servers.<role>.proxy`
 
@@ -229,7 +272,7 @@ proxy:
 
 The defaults need `net.ipv4.ip_unprivileged_port_start=80`, which `meridian server bootstrap` sets. Without root, use higher ports and keep an existing port forwarder in front.
 | `data_dir` | `String` | Optional, default `%h/.local/share/meridian-caddy` | `"%h/.local/share/meridian-caddy"` | Mounted at `/data` for certificates and Caddy state. `%h` is systemd's deploy-user home specifier. |
-| `drain_timeout` | `Int32` | Optional, default `300` | `300` | Positive seconds to wait for in-flight requests on the removed upstream; timeout warns and force-stops it. |
+| `drain_timeout` | `Int32` | Optional, default `300` | `300` | Positive seconds to wait for in-flight requests on the removed upstream; timeout warns and force-stops it. How long the process then gets after SIGTERM is the role's [`stop_timeout`](#stop-timeout). |
 | `redact_request_logs` | `Bool` | Optional, default `false` | `true` | Drops the request URI and headers from every Caddy log line, such as upstream errors during a deploy. Use it when URLs carry bearer tokens. Takes effect on the next `meridian setup`. |
 
 The `data_dir` default lives under the deploy user's home so that nothing in Meridian needs root on the host. Meridian also stores the root Caddyfile, per-service route fragments, Unix admin socket, and reload lock under `~/.config/containers/meridian-caddy/`.
