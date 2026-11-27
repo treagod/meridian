@@ -360,7 +360,7 @@ describe "Meridian::Proxy::Manager" do
     it "warns and returns after the configured timeout" do
       runner = FakeSSHRunner.new
       busy = ssh_ok(%([{"address":"myapp-green:3000","num_requests":1,"fails":0}]))
-      runner.enqueue_results(busy, busy)
+      runner.enqueue_results(busy, busy, busy)
       output = IO::Memory.new
       manager = build_proxy_manager(
         content: <<-YAML,
@@ -380,6 +380,33 @@ describe "Meridian::Proxy::Manager" do
 
       manager.drain("192.168.1.10", "myapp-green:3000")
       output.to_s.should contain("stopping it anyway")
+      remote_commands_for(runner).size.should eq(3)
+    end
+
+    it "keeps a busy upstream for the full drain_timeout before stopping it" do
+      runner = FakeSSHRunner.new
+      busy = ssh_ok(%([{"address":"myapp-green:3000","num_requests":1,"fails":0}]))
+      runner.enqueue_results(busy, busy)
+      slept = Time::Span.zero
+      manager = build_proxy_manager(
+        content: <<-YAML,
+          service: myapp
+          image: example.com/myapp
+          servers:
+            web:
+              hosts: [192.168.1.10]
+              proxy:
+                host: example.com
+          proxy:
+            drain_timeout: 1
+          YAML
+        runner: runner,
+        drain_sleeper: ->(duration : Time::Span) { slept += duration }
+      )
+
+      manager.drain("192.168.1.10", "myapp-green:3000")
+
+      slept.should eq(1.second)
       remote_commands_for(runner).size.should eq(2)
     end
 

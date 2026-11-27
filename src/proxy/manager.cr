@@ -118,10 +118,12 @@ module Meridian
 
       def drain(host : String, target : String) : Nil
         timeout = @config.resolved_proxy.drain_timeout
-        timeout.times do |elapsed|
+        # One probe per second for `timeout` seconds and a last one at the end,
+        # so a busy upstream keeps the full drain_timeout.
+        (timeout + 1).times do |elapsed|
           return if upstream_drained?(host, target)
 
-          @drain_sleeper.call(1.second) if elapsed < timeout - 1
+          @drain_sleeper.call(1.second) if elapsed < timeout
         end
 
         log(host, "Warning: #{target} still has in-flight requests after #{timeout}s; stopping it anyway")
