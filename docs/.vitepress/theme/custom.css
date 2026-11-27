@@ -194,131 +194,133 @@
 /* Typography                                                          */
 /* ------------------------------------------------------------------ */
 
-.vp-doc h1,
-.vp-doc h2,
-.vp-doc h3,
-.vp-doc h4 {
-  font-family: 'Fraunces', Georgia, serif;
-  letter-spacing: -0.015em;
-  color: #F5EBD6;
-}
+.vp-doc {
+  & h1,
+  & h2,
+  & h3,
+  & h4 {
+    font-family: 'Fraunces', Georgia, serif;
+    letter-spacing: -0.015em;
+    color: #F5EBD6;
+  }
 
-.vp-doc h1 {
-  font-weight: 600;
-  font-size: clamp(32px, 4vw, 44px);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-}
+  & h1 {
+    font-weight: 600;
+    font-size: clamp(32px, 4vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
 
-.vp-doc h2 {
-  font-weight: 600;
-  font-size: 28px;
-  border-top: 1px solid var(--gold-tint-12);
-  padding-top: 32px;
-  margin-top: 48px;
-}
+  & h2 {
+    font-weight: 600;
+    font-size: 28px;
+    border-top: 1px solid var(--gold-tint-12);
+    padding-top: 32px;
+    margin-top: 48px;
+  }
 
-.vp-doc h3 {
-  font-weight: 600;
-  font-size: 20px;
-}
+  & h3 {
+    font-weight: 600;
+    font-size: 20px;
+  }
 
-.vp-doc a {
-  color: #F3CE6B;
-  text-decoration-color: var(--gold-tint-30);
-  text-underline-offset: 3px;
-  transition: color 0.15s;
-}
+  & a {
+    color: #F3CE6B;
+    text-decoration-color: var(--gold-tint-30);
+    text-underline-offset: 3px;
+    transition: color 0.15s;
+  }
 
-.vp-doc a:hover {
-  color: #F9E1A1;
-  text-decoration-color: #E8B846;
-}
+  & a:hover {
+    color: #F9E1A1;
+    text-decoration-color: #E8B846;
+  }
 
-/* Inline code — gold-tinted */
-.vp-doc :not(pre) > code {
-  color: #F9E1A1;
-  background: var(--gold-tint-08);
-  border: 1px solid var(--gold-tint-15);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 0.88em;
-}
+  /* Inline code — gold-tinted */
+  & :not(pre) > code {
+    color: #F9E1A1;
+    background: var(--gold-tint-08);
+    border: 1px solid var(--gold-tint-15);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.88em;
+  }
 
-/* Code block frame */
-.vp-doc div[class*='language-'] {
-  border: 1px solid color-mix(in oklab, var(--vp-c-brand-1) 14%, transparent);
-  border-radius: 6px;
-  background: #080C1E;
-}
+  /* Code block frame */
+  & div[class*='language-'] {
+    border: 1px solid color-mix(in oklab, var(--vp-c-brand-1) 14%, transparent);
+    border-radius: 6px;
+    background: #080C1E;
+  }
 
-.vp-doc div[class*='language-'] pre {
-  background: transparent;
-}
+  & div[class*='language-'] pre {
+    background: transparent;
+  }
 
-/* Code block language label */
-.vp-doc div[class*='language-']::before {
-  color: #7E7863;
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
+  /* Code block language label */
+  & div[class*='language-']::before {
+    color: #7E7863;
+    font-family: var(--vp-font-family-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
 
-/* Blockquotes */
-.vp-doc blockquote {
-  border-inline-start: 2px solid #E8B846;
-  background: var(--gold-tint-04);
-  padding: 16px 20px;
-  border-radius: 0 4px 4px 0;
-  color: #C9BFA5;
-}
+  /* Blockquotes */
+  & blockquote {
+    border-inline-start: 2px solid #E8B846;
+    background: var(--gold-tint-04);
+    padding: 16px 20px;
+    border-radius: 0 4px 4px 0;
+    color: #C9BFA5;
+  }
 
-.vp-doc blockquote > p {
-  color: #C9BFA5;
-  font-family: 'Fraunces', Georgia, serif;
-  font-style: italic;
-  font-size: 17px;
-  line-height: 1.6;
-}
+  & blockquote > p {
+    color: #C9BFA5;
+    font-family: 'Fraunces', Georgia, serif;
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.6;
+  }
 
-/* Tables */
-.vp-doc table {
-  border: 1px solid var(--gold-tint-15);
-  border-radius: 6px;
-  overflow: hidden;
-  border-collapse: separate;
-  border-spacing: 0;
-}
+  /* Tables */
+  & table {
+    border: 1px solid var(--gold-tint-15);
+    border-radius: 6px;
+    overflow: hidden;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
 
-.vp-doc th {
-  background: #141A3F;
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: #C9BFA5;
-  font-weight: 500;
-}
+  & th {
+    background: #141A3F;
+    font-family: var(--vp-font-family-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #C9BFA5;
+    font-weight: 500;
+  }
 
-.vp-doc tr {
-  background: transparent;
-  border-top: 1px solid var(--gold-tint-08);
-}
+  & tr {
+    background: transparent;
+    border-top: 1px solid var(--gold-tint-08);
+  }
 
-.vp-doc tr:nth-child(2n) {
-  background: color-mix(in oklab, var(--vp-c-brand-1) 2%, transparent);
-}
+  & tr:nth-child(2n) {
+    background: color-mix(in oklab, var(--vp-c-brand-1) 2%, transparent);
+  }
 
-/* Lists */
-.vp-doc ul > li::marker {
-  color: #E8B846;
-}
+  /* Lists */
+  & ul > li::marker {
+    color: #E8B846;
+  }
 
-.vp-doc ol > li::marker {
-  color: #E8B846;
-  font-family: 'Fraunces', serif;
-  font-style: italic;
+  & ol > li::marker {
+    color: #E8B846;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -328,51 +330,51 @@
 .VPNavBar {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-}
 
-/* The doubled class is deliberate: VP's competing rules are scoped, so their
-   [data-v-…] attribute puts them at (0,4,0) and a plain three-class selector
-   would lose. Repeating the class ties, and source order decides. */
+  /* The doubled class is deliberate: VP's competing rules are scoped, so their
+     [data-v-…] attribute puts them at (0,4,0) and a plain three-class selector
+     would lose. Repeating the class ties, and source order decides. */
 
-/* From 960px up VP absolutely positions the title over the sidebar rail and puts
-   the tint on .content-body alone, which leaves the wordmark sitting on an
-   untinted patch. Tinting the title with the same token makes the bar read as one
-   continuous surface, like the landing nav. */
-.VPNavBar.VPNavBar.has-sidebar .title {
-  /* The fixed sidebar starts at y=0, so it — not the page — is what shows through
-     this strip. Painting the tint over an opaque page background makes the strip
-     resolve to the same colour as the tint over .content-body; without the base
-     layer the sidebar's darker navy bleeds through and the wordmark sits on a
-     visible patch. */
-  background-color: var(--vp-c-bg);
-  background-image: linear-gradient(var(--md-nav-bg), var(--md-nav-bg));
-}
-
-/* One hairline across the full width: VP pads .divider by the sidebar width so the
-   line starts at the sidebar edge. (VP's second, shorter line under the title is
-   removed by the border-bottom reset on the brand below.) */
-.VPNavBar.VPNavBar.has-sidebar .divider {
-  padding-left: 0;
-}
-
-/* VP shortens this wrapper by 1px to make room for that title border. With the
-   border gone the reservation just pushes the brand off the landing's centre. */
-.VPNavBar .container > .title {
-  height: var(--md-nav-height);
-}
-
-/* Match the landing's 16px gutter once the bar is brand + controls only. */
-@media (max-width: 767px) {
-  .VPNavBar .wrapper {
-    padding: 0 16px;
+  /* From 960px up VP absolutely positions the title over the sidebar rail and puts
+     the tint on .content-body alone, which leaves the wordmark sitting on an
+     untinted patch. Tinting the title with the same token makes the bar read as one
+     continuous surface, like the landing nav. */
+  &.VPNavBar.has-sidebar .title {
+    /* The fixed sidebar starts at y=0, so it — not the page — is what shows through
+       this strip. Painting the tint over an opaque page background makes the strip
+       resolve to the same colour as the tint over .content-body; without the base
+       layer the sidebar's darker navy bleeds through and the wordmark sits on a
+       visible patch. */
+    background-color: var(--vp-c-bg);
+    background-image: linear-gradient(var(--md-nav-bg), var(--md-nav-bg));
   }
-}
 
-/* 'force-dark' keeps VP's hasExtraContent truthy, so between 768px and 1279px it
-   renders an overflow flyout whose every group is empty — a dead "..." after the
-   pill. It only had content while socialLinks existed. */
-.VPNavBar .VPNavBarExtra {
-  display: none;
+  /* One hairline across the full width: VP pads .divider by the sidebar width so the
+     line starts at the sidebar edge. (VP's second, shorter line under the title is
+     removed by the border-bottom reset on the brand below.) */
+  &.VPNavBar.has-sidebar .divider {
+    padding-left: 0;
+  }
+
+  /* VP shortens this wrapper by 1px to make room for that title border. With the
+     border gone the reservation just pushes the brand off the landing's centre. */
+  & .container > .title {
+    height: var(--md-nav-height);
+  }
+
+  /* Match the landing's 16px gutter once the bar is brand + controls only. */
+  @media (max-width: 767px) {
+    & .wrapper {
+      padding: 0 16px;
+    }
+  }
+
+  /* 'force-dark' keeps VP's hasExtraContent truthy, so between 768px and 1279px it
+     renders an overflow flyout whose every group is empty — a dead "..." after the
+     pill. It only had content while socialLinks existed. */
+  & .VPNavBarExtra {
+    display: none;
+  }
 }
 
 /* Brand — mirrors .brand / .brand-mark in landing.css. The border reset also kills
@@ -401,47 +403,49 @@
 
 /* Qualifying with the parent ties VP's scoped .VPNavBarMenuLink[data-v-…] on
    specificity and wins on source order — no !important needed. */
-.VPNavBarMenu .VPNavBarMenuLink {
-  padding: 0 14px;
-  font-weight: 500;
-  color: #C9BFA5;
-}
+.VPNavBarMenu {
+  & .VPNavBarMenuLink {
+    padding: 0 14px;
+    font-weight: 500;
+    color: #C9BFA5;
+  }
 
-.VPNavBarMenu .VPNavBarMenuLink:hover,
-.VPNavBarMenu .VPNavBarMenuLink.active {
-  color: #F3CE6B;
-}
+  & .VPNavBarMenuLink:hover,
+  & .VPNavBarMenuLink.active {
+    color: #F3CE6B;
+  }
 
-/* Let the trailing pill sit flush with the wrapper edge, like the landing CTA. */
-.VPNavBarMenu .VPNavBarMenuLink:last-child {
-  padding-right: 0;
-}
+  /* Let the trailing pill sit flush with the wrapper edge, like the landing CTA. */
+  & .VPNavBarMenuLink:last-child {
+    padding-right: 0;
+  }
 
-/* The GitHub item is the docs counterpart to the landing's "Read the Docs" CTA;
-   config.mts wraps its label in span.nav-cta so the pill has a stable hook. */
-.VPNavBarMenu .VPNavBarMenuLink .nav-cta {
-  display: inline-block;
-  padding: 8px 16px;
-  border: 1px solid #E8B846;
-  border-radius: 6px;
-  color: #F3CE6B;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  transition:
-    background-color 0.2s,
-    color 0.2s;
-}
+  /* The GitHub item is the docs counterpart to the landing's "Read the Docs" CTA;
+     config.mts wraps its label in span.nav-cta so the pill has a stable hook. */
+  & .VPNavBarMenuLink .nav-cta {
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1px solid #E8B846;
+    border-radius: 6px;
+    color: #F3CE6B;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
+  }
 
-.VPNavBarMenu .VPNavBarMenuLink:hover .nav-cta {
-  background: #E8B846;
-  color: #0C1128;
-}
+  & .VPNavBarMenuLink:hover .nav-cta {
+    background: #E8B846;
+    color: #0C1128;
+  }
 
-@media (max-width: 420px) {
-  .VPNavBarMenu .VPNavBarMenuLink .nav-cta {
-    padding: 7px 11px;
-    font-size: 12px;
+  @media (max-width: 420px) {
+    & .VPNavBarMenuLink .nav-cta {
+      padding: 7px 11px;
+      font-size: 12px;
+    }
   }
 }
 
@@ -453,49 +457,53 @@
   border-inline-end: 1px solid var(--gold-tint-08);
 }
 
-.VPSidebarItem .text {
-  color: #C9BFA5;
-}
+.VPSidebarItem {
+  & .text {
+    color: #C9BFA5;
+  }
 
-.VPSidebarItem.is-active > .item .link .text {
-  color: #F3CE6B;
-}
+  &.is-active > .item .link .text {
+    color: #F3CE6B;
+  }
 
-.VPSidebarItem .link:hover .text {
-  color: #F3CE6B;
-}
+  & .link:hover .text {
+    color: #F3CE6B;
+  }
 
-.VPSidebarItem.level-0 > .item > .indicator {
-  background-color: #E8B846;
-}
+  &.level-0 > .item > .indicator {
+    background-color: #E8B846;
+  }
 
-/* Section heading in sidebar */
-.VPSidebarItem.level-0 > .item > .text {
-  font-family: 'Fraunces', serif;
-  font-weight: 600;
-  color: #F5EBD6;
+  /* Section heading in sidebar */
+  &.level-0 > .item > .text {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    color: #F5EBD6;
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* Aside / outline                                                     */
 /* ------------------------------------------------------------------ */
 
-.VPDocAsideOutline .outline-title {
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #E8B846;
-}
+.VPDocAsideOutline {
+  & .outline-title {
+    font-family: var(--vp-font-family-mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #E8B846;
+  }
 
-.VPDocAsideOutline .outline-link {
-  color: #C9BFA5;
-  transition: color 0.15s;
-}
+  & .outline-link {
+    color: #C9BFA5;
+    transition: color 0.15s;
+  }
 
-.VPDocAsideOutline .outline-link:hover,
-.VPDocAsideOutline .outline-link.active {
-  color: #F3CE6B;
+  & .outline-link:hover,
+  & .outline-link.active {
+    color: #F3CE6B;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -506,62 +514,66 @@
   border-top: 1px solid var(--gold-tint-12);
   padding-top: 24px;
   margin-top: 56px;
+
+  & .pager-link {
+    border: 1px solid var(--gold-tint-15);
+  }
 }
 
-.VPDocFooter .pager-link {
-  border: 1px solid var(--gold-tint-15);
-}
+.pager-link {
+  &:hover {
+    background: var(--gold-tint-04);
+  }
 
-.pager-link:hover {
-  background: var(--gold-tint-04);
-}
+  & .desc {
+    font-family: var(--vp-font-family-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #7E7863;
+  }
 
-.pager-link .desc {
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: #7E7863;
-}
-
-.pager-link .title {
-  font-family: 'Fraunces', serif;
-  color: #F3CE6B;
-  font-weight: 600;
+  & .title {
+    font-family: 'Fraunces', serif;
+    color: #F3CE6B;
+    font-weight: 600;
+  }
 }
 
 .VPFooter {
   border-top: 1px solid var(--gold-tint-08);
   background: #080C1E;
   color: #7E7863;
-}
 
-.VPFooter .message,
-.VPFooter .copyright {
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  & .message,
+  & .copyright {
+    font-family: var(--vp-font-family-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* Search (local provider)                                             */
 /* ------------------------------------------------------------------ */
 
-.DocSearch-Button,
-.DocSearch-Button:is(:hover, :focus, :active) {
-  color: #C9BFA5;
-}
-
-/* Only the wide search field gets a surface. Below 768px VP renders a bare 48x55
-   icon button; filling it there turns it into a heavy circle next to the brand. */
-@media (min-width: 768px) {
-  .DocSearch-Button {
-    background: var(--gold-tint-06);
-    border: 1px solid var(--gold-tint-18);
+.DocSearch-Button {
+  &,
+  &:is(:hover, :focus, :active) {
+    color: #C9BFA5;
   }
 
-  .DocSearch-Button:hover {
-    background: color-mix(in oklab, var(--vp-c-brand-1) 10%, transparent);
+  /* Only the wide search field gets a surface. Below 768px VP renders a bare 48x55
+     icon button; filling it there turns it into a heavy circle next to the brand. */
+  @media (min-width: 768px) {
+    & {
+      background: var(--gold-tint-06);
+      border: 1px solid var(--gold-tint-18);
+    }
+
+    &:hover {
+      background: color-mix(in oklab, var(--vp-c-brand-1) 10%, transparent);
+    }
   }
 }
