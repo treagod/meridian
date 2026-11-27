@@ -1,3 +1,5 @@
+require "yaml"
+
 module Meridian
   module Init
     record DetectedFramework,
@@ -13,6 +15,7 @@ module Meridian
 
       def detect : DetectedFramework?
         MartenDetector.new(@root).detect ||
+          LuckyDetector.new(@root).detect ||
           RailsDetector.new(@root).detect ||
           ElixirDetector.new(@root).detect ||
           GoDetector.new(@root).detect ||
@@ -85,6 +88,26 @@ module Meridian
           app_port: 8000,
           note: note
         )
+      end
+    end
+
+    # Lucky browser apps ship a package.json, so this runs before NodeDetector.
+    class LuckyDetector < Detector
+      APP_PORT = 8080
+
+      def detect : DetectedFramework?
+        shard = read_root_file("shard.yml") || return
+        return unless YAML.parse(shard).as_h?.try(&.["dependencies"]?).try(&.as_h?).try(&.has_key?("lucky"))
+
+        DetectedFramework.new(
+          name: "Lucky",
+          clear_env: {"LUCKY_ENV" => "production", "PORT" => APP_PORT.to_s},
+          healthcheck_path: "/health",
+          app_port: APP_PORT,
+          note: "Lucky also needs APP_DOMAIN, SECRET_KEY_BASE, DATABASE_URL, a db.migrate hook, and a /health action; see https://meridian-deploy.dev/recipes/lucky-postgres"
+        )
+      rescue YAML::ParseException
+        nil
       end
     end
 

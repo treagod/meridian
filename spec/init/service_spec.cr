@@ -151,6 +151,29 @@ describe "Meridian::Init::Service" do
     end
   end
 
+  it "renders matching Lucky PORT and app_port defaults" do
+    with_tempdir do |path|
+      write_project_file(path, "shard.yml", "name: my_app\ndependencies:\n  lucky:\n    github: luckyframework/lucky\n")
+      write_project_file(path, "package.json", %({"private":true}))
+
+      output = run_init_service(
+        path,
+        "\n95.216.1.10\n\nmyapp.example.com\nstream\nghcr.io/acme/myapp\n"
+      )
+
+      output.should contain("Detected: Lucky app")
+      output.should contain("recipes/lucky-postgres")
+
+      config = Meridian::Config::Loader.load(File.join(path, ".meridian/deploy.yml"))
+      proxy = config.servers["web"].proxy || raise "Expected web proxy config"
+      proxy.app_port.should eq(8080)
+      proxy.healthcheck.path.should eq("/health")
+      clear = config.env.try(&.clear) || raise "Expected env.clear"
+      clear["LUCKY_ENV"].should eq("production")
+      clear["PORT"].should eq(proxy.app_port.to_s)
+    end
+  end
+
   it "does not write files when prompting aborts early" do
     with_tempdir do |path|
       expect_raises(Meridian::Init::PromptAborted) do

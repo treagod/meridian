@@ -8,6 +8,7 @@ show complete files first, then link to the reference for field details.
 - [Marten](https://martenframework.com/) + [SQLite](https://sqlite.org/) + Assets CDN - [the smallest production Marten deployment](/recipes/marten-sqlite-assets).
 - [Marten](https://martenframework.com/) + [Postgres](https://www.postgresql.org/) + [Dragonfly](https://www.dragonflydb.io/) + Assets CDN - [full production stack](/recipes/marten-postgres-dragonfly-assets) with deploy-managed static assets.
 - [Rails](https://rubyonrails.org/) + [Postgres](https://www.postgresql.org/) - [classic Rails deployment](/recipes/rails-postgres) with migrations before app start and app-served assets.
+- [Lucky](https://luckyframework.org/) + [Postgres](https://www.postgresql.org/) - [Lucky browser app](/recipes/lucky-postgres) over HTTPS with Bun-built assets and `db.migrate` before app start.
 - [Go](https://go.dev/) Static Binary - [scratch image with no shell](/recipes/go-static-binary); health checks run from Meridian's probe sidecar.
 
 ## Drafts

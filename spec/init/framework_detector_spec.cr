@@ -25,6 +25,20 @@ private def write_rails_project(root : String, routes_content : String = DEFAULT
   write_project_file(root, "config/routes.rb", routes_content)
 end
 
+private def write_lucky_project(root : String, *, browser : Bool)
+  write_project_file(root, "shard.yml", <<-YAML)
+    name: my_app
+    version: 0.1.0
+    dependencies:
+      lucky:
+        github: luckyframework/lucky
+        version: ~> 1.5.0
+      avram:
+        github: luckyframework/avram
+    YAML
+  write_project_file(root, "package.json", %({"private":true,"scripts":{"prod":"bun run build --prod"}})) if browser
+end
+
 describe "Meridian::Init::FrameworkDetector" do
   it "detects Marten apps from the expected project layout" do
     with_tempdir do |path|
@@ -133,6 +147,51 @@ describe "Meridian::Init::FrameworkDetector" do
       framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
 
       framework.name.should eq("Marten")
+    end
+  end
+
+  it "detects a Lucky browser app before its package.json" do
+    with_tempdir do |path|
+      write_lucky_project(path, browser: true)
+
+      framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
+
+      framework.name.should eq("Lucky")
+      framework.clear_env.should eq({"LUCKY_ENV" => "production", "PORT" => "8080"})
+      framework.app_port.should eq(8080)
+      framework.healthcheck_path.should eq("/health")
+      note = framework.note || raise "Expected framework note"
+      note.should contain("recipes/lucky-postgres")
+    end
+  end
+
+  it "detects a Lucky API-only app" do
+    with_tempdir do |path|
+      write_lucky_project(path, browser: false)
+
+      framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
+
+      framework.name.should eq("Lucky")
+      framework.app_port.should eq(8080)
+    end
+  end
+
+  it "keeps Node defaults for a plain package.json project" do
+    with_tempdir do |path|
+      write_project_file(path, "package.json", %({"name":"demo"}))
+
+      framework = Meridian::Init::FrameworkDetector.new(path).detect || raise "Expected framework"
+
+      framework.name.should eq("Node")
+      framework.clear_env.should eq({"NODE_ENV" => "production"})
+    end
+  end
+
+  it "does not treat a shard.yml without lucky as Lucky" do
+    with_tempdir do |path|
+      write_project_file(path, "shard.yml", "name: api\ndependencies:\n  kemal:\n    github: kemalcr/kemal\n")
+
+      Meridian::Init::FrameworkDetector.new(path).detect.should be_nil
     end
   end
 

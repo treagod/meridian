@@ -189,9 +189,11 @@ module Meridian
         transfer_image_to_host(host, image)
         run_remote_hooks(host, role, "after_transfer")
 
-        start_candidate(host, role, server, new_color, release_id)
-
         begin
+          # Inside the rescue: a failed hook or accessory wait must not leave
+          # the candidate's Quadlet behind to boot with the host.
+          start_candidate(host, role, server, new_color, release_id)
+
           log(host, "Checking health for #{new_service}")
           poll_container_health(host, proxy, new_service)
 
@@ -201,7 +203,7 @@ module Meridian
           @proxy_manager.switch(host, proxy, "#{new_service}:#{proxy.app_port}")
         rescue ex : Proxy::SwitchUncertain
           raise DeployFailed.new(ex.message || "Caddy switch state is uncertain")
-        rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed
+        rescue ex : Health::CheckFailed | SSH::CommandFailed | SSH::ConnectionError | Proxy::RouteFailed | DeployFailed
           cleanup_failed_candidate(host, new_color)
           raise DeployFailed.new(ex.message || "Zero-downtime deploy to #{host} failed")
         end

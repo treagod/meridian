@@ -638,11 +638,15 @@ class RecreateSSHRunner < FakeSSHRunner
   end
 end
 
-class AfterSwitchFailingSSHRunner < FakeSSHRunner
+class FailingHookSSHRunner < FakeSSHRunner
+  def initialize(@failing_command : String)
+    super()
+  end
+
   def run(command : String, args : Array(String), input : String? = nil) : Meridian::SSH::Result
     result = super
     remote = invocations.last.remote_command.to_s
-    remote.includes?("after-switch-fails") ? ssh_fail(1, stderr: "hook failed\n") : result
+    remote.includes?(@failing_command) ? ssh_fail(1, stderr: "hook failed\n") : result
   end
 end
 
@@ -1599,7 +1603,7 @@ describe "Meridian::Deploy::Orchestrator" do
         "  boot:",
         "  hooks:\n    remote:\n      after_switch:\n        - command: after-switch-fails\n\n  boot:"
       )
-      runner = AfterSwitchFailingSSHRunner.new
+      runner = FailingHookSSHRunner.new("after-switch-fails")
       enqueue_zero_downtime_success(runner, green_active: true)
       config = load_config(config_text)
       manager = FakeProxyManager.new(config)
@@ -1612,6 +1616,28 @@ describe "Meridian::Deploy::Orchestrator" do
       commands = remote_commands_for(runner)
       manager.switch_calls.size.should eq(1)
       commands.should_not contain("systemctl --user stop myapp-blue.service")
+      commands.should_not contain("systemctl --user stop myapp-green.service")
+    end
+
+    it "removes the candidate Quadlet when a before_start hook fails" do
+      config_text = FULL_CONFIG.sub(
+        "  boot:",
+        "  hooks:\n    remote:\n      before_start:\n        - command: before-start-fails\n\n  boot:"
+      )
+      runner = FailingHookSSHRunner.new("before-start-fails")
+      enqueue_zero_downtime_success(runner, green_active: true)
+      config = load_config(config_text)
+      manager = FakeProxyManager.new(config)
+      orchestrator = build_orchestrator(content: config_text, runner: runner, proxy_manager: manager)
+
+      expect_raises(Meridian::Deploy::DeployFailed, /hook failed/) do
+        orchestrator.zero_downtime_deploy_to_host("192.168.1.10", "web")
+      end
+
+      commands = remote_commands_for(runner)
+      manager.switch_calls.should be_empty
+      commands.should_not contain("systemctl --user start myapp-blue.service")
+      commands.should contain("rm -f .config/containers/systemd/myapp-blue.container")
       commands.should_not contain("systemctl --user stop myapp-green.service")
     end
 

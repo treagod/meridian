@@ -1,0 +1,64 @@
+service: meridian-e2e-lucky
+image: __IMAGE__
+
+servers:
+  web:
+    hosts:
+      - __HOST__
+    proxy:
+      host: e2e-lucky-app.internal
+      ssl: true
+      app_port: 8080
+      healthcheck:
+        path: /health
+        interval: 1
+        timeout: 5
+        retries: 30
+
+env:
+  clear:
+    LUCKY_ENV: production
+    APP_DOMAIN: https://e2e-lucky-app.internal
+    PORT: "8080"
+    SEND_GRID_KEY: unused
+  secret:
+    - SECRET_KEY_BASE
+    - DATABASE_URL
+
+ssh:
+  user: deploy
+  keys:
+    - __SSH_KEY__
+
+transfer:
+  mode: __TRANSFER_MODE__
+
+accessories:
+  meridian-e2e-lucky-postgres:
+    image: docker.io/library/postgres:18-alpine
+    host: __HOST__
+    network: meridian-e2e-lucky.network
+    volumes:
+      - meridian-e2e-lucky-pgdata:/var/lib/postgresql
+    env:
+      clear:
+        POSTGRES_DB: meridian_e2e
+        POSTGRES_USER: meridian_e2e
+        POSTGRES_PASSWORD_FILE: /run/secrets/MY_APP_DATABASE_PASSWORD
+    secrets:
+      - MY_APP_DATABASE_PASSWORD
+    ready:
+      cmd: ["pg_isready", "-q", "-U", "meridian_e2e"]
+
+hooks:
+  remote:
+    before_start:
+      - command: >-
+          podman run --rm --network=meridian-e2e-lucky
+          -e LUCKY_ENV=production
+          -e APP_DOMAIN=https://e2e-lucky-app.internal
+          -e PORT=8080
+          -e SEND_GRID_KEY=unused
+          --secret SECRET_KEY_BASE,type=env,target=SECRET_KEY_BASE
+          --secret DATABASE_URL,type=env,target=DATABASE_URL
+          __IMAGE__ /app/bin/tasks db.migrate

@@ -651,6 +651,11 @@ Remote phases under `hooks.remote`:
 | `after_switch` | `Array(RemoteHookConfig)` | `[]` | After the successful Caddy reload (the commit point). |
 | `after_deploy` | `Array(RemoteHookConfig)` | `[]` | After deploy state is recorded. |
 
+A remote hook that exits nonzero aborts the deploy. Under blue/green, a failure
+up to and including `before_switch` leaves traffic on the previous release and
+removes the new colour's unit, so a failed migration in `before_start` never
+starts the new release.
+
 Under `strategy: recreate`, `before_transfer` and `after_transfer` retain their
 normal positions around image preparation, before maintenance. Keep these two
 hook phases non-destructive for Recreate services. File syncs and

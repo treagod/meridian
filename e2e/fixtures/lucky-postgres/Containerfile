@@ -1,0 +1,42 @@
+# --- Shards ---
+FROM docker.io/crystallang/crystal:1.21.0-alpine AS shards
+
+WORKDIR /app
+COPY shard.yml shard.lock ./
+RUN shards install --production
+
+# --- Frontend (API-only apps omit this stage and the public/ copy below) ---
+FROM docker.io/oven/bun:1.4-alpine AS frontend
+
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY . .
+# package.json runs Lucky's bake script from the installed lucky shard.
+COPY --from=shards /app/lib ./lib
+RUN bun run prod
+
+# --- Crystal build ---
+FROM shards AS build
+
+# Avram pulls in BigDecimal, so the static link needs libgmp.a.
+RUN apk add --no-cache gmp-static
+COPY . .
+# Lucky reads public/bun-manifest.json at compile time, so the assets come first.
+COPY --from=frontend /app/public ./public
+RUN mkdir -p bin && \
+    crystal build --release --static src/start_server.cr -o bin/app && \
+    crystal build --release --static tasks.cr -o bin/tasks
+
+# --- Runtime ---
+FROM docker.io/library/alpine:3.22
+
+RUN apk add --no-cache ca-certificates tzdata
+WORKDIR /app
+COPY --from=build /app/bin/app /app/bin/tasks ./bin/
+COPY --from=build /app/public ./public
+
+ENV LUCKY_ENV=production
+EXPOSE 8080
+
+CMD ["/app/bin/app"]

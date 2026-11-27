@@ -6,6 +6,9 @@ RECIPE="${1:-}"
 # Recipe defaults; the arms below override what they need.
 TRANSFER_MODE="stream"
 INCREMENTAL_CHECK=0
+APP_SCHEME="http"
+APP_PORT=80
+MIGRATION_FAILURE_LEG=0
 
 case "$RECIPE" in
   marten-sqlite-assets)
@@ -102,8 +105,33 @@ case "$RECIPE" in
     SECRETS=()
     ROLLBACK_LEG=0
     ;;
+  lucky-postgres)
+    SERVICE="meridian-e2e-lucky"
+    FIXTURE_NAME="lucky-postgres"
+    VM_SUFFIX="lucky"
+    IMAGE="localhost/meridian-e2e-lucky:latest"
+    # .internal names get a certificate from the shared Caddy's local CA.
+    APP_HOST="e2e-lucky-app.internal"
+    APP_SCHEME="https"
+    APP_PORT=443
+    # Lucky serves its own fingerprinted assets (/assets/css/app-<hash>.css).
+    ASSET_HOST=""
+    ASSET_HREF_PATTERN="css\\/app-"
+    HEALTH_PATH="/health"
+    HEALTH_BODY_PATTERN="^ok$"
+    DATA_STORE_LABEL="Postgres"
+    SUCCESS_LABEL="Lucky Postgres recipe E2E"
+    ACCESSORIES=("${SERVICE}-postgres")
+    SECRETS=(
+      "SECRET_KEY_BASE=ZTJlLXNlY3JldC1rZXktYmFzZS1mb3ItbHVja3ktZTJl"
+      "MY_APP_DATABASE_PASSWORD=e2e-postgres-password"
+      "DATABASE_URL=postgres://meridian_e2e:e2e-postgres-password@meridian-e2e-lucky-postgres:5432/meridian_e2e"
+    )
+    ROLLBACK_LEG=0
+    MIGRATION_FAILURE_LEG=1
+    ;;
   *)
-    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-sqlite-incremental|marten-postgres-dragonfly-assets|rails-postgres|go-static-binary" >&2
+    echo "Usage: scripts/test-recipe marten-sqlite-assets|marten-sqlite-incremental|marten-postgres-dragonfly-assets|rails-postgres|go-static-binary|lucky-postgres" >&2
   exit 64
     ;;
 esac
@@ -131,6 +159,8 @@ WRAPPER_DIR="$WORK_DIR/bin"
 MERIDIAN_BIN="$ROOT_DIR/bin/meridian"
 VM_CREATED=0
 VM_IP=""
+# Set once setup has issued the shared Caddy's local CA (HTTPS recipes only).
+APP_CACERT=""
 
 mkdir -p "$LOG_DIR" "$WRAPPER_DIR"
 
@@ -199,6 +229,23 @@ wait_for_accessory_ready() {
   esac
 }
 
+# app_curl PATH [curl args...]: request the app host over the recipe's scheme.
+app_curl() {
+  local path="$1"
+  shift
+  curl --resolve "$APP_HOST:$APP_PORT:$VM_IP" ${APP_CACERT:+--cacert "$APP_CACERT"} "$@" "$APP_SCHEME://$APP_HOST$path"
+}
+
+fetch_asset() {
+  if [[ -n "$ASSET_HOST" ]]; then
+    curl --fail --silent --show-error \
+      --resolve "$ASSET_HOST:80:$VM_IP" \
+      "http://$ASSET_HOST$ASSET_PATH"
+  else
+    app_curl "$ASSET_PATH" --fail --silent --show-error
+  fi
+}
+
 render_deploy_config() {
   sed \
     -e "s|__HOST__|$VM_IP|g" \
@@ -211,11 +258,7 @@ render_deploy_config() {
 assert_release_marker() {
   local expected="$1"
   local body
-  body="$(
-    curl --fail --silent --show-error \
-      --resolve "$APP_HOST:80:$VM_IP" \
-      "http://$APP_HOST/release"
-  )"
+  body="$(app_curl /release --fail --silent --show-error)"
   if [[ "$body" != "$expected" ]]; then
     echo "Expected release marker '$expected' but got '$body'" >&2
     return 1
@@ -240,9 +283,7 @@ transferred_bytes() {
 # The assertions below then use single requests.
 wait_for_app_health() {
   for _ in $(seq 1 10); do
-    if curl --fail --silent --max-time 15 \
-      --resolve "$APP_HOST:80:$VM_IP" \
-      "http://$APP_HOST$HEALTH_PATH" | grep -q "$HEALTH_BODY_PATTERN"; then
+    if app_curl "$HEALTH_PATH" --fail --silent --max-time 15 | grep -q "$HEALTH_BODY_PATTERN"; then
       return 0
     fi
     sleep 2
@@ -385,11 +426,28 @@ run_logged setup \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" setup --config "$APP_DIR/.meridian/deploy.yml"
 
-INITIAL_STATUS="$(
-  curl --silent --output /dev/null --write-out '%{http_code}' \
-    --resolve "$APP_HOST:80:$VM_IP" \
-    "http://$APP_HOST/"
-)"
+if [[ "$APP_SCHEME" == "https" ]]; then
+  log_step "Trusting the shared proxy's local CA"
+  for _ in $(seq 1 30); do
+    if ssh_deploy "podman exec meridian-caddy cat /data/caddy/pki/authorities/local/root.crt" >"$WORK_DIR/caddy-root.crt" 2>/dev/null; then
+      APP_CACERT="$WORK_DIR/caddy-root.crt"
+      break
+    fi
+    sleep 1
+  done
+  if [[ -z "$APP_CACERT" ]]; then
+    echo "meridian-caddy never created its local CA for $APP_HOST" >&2
+    exit 75
+  fi
+fi
+
+# Caddy issues the site certificate asynchronously; HTTPS needs a few retries.
+INITIAL_STATUS=""
+for _ in $(seq 1 30); do
+  INITIAL_STATUS="$(app_curl / --silent --output /dev/null --write-out '%{http_code}' || true)"
+  [[ "$INITIAL_STATUS" == "503" ]] && break
+  sleep 1
+done
 if [[ "$INITIAL_STATUS" != "503" ]]; then
   echo "Expected setup to seed a 503 route, got HTTP $INITIAL_STATUS" >&2
   exit 75
@@ -435,20 +493,26 @@ if [[ "$RECIPE" == "go-static-binary" ]]; then
 fi
 
 log_step "Verifying application and fingerprinted asset"
-HOME_HTML="$(
-  curl --fail --silent --show-error \
-    --resolve "$APP_HOST:80:$VM_IP" \
-    "http://$APP_HOST/"
-)"
+HOME_HTML="$(app_curl / --fail --silent --show-error)"
 grep -q "Meridian recipe E2E" <<<"$HOME_HTML"
+
+if [[ "$APP_SCHEME" == "https" ]]; then
+  REDIRECT="$(
+    curl --silent --output /dev/null --write-out '%{http_code} %{redirect_url}' \
+      --resolve "$APP_HOST:80:$VM_IP" \
+      "http://$APP_HOST/health"
+  )"
+  if [[ "$REDIRECT" != "308 https://$APP_HOST/health" ]]; then
+    echo "Expected plain HTTP to redirect to HTTPS, got '$REDIRECT'" >&2
+    exit 75
+  fi
+fi
 
 log_step "Verifying setup preserves the active route"
 run_logged setup-repeat \
   env PATH="$WRAPPER_DIR:$PATH" \
   "$MERIDIAN_BIN" setup --config "$APP_DIR/.meridian/deploy.yml"
-curl --fail --silent --show-error \
-  --resolve "$APP_HOST:80:$VM_IP" \
-  "http://$APP_HOST/" | grep -q "Meridian recipe E2E"
+app_curl / --fail --silent --show-error | grep -q "Meridian recipe E2E"
 
 if [[ -n "$ASSET_HREF_PATTERN" ]]; then
   ASSET_URL="$(
@@ -461,11 +525,7 @@ if [[ -n "$ASSET_HREF_PATTERN" ]]; then
 
   ASSET_FETCH_HOST="${ASSET_HOST:-$APP_HOST}"
   ASSET_PATH="${ASSET_URL#http://$ASSET_FETCH_HOST}"
-  ASSET_BODY="$(
-    curl --fail --silent --show-error \
-      --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
-      "http://$ASSET_FETCH_HOST$ASSET_PATH"
-  )"
+  ASSET_BODY="$(fetch_asset)"
   grep -q "meridian-e2e-marker" <<<"$ASSET_BODY"
 fi
 
@@ -514,11 +574,7 @@ fi
 
 if [[ -n "$DATA_STORE_LABEL" ]]; then
   log_step "Writing persistent $DATA_STORE_LABEL data"
-  RECORD_BODY="$(
-    curl --fail --silent --show-error \
-      --resolve "$APP_HOST:80:$VM_IP" \
-      "http://$APP_HOST/records?value=survives-redeploy"
-  )"
+  RECORD_BODY="$(app_curl "/records?value=survives-redeploy" --fail --silent --show-error)"
   grep -q "survives-redeploy" <<<"$RECORD_BODY"
 fi
 
@@ -640,9 +696,7 @@ fi
 
 
 if [[ -n "$DATA_STORE_LABEL" ]]; then
-  curl --fail --silent --show-error \
-    --resolve "$APP_HOST:80:$VM_IP" \
-    "http://$APP_HOST/records" | grep -q "survives-redeploy"
+  app_curl /records --fail --silent --show-error | grep -q "survives-redeploy"
 fi
 
 if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
@@ -695,9 +749,7 @@ if [[ "$RECIPE" == "marten-postgres-dragonfly-assets" ]]; then
 fi
 
 if [[ -n "$ASSET_HREF_PATTERN" ]]; then
-  curl --fail --silent --show-error \
-    --resolve "$ASSET_FETCH_HOST:80:$VM_IP" \
-    "http://$ASSET_FETCH_HOST$ASSET_PATH" | grep -q "meridian-e2e-marker"
+  fetch_asset | grep -q "meridian-e2e-marker"
 fi
 
 # :U leaves files owned by a mapped UID; pruning needs podman unshare.
@@ -752,6 +804,46 @@ if [[ "$ROLLBACK_LEG" == "1" ]]; then
     echo "Expected an audit log entry for the rollback" >&2
     exit 74
   fi
+fi
+
+# Forgetting the records migration makes db.migrate re-run it against the
+# existing table, so the before_start hook fails for real ("already exists").
+if [[ "$MIGRATION_FAILURE_LEG" == "1" ]]; then
+  log_step "Verifying a failing migration stops the rollout"
+  FORGET_OUTPUT="$(ssh_deploy "podman exec $SERVICE-postgres psql -U meridian_e2e -d meridian_e2e -c 'DELETE FROM migrations WHERE version = 20260101000000'")"
+  if [[ "$FORGET_OUTPUT" != "DELETE 1" ]]; then
+    echo "Expected to forget one migration row, psql said '$FORGET_OUTPUT'" >&2
+    exit 80
+  fi
+
+  if run_logged deploy-failing-migration \
+    env PATH="$WRAPPER_DIR:$PATH" \
+    "$MERIDIAN_BIN" deploy --config "$APP_DIR/.meridian/deploy.yml"; then
+    echo "Expected the deploy to fail when the before_start migration exits nonzero" >&2
+    exit 80
+  fi
+  if ! grep -q "already exists" "$LOG_DIR/deploy-failing-migration.log"; then
+    echo "The failed deploy log does not show the migration error" >&2
+    exit 80
+  fi
+
+  CANDIDATE_UNIT="$SERVICE-$FIRST_COLOR"
+  FAILED_COLOR="$(ssh_deploy "cat ~/.local/state/meridian/services/$SERVICE/active-color")"
+  if [[ "$FAILED_COLOR" != "$SECOND_COLOR" ]]; then
+    echo "Expected the failed deploy to keep $SECOND_COLOR active, got $FAILED_COLOR" >&2
+    exit 80
+  fi
+  if ssh_deploy "systemctl --user is-active --quiet $CANDIDATE_UNIT.service"; then
+    echo "The failed candidate $CANDIDATE_UNIT is running" >&2
+    exit 80
+  fi
+  if ssh_deploy "test -e .config/containers/systemd/$CANDIDATE_UNIT.container"; then
+    echo "The failed candidate's Quadlet $CANDIDATE_UNIT.container was left behind" >&2
+    exit 80
+  fi
+
+  app_curl / --fail --silent --show-error | grep -q "Meridian recipe E2E"
+  app_curl /records --fail --silent --show-error | grep -q "survives-redeploy"
 fi
 
 echo

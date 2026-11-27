@@ -1,0 +1,7 @@
+.meridian
+bin
+lib
+node_modules
+public/assets
+public/bun-manifest.json
+tmp

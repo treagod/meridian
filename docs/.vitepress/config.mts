@@ -85,6 +85,7 @@ export default defineConfig({
             { text: 'Marten + Postgres + Dragonfly + Assets', link: '/recipes/marten-postgres-dragonfly-assets' },
             { text: 'Marten + SQLite + Assets', link: '/recipes/marten-sqlite-assets' },
             { text: 'Rails + Postgres', link: '/recipes/rails-postgres' },
+            { text: 'Lucky + Postgres', link: '/recipes/lucky-postgres' },
             { text: 'Go Static Binary', link: '/recipes/go-static-binary' },
             { text: 'Simple Kemal App', link: '/recipes/kemal-simple' },
             { text: 'Third-Party Distroless Image', link: '/recipes/vikunja-distroless' },

@@ -54,7 +54,7 @@ meridian deploy
 Caddy uses systemd sockets to preserve client IPs, including over HTTP/3.
 Upgrading from `v0.1.0-alpha.1` requires a [breaking upgrade](docs/guide/proxy-socket-upgrade.md): setup briefly interrupts every app sharing Caddy. Use the same Meridian version for every service on the host.
 
-`init` sniffs out Marten, Rails, Elixir, Go, and Node projects and seeds sensible defaults. Whatever it can't guess, it asks.
+`init` sniffs out Marten, Lucky, Rails, Elixir, Go, and Node projects and seeds sensible defaults. Whatever it can't guess, it asks.
 
 `setup` gives a service without an existing route a persistent HTTP 503 maintenance route until its first deploy.
 
@@ -215,7 +215,7 @@ Full docs live at [meridian-deploy.dev](https://meridian-deploy.dev).
 - [Quickstart](https://meridian-deploy.dev/guide/quickstart) — install through first deploy
 - [Concepts](https://meridian-deploy.dev/guide/concepts) — deploy flow, Quadlets, runtime state, blue/green, and recreate
 - [Multi-app hosting](https://meridian-deploy.dev/guide/multi-app) — a second service on a host that already runs one
-- [Recipes](https://meridian-deploy.dev/recipes/) — working starters for Marten, Rails, Go, Kemal, and static sites
+- [Recipes](https://meridian-deploy.dev/recipes/) — working starters for Marten, Lucky, Rails, Go, Kemal, and static sites
 - [Troubleshooting](https://meridian-deploy.dev/guide/troubleshooting) — failure messages mapped to diagnostic commands
 - [CLI reference](https://meridian-deploy.dev/reference/cli) and [`deploy.yml` reference](https://meridian-deploy.dev/reference/deploy-yml)
 
@@ -241,8 +241,9 @@ make e2e-marten              # SQLite volume persistence, assets, and rollback a
 make e2e-marten-incremental  # same app over `transfer.mode: incremental`, asserting the redeploy only sends the changed layer
 make e2e-marten-postgres     # Postgres and Dragonfly accessories, verified through the deployed app
 make e2e-rails-postgres      # non-Crystal stack, db:prepare before app start, app-served assets
+make e2e-lucky-postgres      # HTTPS, Bun assets, db.migrate before app start, and a failing migration that leaves the old release serving
 make e2e-go                  # scratch image with no shell, health-checked entirely from the probe sidecar
-make e2e-all                 # all five, in sequence
+make e2e-all                 # all six, in sequence
 ```
 
 Each one builds an ephemeral Ubuntu 24.04 VM with [Lima](https://lima-vm.io/), then runs the real bootstrap, secret, proxy setup, check, deploy, migration, and redeploy paths against it. A successful run removes the VM; set `KEEP_VM=1` to keep it and the temporary logs around for inspection. You'll need macOS, Lima 2+, Podman, Crystal, `curl`, `expect`, plus `ssh-keygen` and `nc`.

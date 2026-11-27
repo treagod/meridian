@@ -48,8 +48,8 @@ libraries at runtime.
 
 ### Initialize
 
-Change into your project and let Meridian detect the framework (Marten, Rails,
-Elixir, Node, Go):
+Change into your project and let Meridian detect the framework (Marten, Lucky,
+Rails, Elixir, Node, Go):
 
 ```bash
 cd my-app
@@ -57,7 +57,10 @@ meridian init
 ```
 
 Marten projects get `MARTEN_ENV=production` and reuse `/health` if that route is
-defined. Rails projects get `RAILS_ENV=production` and the generated `/up` route when
+defined. Lucky projects get `LUCKY_ENV=production`, a matching `PORT` and
+`app_port` of 8080, and `/health`; the [Lucky recipe](/recipes/lucky-postgres)
+covers the secrets, migration hook, and health action they still need. Rails
+projects get `RAILS_ENV=production` and the generated `/up` route when
 `config/routes.rb` declares it.
 
 Everything Meridian owns lives under a single `.meridian/` directory:
